@@ -12,7 +12,7 @@ class MotorController:
     ADDR_PRESENT_POSITION = 132
     ADDR_OPERATING_MODE = 11
 
-    def __init__(self, port, motor_list, baudrate=57600):
+    def __init__(self, port, motor_list, baudrate=1000000):
         self.port = dynamixel_sdk.PortHandler(port)
         self.packet = dynamixel_sdk.PacketHandler(2.0)
         if not self.port.openPort():
@@ -47,8 +47,9 @@ class MotorController:
 
     def disable(self):
         for motor in self.motor_list:
-            self.packet.write1ByteTxRx(self.port, motor['id'], self.ADDR_TORQUE_ENABLE, 0)
-            # time.sleep(0.1)
+            res, err = self.packet.write1ByteTxRx(self.port, motor['id'], self.ADDR_TORQUE_ENABLE, 0)
+            if res != dynamixel_sdk.COMM_SUCCESS:
+                raise Exception(f"Failed to disable torque: {self.packet.getTxRxResult(res)}")
 
     def pos_to_dxl_units(self, pos):
         return int((pos) * 4095 / (2 * np.pi))
@@ -130,8 +131,8 @@ class EmbodiedAnt:
     action_space = Space(shape=(8,), dtype=np.float32)
     observation_space = Space(shape=(10,), dtype=np.float32)
 
-    def __init__(self, motor_port, imu_port, step_size=0.02, render_mode=None):
-        self.motor_controller = MotorController(motor_port)
+    def __init__(self, motor_port, imu_port, motor_config,step_size=0.02, render_mode=None):
+        self.motor_controller = MotorController(motor_port, motor_config)
         self.step_size = step_size
         self.last_step_time = None
         self.render_mode = render_mode
@@ -153,8 +154,7 @@ class EmbodiedAnt:
         return self.get_observation()
 
     def step(self, action, sleep_until_next_step=True):
-        # send actuators
-        # self.motor_controller.send_actuators(action)
+        self.motor_controller.set_positions(action)
 
         sleep_duration = self.step_size
         if self.last_step_time is not None:
@@ -167,7 +167,7 @@ class EmbodiedAnt:
             time.sleep(sleep_duration)
 
         observation, info = self.get_observation()
-        reward, terminated, truncated = self.get_reward()
+        reward, terminated, truncated = self.get_reward(info)
 
         self.last_step_time = time.time()
         return observation, reward, terminated, truncated, info
@@ -175,10 +175,14 @@ class EmbodiedAnt:
     def get_observation(self):
         with self._imu_data_lock:
             imu_data = self._imu_data
+        positions, velocities, loads = self.motor_controller.get_feedback()
         info = imu_data
-        return np.array([]), info
+        info['positions'] = positions
+        info['velocities'] = velocities
+        info['loads'] = loads
+        return np.concatenate([positions, velocities]), info
 
-    def get_reward(self):
+    def get_reward(self, info):
         return 0, False, False
 
     def render(self):
@@ -218,8 +222,12 @@ if __name__ == "__main__":
     drv.disable()
     drv.enable()
     while True:
+        t_start = time.time()
         pos, vel, load = drv.get_feedback()
+        print(time.time() - t_start)
         # print(pos)
         # time.sleep(0.01)
         drv.set_positions([np.sin(time.time())*0.8]*len(drv.motor_list))
-        time.sleep(0.01)
+        t_end = time.time()
+        print(f"Time taken: {t_end - t_start:.3f}s")
+        time.sleep(0.001)
