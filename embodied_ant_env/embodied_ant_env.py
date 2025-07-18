@@ -18,12 +18,11 @@ class EmbodiedAnt:
     action_space = Space(shape=(8,), dtype=np.float32)
     observation_space = Space(shape=(10,), dtype=np.float32)
 
-    def __init__(self, motor_port, imu_port, step_size=0.02):
-        self.motor_port = motor_port
-        self.imu_port = imu_port
+    def __init__(self, motor_port, imu_port, step_size=0.02, render_mode=None):
         self.motor_controller = MotorController(motor_port)
         self.step_size = step_size
         self.last_step_time = None
+        self.render_mode = render_mode
 
         self._threads_should_exit = False
 
@@ -37,12 +36,11 @@ class EmbodiedAnt:
         self.close()
 
     def reset(self):
-        pass
+        print('reset(): please move the ant back to the origin.')
+        input('press enter when ready')
+        return self.get_observation()
 
-    def step(self, action, sleep_until_next_step=True, sync_observation_with_action=False):
-        if sync_observation_with_action:
-            observation = self.get_observation()
-
+    def step(self, action, sleep_until_next_step=True):
         # send actuators
         # self.motor_controller.send_actuators(action)
 
@@ -56,26 +54,31 @@ class EmbodiedAnt:
         if sleep_until_next_step:
             time.sleep(sleep_duration)
 
-        if not sync_observation_with_action:
-            observation = self.get_observation()
+        observation, info = self.get_observation()
+        reward, terminated, truncated = self.get_reward()
 
         self.last_step_time = time.time()
-        return observation
+        return observation, reward, terminated, truncated, info
 
     def get_observation(self):
         with self._imu_data_lock:
             imu_data = self._imu_data
-        return imu_data
+        info = imu_data
+        return np.array([]), info
 
-    def render(self, mode='human'):
-        if mode == 'human':
+    def get_reward(self):
+        return 0, False, False
+
+    def render(self):
+        if self.render_mode == 'human':
             print("render(mode='human') this is the real world, look at your robot!")
-        elif mode == 'rgb_array':
+        elif self.render_mode == 'rgb_array':
             return self.camera.get_image()
 
     def close(self):
         self._threads_should_exit = True
         self._imu_thread.join()
+        self.motor_controller.disable()
 
     def _poll_imu(self):
         while not self._threads_should_exit:
