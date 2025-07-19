@@ -80,13 +80,13 @@ class IMU_MSP:
         elif cmd == self.RAW_IMU:
             rawIMU = {}
             # https://github.com/betaflight/betaflight-configurator/blob/aeda56ba407ba54068bad90d7cc069b67d2cd8e4/src/js/msp/MSPHelper.js#L116-L131
-            rawIMU['ax']=data[0] / 512.0 * 9.81
+            rawIMU['ax']=data[0] / 512.0 * 9.81 # seems to be accurate
             rawIMU['ay']=data[1] / 512.0 * 9.81
             rawIMU['az']=data[2] / 512.0 * 9.81
-            rawIMU['wx']=data[3] * (4 / 16.4) * math.pi / 180.0
-            rawIMU['wy']=data[4] * (4 / 16.4) * math.pi / 180.0
-            rawIMU['wz']=data[5] * (4 / 16.4) * math.pi / 180.0
-            rawIMU['mx']=data[6] / 1090.0
+            rawIMU['wx']=data[3] / 16.4 * math.pi / 180.0 # seems to be accurate
+            rawIMU['wy']=data[4] / 16.4 * math.pi / 180.0
+            rawIMU['wz']=data[5] / 16.4 * math.pi / 180.0
+            rawIMU['mx']=data[6] / 1090.0 # TODO untested
             rawIMU['my']=data[7] / 1090.0
             rawIMU['mz']=data[8] / 1090.0
             rawIMU['timestamp']=start_time
@@ -105,11 +105,18 @@ if __name__ == "__main__":
     imu = IMU_MSP(sys.argv[1], 1000000)
     prev_time = time.time()
     delta_avg = 0
+    ang_z = 0
     while True:
+        imu_data = imu.read_cmd(imu.RAW_IMU)
+        print(imu_data)
         print(imu.read_cmd(imu.ATTITUDE))
-        print(imu.read_cmd(imu.RAW_IMU))
+
         now = time.time()
         delta = now - prev_time
         prev_time = now
         delta_avg = (delta_avg * 0.9) + (delta * 0.1)
+
+        # ang_z += imu_data['wz'] * delta
+        # print(f"ang_z: {ang_z}")
+
         print(f"update rate: {1/delta_avg}")
