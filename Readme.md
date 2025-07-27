@@ -40,6 +40,15 @@ The following command will change the baudrate of all motors on the port to 1Mba
 python3 dynamixel_change_baud.py /dev/tty.usbserial-FT7WBGG8 1000000
 ```
 
+## Software Setup
+
+Create a virtual environment and install the dependencies. (python >= 3.10)
+```
+python3.12 -m venv ant_env
+source ant_env/bin/activate
+pip install -r requirements.txt
+```
+
 ### Misc
 
 if git push fails when adding large (~10MB) commits, try:

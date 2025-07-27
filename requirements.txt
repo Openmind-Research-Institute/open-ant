@@ -1,0 +1,18 @@
+# for the hardware env
+dynamixel-sdk
+pyserial # for the imu
+numpy
+opencv-python
+pyapriltags
+
+
+# for the sim env
+gymnasium
+mujoco
+imageio # for rendering mujoco
+scipy
+
+# algorithms
+torch
+matplotlib
+

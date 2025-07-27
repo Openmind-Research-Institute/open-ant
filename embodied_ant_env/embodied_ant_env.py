@@ -180,7 +180,7 @@ class DummyIMU:
                 'timestamp': time.time()}
 
 class DummyTracker:
-    def __init__(self, detector, inertial_tag_id):
+    def __init__(self, detector=None, inertial_tag_id=None):
         pass
     def track(self):
         return {}, np.zeros((640, 480, 3)), np.zeros((640, 480, 3))
