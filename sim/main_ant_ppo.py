@@ -7,6 +7,12 @@ import numpy as np
 import datetime
 
 from ant_mujoco import AntEnv
+import sys
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from embodied_ant_env.embodied_ant_env import EmbodiedAnt
+from embodied_ant_env.motor_controller import MotorController
+from embodied_ant_env.imu_msp import IMU_MSP
+from embodied_ant_env.apriltag_tracking import VisionTracker
 
 from ppo.ppo import Agent
 
@@ -85,11 +91,11 @@ def collect_trajectory(agent: Agent, env: gym.Env, trajectory_length: int):
 
         obs_tensor = torch.tensor(obs, dtype=torch.float32, device=agent.device).unsqueeze(0)
 
-        # Stop if episode is done
+        # # Stop if episode is done
         if terminated or truncated:
             # Add the final observation (needed for bootstrapping)
             observations.append(obs_tensor)
-            break
+            # break
 
     # If we didn't break early, add the final observation.
     if len(observations) == len(actions):
@@ -114,9 +120,29 @@ results_dir = os.path.join(current_path, "results", current_date_time)
 os.makedirs(results_dir, exist_ok=True)
 
 # Load the ant environment.
-env = AntEnv(xml_file=os.path.join(current_path, "assets/ant_position.xml"),
-             render_mode="human",
-             frame_skip=10)
+HARDWARE = True
+if HARDWARE:
+    import sys
+    motor_list=[
+        {'id': 10, 'min_position': -0.79, 'max_position': 0.79, 'offset': 0.79},
+        {'id': 11, 'min_position': -0.79, 'max_position': 0.79, 'offset': 0.79},
+        {'id': 20, 'min_position': -0.79, 'max_position': 0.79, 'offset': -0.79},
+        {'id': 21, 'min_position': -0.79, 'max_position': 0.79, 'offset': 0.79},
+        {'id': 30, 'min_position': -0.79, 'max_position': 0.79, 'offset': 0.79},
+        {'id': 31, 'min_position': -0.79, 'max_position': 0.79, 'offset': 0.79},
+        {'id': 40, 'min_position': -0.79, 'max_position': 0.79, 'offset': -0.79},
+        {'id': 41, 'min_position': -0.79, 'max_position': 0.79, 'offset': -0.79},
+    ]
+    motor_controller = MotorController(port=sys.argv[1], motor_list=motor_list)
+    motor_controller.disable()
+    motor_controller.enable()
+    imu = IMU_MSP(port=sys.argv[2])
+    tracker = VisionTracker(camera_id=1, fov_diagonal_deg=60, tag_sizes={0: 0.1, 12: 0.045}, tag_labels={0: 'origin', 12: 'body'})
+    env = EmbodiedAnt(motor_controller=motor_controller, imu=imu, tracker=tracker)
+else:
+    env = AntEnv(xml_file=os.path.join(current_path, "assets/ant_position.xml"),
+                 render_mode="human",
+                 frame_skip=10)
 obs_dim = env.observation_space.shape[0]
 act_dim = env.action_space.shape[0]
 print('Observation dimension:', obs_dim)
