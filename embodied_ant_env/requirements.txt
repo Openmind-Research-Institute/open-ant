@@ -1,6 +1,0 @@
-dynamixel-sdk
-pyserial # for the imu
-numpy
-
-opencv-python
-pyapriltags
