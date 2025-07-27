@@ -13,7 +13,7 @@ class Space:
 
 class EmbodiedAnt:
     action_space = Space(shape=(8,), dtype=np.float32)
-    observation_space = Space(shape=(10,), dtype=np.float32)
+    observation_space = Space(shape=(24,), dtype=np.float32)
 
     def __init__(self, motor_controller, imu, tracker, step_size=0.02, render_mode=None):
         self.motor_controller = motor_controller
