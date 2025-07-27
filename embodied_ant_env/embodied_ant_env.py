@@ -1,7 +1,7 @@
 import numpy as np
-from imu_msp import IMU_MSP
-from motor_controller import MotorController
-from apriltag_tracking import VisionTracker, show_image
+from embodied_ant_env.imu_msp import IMU_MSP
+from embodied_ant_env.motor_controller import MotorController
+from embodied_ant_env.apriltag_tracking import VisionTracker, show_image
 import threading
 import time
 from collections import defaultdict
