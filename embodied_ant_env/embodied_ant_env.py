@@ -45,9 +45,9 @@ class EmbodiedAnt:
     def reset(self):
         print('reset(): please move the ant back to the origin.')
         input('press enter when ready')
-        info = self.get_observation()
+        obs, info = self.get_observation()
         self.get_reward(info)
-        return info
+        return obs, info
 
     def step(self, action, sleep_until_next_step=True):
         if self._threads_should_exit:
