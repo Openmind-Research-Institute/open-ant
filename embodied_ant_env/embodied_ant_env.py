@@ -1,149 +1,43 @@
 import numpy as np
 from imu_msp import IMU_MSP
+from motor_controller import MotorController
+from apriltag_tracking import VisionTracker, show_image
 import threading
 import time
-import dynamixel_sdk
-
-class MotorController:
-    ADDR_TORQUE_ENABLE = 64
-    ADDR_GOAL_POSITION = 116
-    ADDR_PRESENT_LOAD = 126
-    ADDR_PRESENT_VELOCITY = 128
-    ADDR_PRESENT_POSITION = 132
-    ADDR_OPERATING_MODE = 11
-
-    def __init__(self, port, motor_list, baudrate=1000000):
-        self.port = dynamixel_sdk.PortHandler(port)
-        self.packet = dynamixel_sdk.PacketHandler(2.0)
-        if not self.port.openPort():
-            raise Exception(f"Failed to open port {port}")
-        if not self.port.setBaudRate(baudrate):
-            raise Exception(f"Failed to set baudrate {baudrate} on port {port}")
-        self.motor_list = motor_list
-        self.find_offset()
-
-    def __del__(self):
-        self.disable()
-
-    def find_offset(self):
-        self.offset = [0] * len(self.motor_list)
-        initial_positions = self.get_feedback()[0]
-        offset = []
-        for motor, pos in zip(self.motor_list, initial_positions):
-            center = (motor['min_position'] + motor['max_position']) / 2 + motor['offset']
-            delta = pos - center
-            offset.append(np.round(delta / (2 * np.pi)) * 2 * np.pi + motor['offset'])
-        self.offset = offset
-
-    def enable(self):
-        for motor in self.motor_list:
-            res, err = self.packet.write1ByteTxRx(self.port, motor['id'], self.ADDR_OPERATING_MODE, 4) # multi-turn mode
-            if res != dynamixel_sdk.COMM_SUCCESS:
-                raise Exception(f"Failed to set operating mode: {self.packet.getTxRxResult(res)}")
-            res, err = self.packet.write1ByteTxRx(self.port, motor['id'], self.ADDR_TORQUE_ENABLE, 1)
-            if res != dynamixel_sdk.COMM_SUCCESS:
-                raise Exception(f"Failed to enable torque: {self.packet.getTxRxResult(res)}")
-        self.find_offset()
-
-    def disable(self):
-        for motor in self.motor_list:
-            res, err = self.packet.write1ByteTxRx(self.port, motor['id'], self.ADDR_TORQUE_ENABLE, 0)
-            if res != dynamixel_sdk.COMM_SUCCESS:
-                raise Exception(f"Failed to disable torque: {self.packet.getTxRxResult(res)}")
-
-    def pos_to_dxl_units(self, pos):
-        return int((pos) * 4095 / (2 * np.pi))
-
-    def dxl_units_to_pos(self, dxl_units):
-        return (dxl_units / 4095 * 2 * np.pi)
-
-    def dxl_units_to_vel(self, dxl_units):
-        return dxl_units * 2 * np.pi * 0.229 / 60
-
-    def interpret_int_as_signed(self, value, num_bits):
-        if value & (1 << (num_bits - 1)):
-            return value - (1 << num_bits)
-        return value
-
-    def set_positions(self, positions):
-        sync_write = dynamixel_sdk.GroupSyncWrite(self.port, self.packet, self.ADDR_GOAL_POSITION, 4)
-        for pos, motor, offset in zip(positions, self.motor_list, self.offset):
-            data = [0] * 4
-            pos = np.clip(pos, motor['min_position'], motor['max_position'])
-            pos_dxl_units = self.pos_to_dxl_units(pos + offset)
-            print(pos_dxl_units)
-            data[0] = pos_dxl_units & 0xFF
-            data[1] = (pos_dxl_units >> 8) & 0xFF
-            data[2] = (pos_dxl_units >> 16) & 0xFF
-            data[3] = (pos_dxl_units >> 24) & 0xFF
-            sync_write.addParam(motor['id'], data)
-        dxl_comm_result = sync_write.txPacket()
-        if dxl_comm_result != dynamixel_sdk.COMM_SUCCESS:
-            raise Exception(f"Failed to set positions: {self.packet.getTxRxResult(dxl_comm_result)}")
-        sync_write.clearParam()
-
-    def get_feedback_raw(self):
-        sync_read = dynamixel_sdk.GroupSyncRead(self.port, self.packet, self.ADDR_PRESENT_LOAD, 2 + 4 + 4)
-        for motor in self.motor_list:
-            sync_read.addParam(motor['id'])
-        dxl_comm_result = sync_read.txRxPacket()
-        if dxl_comm_result != dynamixel_sdk.COMM_SUCCESS:
-            raise Exception(f"Failed to get feedback: {self.packet.getTxRxResult(dxl_comm_result)}")
-        positions = []
-        velocities = []
-        loads = []
-        for motor in self.motor_list:
-            if sync_read.isAvailable(motor['id'], self.ADDR_PRESENT_POSITION, 4):
-                data = sync_read.getData(motor['id'], self.ADDR_PRESENT_POSITION, 4)
-                positions.append(self.interpret_int_as_signed(data, 32))
-            else:
-                raise Exception(f"Motor {motor['id']} not found in sync read")
-            if sync_read.isAvailable(motor['id'], self.ADDR_PRESENT_VELOCITY, 4):
-                data = sync_read.getData(motor['id'], self.ADDR_PRESENT_VELOCITY, 4)
-                velocities.append(self.interpret_int_as_signed(data, 32))
-            else:
-                raise Exception(f"Motor {motor['id']} not found in sync read")
-            if sync_read.isAvailable(motor['id'], self.ADDR_PRESENT_LOAD, 2):
-                data = sync_read.getData(motor['id'], self.ADDR_PRESENT_LOAD, 2)
-                loads.append(self.interpret_int_as_signed(data, 16))
-            else:
-                raise Exception(f"Motor {motor['id']} not found in sync read")
-        sync_read.clearParam()
-        print('read', positions)
-        return positions, velocities, loads
-
-    def get_feedback(self):
-        positions_raw, velocities_raw, loads_raw = self.get_feedback_raw()
-        positions = [self.dxl_units_to_pos(pos) for pos in positions_raw]
-        positions = [pos - offset for pos, offset in zip(positions, self.offset)]
-        velocities = [self.dxl_units_to_vel(vel) for vel in velocities_raw]
-        loads = [load/1000 for load in loads_raw]
-        return positions, velocities, loads
-
+from collections import defaultdict
 
 class Space:
     def __init__(self, shape, dtype):
         self.shape = shape
         self.dtype = dtype
 
-
 class EmbodiedAnt:
     action_space = Space(shape=(8,), dtype=np.float32)
     observation_space = Space(shape=(10,), dtype=np.float32)
 
-    def __init__(self, motor_port, imu_port, motor_config,step_size=0.02, render_mode=None):
-        self.motor_controller = MotorController(motor_port, motor_config)
+    def __init__(self, motor_controller, imu, tracker, step_size=0.02, render_mode=None):
+        self.motor_controller = motor_controller
         self.step_size = step_size
         self.last_step_time = None
         self.render_mode = render_mode
 
         self._threads_should_exit = False
 
-        self.imu = IMU_MSP(imu_port)
+        self.imu = imu
         self._imu_data = None
         self._imu_data_lock = threading.Lock()
         self._imu_thread = threading.Thread(target=self._poll_imu, daemon=True)
         self._imu_thread.start()
+
+        self.tracker = tracker
+        self._tracker_data = None
+        self._tracker_data_lock = threading.Lock()
+        self._tracker_thread = threading.Thread(target=self._poll_tracker, daemon=True)
+        self._tracker_thread.start()
+
+        self.last_pos = np.array([0, 0, 0])
+        self.last_heading_vector = np.array([1, 0])
+        self.last_seen = 0
 
     def __del__(self):
         self.close()
@@ -151,9 +45,14 @@ class EmbodiedAnt:
     def reset(self):
         print('reset(): please move the ant back to the origin.')
         input('press enter when ready')
-        return self.get_observation()
+        info = self.get_observation()
+        self.get_reward(info)
+        return info
 
     def step(self, action, sleep_until_next_step=True):
+        if self._threads_should_exit:
+            raise RuntimeError("EmbodiedAnt.step() called after close()")
+
         self.motor_controller.set_positions(action)
 
         sleep_duration = self.step_size
@@ -174,16 +73,60 @@ class EmbodiedAnt:
 
     def get_observation(self):
         with self._imu_data_lock:
-            imu_data = self._imu_data
-        positions, velocities, loads = self.motor_controller.get_feedback()
+            if self._imu_data is not None:
+                imu_data = self._imu_data.copy()
+            else:
+                imu_data = defaultdict(lambda: 0)
+        with self._tracker_data_lock:
+            if self._tracker_data is not None:
+                bodies, frame, vis_frame = self._tracker_data
+            else:
+                bodies, frame, vis_frame = {}, np.zeros((640, 480, 3)), np.zeros((640, 480, 3))
+        joint_positions, joint_velocities, joint_loads = self.motor_controller.get_feedback()
         info = imu_data
-        info['positions'] = positions
-        info['velocities'] = velocities
-        info['loads'] = loads
-        return np.concatenate([positions, velocities]), info
+        info['joint_positions'] = joint_positions
+        info['joint_velocities'] = joint_velocities
+        info['joint_loads'] = joint_loads
+        info['bodies'] = bodies
+        info['frame'] = frame
+        info['vis_frame'] = vis_frame
+        if 'body' in bodies:
+            heading_vector = (bodies['body']['orientation'] @ np.array([1, 0, 0]))[:2]
+            heading_vector /= np.linalg.norm(heading_vector)
+            self.last_heading_vector = heading_vector
+            info['heading_vector'] = heading_vector
+        else:
+            heading_vector = self.last_heading_vector
+        observation = np.concatenate([
+            joint_positions,
+            joint_velocities,
+            heading_vector,
+            imu_data['ax'],
+            imu_data['ay'],
+            imu_data['az'],
+            imu_data['wx'],
+            imu_data['wy'],
+            imu_data['wz'],
+        ], axis=None)
+        return observation, info
 
     def get_reward(self, info):
-        return 0, False, False
+        if 'body' in info['bodies']:
+            pos = info['bodies']['body']['position']
+            self.last_seen = time.time()
+        else:
+            pos = self.last_pos
+        progress = (pos - self.last_pos)[0]
+        self.last_pos = pos
+        terminated = False
+        truncated = False
+        if time.time() - self.last_seen > 2:
+            truncated = True
+        if 'body' in info['bodies']:
+            img_pos = info['bodies']['body']['image_pos']
+            if img_pos[0] < 0.1 or img_pos[0] > 0.9 or img_pos[1] < 0.1 or img_pos[1] > 0.9:
+                truncated = True # body is out of frame
+        return progress, terminated, truncated
 
     def render(self):
         if self.render_mode == 'human':
@@ -198,18 +141,54 @@ class EmbodiedAnt:
 
     def _poll_imu(self):
         while not self._threads_should_exit:
-            imu_data = self.imu.get_data()
-            with self._imu_data_lock:
-                self._imu_data = imu_data
+            try:
+                imu_data = self.imu.get_data()
+                with self._imu_data_lock:
+                    self._imu_data = imu_data
+            except Exception as e:
+                print(f"Error in _poll_imu: {e}")
+                self._threads_should_exit = True
+
+    def _poll_tracker(self):
+        while not self._threads_should_exit:
+            try:
+                data = self.tracker.track()
+                with self._tracker_data_lock:
+                    self._tracker_data = data
+            except Exception as e:
+                print(f"Error in _poll_tracker: {e}")
+                self._threads_should_exit = True
+
+class DummyMotorController:
+    def __init__(self, port=None, motor_list=[0]*8):
+        self.nb_motors = len(motor_list)
+    def set_positions(self, positions):
+        pass
+    def get_feedback(self):
+        return np.zeros(self.nb_motors), np.zeros(self.nb_motors), np.zeros(self.nb_motors)
+    def disable(self):
+        pass
+
+class DummyIMU:
+    def __init__(self, port=None):
+        pass
+    def get_data(self):
+        return {'ax': 0, 'ay': 0, 'az': 9.81,
+                'wx': 0, 'wy': 0, 'wz': 0,
+                'mx': 0, 'my': 0, 'mz': 0,
+                'roll_deg': 0, 'pitch_deg': 0, 'yaw_deg': 0,
+                'timestamp': time.time()}
+
+class DummyTracker:
+    def __init__(self, detector, inertial_tag_id):
+        pass
+    def track(self):
+        return {}, np.zeros((640, 480, 3)), np.zeros((640, 480, 3))
 
 
 if __name__ == "__main__":
     import sys
-    # env = EmbodiedAnt(motor_port=sys.argv[1], imu_port=sys.argv[2])
-    # while True:
-    #     # time.sleep(0.03)
-    #     print(env.step(np.zeros(8)))
-    drv = MotorController(port=sys.argv[1], motor_list=[
+    motor_list=[
         {'id': 10, 'min_position': -0.79, 'max_position': 0.79, 'offset': 0.79},
         {'id': 11, 'min_position': -0.79, 'max_position': 0.79, 'offset': 0.79},
         {'id': 20, 'min_position': -0.79, 'max_position': 0.79, 'offset': -0.79},
@@ -218,16 +197,22 @@ if __name__ == "__main__":
         {'id': 31, 'min_position': -0.79, 'max_position': 0.79, 'offset': 0.79},
         {'id': 40, 'min_position': -0.79, 'max_position': 0.79, 'offset': -0.79},
         {'id': 41, 'min_position': -0.79, 'max_position': 0.79, 'offset': -0.79},
-    ])
-    drv.disable()
-    drv.enable()
+    ]
+    # motor_controller = MotorController(port=sys.argv[1], motor_list=motor_list)
+    motor_controller = DummyMotorController()
+    imu = IMU_MSP(port=sys.argv[2])
+    # imu = DummyIMU()
+    tracker = VisionTracker(camera_id=1, fov_diagonal_deg=60, tag_sizes={0: 0.1, 12: 0.045}, tag_labels={0: 'origin', 12: 'body'})
+    env = EmbodiedAnt(motor_controller=motor_controller, imu=imu, tracker=tracker)
+    i = 0
     while True:
-        t_start = time.time()
-        pos, vel, load = drv.get_feedback()
-        print(time.time() - t_start)
-        # print(pos)
-        # time.sleep(0.01)
-        drv.set_positions([np.sin(time.time())*0.8]*len(drv.motor_list))
-        t_end = time.time()
-        print(f"Time taken: {t_end - t_start:.3f}s")
-        time.sleep(0.001)
+        # time.sleep(1)
+        obs, rew, term, trunc, info = env.step(np.zeros(8))
+        # print(obs)
+        print(rew)
+        # print(term)
+        # print(trunc)
+        # print(info)
+
+        # if (i := i + 1) % 10 == 0:
+        #     show_image(info['vis_frame'])
