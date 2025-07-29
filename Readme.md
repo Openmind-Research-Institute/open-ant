@@ -33,12 +33,36 @@ The hardware is designed to be easy to build and use:
 
 
 
-### Dynamixel Setup
+### Dynamixel Setup (before assembling the robot!)
 
-The following command will change the baudrate of all motors on the port to 1Mbaud.
+The Dynamixels should be configured to 1Mbaud, set to zero position (for assembly), and have their IDs changed to the as follows:
+
+| Motor Position      | Motor ID |
+|---------------------|----------|
+| Rear Right Hip      |   10     |
+| Rear Right Knee     |   11     |
+| Front Right Hip     |   20     |
+| Front Right Knee    |   21     |
+| Front Left Hip      |   30     |
+| Front Left Knee     |   31     |
+| Rear Left Hip       |   40     |
+| Rear Left Knee      |   41     |
+
+Use the following script to change the IDs of the motors, connecting one at a time.
 ```
-python3 dynamixel_change_baud.py /dev/tty.usbserial-FT7WBGG8 1000000
+python3 dynamixel_change_id.py /dev/tty.usbserial-XXXXXXX <NEW_ID> 57600
 ```
+
+When done, the following command will change the baudrate of all connected motors on the port to 1Mbaud.
+```
+python3 dynamixel_change_baud.py /dev/tty.usbserial-XXXXXXX 1000000
+```
+
+Finally, use the following script to move the motors to their zero position.
+```
+python3 dynamixel_set_zero.py /dev/tty.usbserial-XXXXXXX 1000000
+```
+
 
 ### Misc
 
