@@ -4,7 +4,9 @@ from gymnasium import utils
 from gymnasium.envs.mujoco import MujocoEnv
 from gymnasium.spaces import Box
 import scipy.spatial.transform as transform
-
+import os
+import time
+import matplotlib.pyplot as plt
 
 DEFAULT_CAMERA_CONFIG = {
     "distance": 4.0,
@@ -26,7 +28,7 @@ class AntEnv(MujocoEnv, utils.EzPickle):
 
     def __init__(
         self,
-        xml_file: str = "ant.xml",
+        xml_file: str = "ant_position.xml",
         frame_skip: int = 5,
         default_camera_config: dict[str, float | int] = DEFAULT_CAMERA_CONFIG,
         forward_reward_weight: float = 1,
@@ -77,6 +79,7 @@ class AntEnv(MujocoEnv, utils.EzPickle):
             low=-np.inf, high=np.inf, shape=(8,), dtype=np.float64
         )
 
+        self._default_joint_angles = self.model.keyframe("home").qpos[7:]
         self.init_qpos = [0] * self.model.nq
         self.init_qpos[2] = 0.2
         self.init_qpos[3] = 1.0
@@ -124,14 +127,14 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         )
 
         return termination
-    
+
     def _get_sensor_data(self, sensor_name: str) -> np.ndarray:
         """Gets sensor data given sensor name."""
         sensor_id = self.model.sensor(sensor_name).id
         sensor_adr = self.model.sensor_adr[sensor_id]
         sensor_dim = self.model.sensor_dim[sensor_id]
         return self.data.sensordata[sensor_adr : sensor_adr + sensor_dim]
-        
+
     def _get_obs(self):
         """Observe ant body position and velocities."""
         qpos = self.data.qpos.copy()
@@ -154,7 +157,7 @@ class AntEnv(MujocoEnv, utils.EzPickle):
                 accelerations, # 3
                 gyro_data, # 3
                 ])
-        
+
         return obs
 
     def reset_model(self):
@@ -173,3 +176,55 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         observation = self._get_obs()
 
         return observation
+
+def main():
+    current_path = os.path.dirname(os.path.abspath(__file__))
+    env = AntEnv(xml_file=os.path.join(current_path, "assets/ant_position.xml"),
+                 render_mode="human",
+                 frame_skip=10)
+
+    joints_dict = {
+        "hip_1":
+            {'desired': [], 'actual': []},
+        "ankle_1":
+            {'desired': [], 'actual': []},
+        "hip_2":
+            {'desired': [], 'actual': []},
+        "ankle_2":
+            {'desired': [], 'actual': []},
+        "hip_3":
+            {'desired': [], 'actual': []},
+        "ankle_3":
+            {'desired': [], 'actual': []},
+        "hip_4":
+            {'desired': [], 'actual': []},
+        "ankle_4":
+            {'desired': [], 'actual': []},
+    }
+
+    counter = 0
+    while counter < 1000:
+        default_joint_angles = env._default_joint_angles
+        actions = default_joint_angles + [2*np.sin(time.time())*0.8]*8
+        env.step(actions)
+
+        for idx, (joint_name, joint_data) in enumerate(joints_dict.items()):
+            joint_data['desired'].append(actions[idx])
+            joint_data['actual'].append(env.data.qpos[idx+7])
+
+        time.sleep(0.001)
+        counter += 1
+
+    _, axs = plt.subplots(2, 4)
+    for idx, (joint_name, joint_data) in enumerate(joints_dict.items()):
+        axs[idx//4, idx%4].plot(np.rad2deg(joint_data['desired']))
+        axs[idx//4, idx%4].plot(np.rad2deg(joint_data['actual']))
+        axs[idx//4, idx%4].set_title(f"Joint {joint_name}")
+        axs[idx//4, idx%4].set_xlabel("Time")
+        axs[idx//4, idx%4].set_ylabel("Angle")
+        axs[idx//4, idx%4].legend(["Desired", "Actual"], loc='upper right')
+    plt.tight_layout()
+    plt.show()
+
+if __name__ == "__main__":
+    main()
