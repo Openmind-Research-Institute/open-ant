@@ -64,6 +64,15 @@ python3 dynamixel_set_zero.py /dev/tty.usbserial-XXXXXXX 1000000
 ```
 
 
+## Software Setup
+
+Create a virtual environment and install the dependencies. (python >= 3.10)
+```
+python3.12 -m venv ant_env
+source ant_env/bin/activate
+pip install -r requirements.txt
+```
+
 ### Misc
 
 if git push fails when adding large (~10MB) commits, try:
@@ -80,3 +89,11 @@ git config --global http.postBuffer 1048576000
 - Commanded velocity in x and y
 
 For reward: position of the body in x and y, and the angle of the body.
+
+
+## Run the simulation
+
+```
+cd sim
+python3 ant_mujoco.py
+```

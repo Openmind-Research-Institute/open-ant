@@ -1,7 +1,7 @@
 import numpy as np
-from imu_msp import IMU_MSP
-from motor_controller import MotorController
-from apriltag_tracking import VisionTracker, show_image
+from embodied_ant_env.imu_msp import IMU_MSP
+from embodied_ant_env.motor_controller import MotorController
+from embodied_ant_env.apriltag_tracking import VisionTracker, show_image
 import threading
 import time
 from collections import defaultdict
@@ -13,7 +13,7 @@ class Space:
 
 class EmbodiedAnt:
     action_space = Space(shape=(8,), dtype=np.float32)
-    observation_space = Space(shape=(10,), dtype=np.float32)
+    observation_space = Space(shape=(24,), dtype=np.float32)
 
     def __init__(self, motor_controller, imu, tracker, step_size=0.02, render_mode=None):
         self.motor_controller = motor_controller
@@ -45,9 +45,9 @@ class EmbodiedAnt:
     def reset(self):
         print('reset(): please move the ant back to the origin.')
         input('press enter when ready')
-        info = self.get_observation()
+        obs, info = self.get_observation()
         self.get_reward(info)
-        return info
+        return obs, info
 
     def step(self, action, sleep_until_next_step=True):
         if self._threads_should_exit:
@@ -180,7 +180,7 @@ class DummyIMU:
                 'timestamp': time.time()}
 
 class DummyTracker:
-    def __init__(self, detector, inertial_tag_id):
+    def __init__(self, detector=None, inertial_tag_id=None):
         pass
     def track(self):
         return {}, np.zeros((640, 480, 3)), np.zeros((640, 480, 3))
