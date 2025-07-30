@@ -31,6 +31,10 @@
       <geom name="torso_geom" pos="0 0 0" size="0.075" type="sphere" mass="0.350"/>
       <joint armature="0" damping="0" limited="false" margin="0.01" name="root" pos="0 0 0" type="free"/>
       <site name="imu_location" pos="0 0 0" euler="0 0 0" size="0.01" type="sphere" rgba="1 0 0 1"/>
+      <site name="left_eye" pos="0.05 0.03 0.02" size="0.025" type="sphere" rgba="1 1 1 1"/>
+      <site name="right_eye" pos="0.05 -0.03 0.02" size="0.025" type="sphere" rgba="1 1 1 1"/>
+      <site name="left_pupil" pos="0.06 0.03 0.02" size="0.022" type="sphere" rgba="0 0 0 1"/>
+      <site name="right_pupil" pos="0.06 -0.03 0.02" size="0.022" type="sphere" rgba="0 0 0 1"/>
 
       <body name="front_left_leg" pos="0 0 0">
         <geom fromto="0.0 0.0 0.0 0.06 0.06 0.0" name="aux_1_geom" size="0.024" type="capsule" mass="0.020"/>
