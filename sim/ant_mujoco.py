@@ -87,8 +87,7 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         
         self.previous_x_position = 0.0
 
-    def step(self, delta_action):
-        action = self._default_joint_angles + delta_action
+    def step(self, action):
         self.do_simulation(action, self.frame_skip)
 
         observation = self._get_obs()
@@ -204,12 +203,13 @@ def main():
     }
 
     counter = 0
-    while counter < 1000:
+    while counter < 500:
         delta_actions = [2*np.sin(time.time())*0.8]*8
-        env.step(delta_actions)
+        default_joint_angles = env._default_joint_angles
+        env.step(delta_actions + default_joint_angles)
 
         for idx, (joint_name, joint_data) in enumerate(joints_dict.items()):
-            joint_data['desired'].append(env._default_joint_angles[idx] + delta_actions[idx])
+            joint_data['desired'].append(default_joint_angles[idx] + delta_actions[idx])
             joint_data['actual'].append(env.data.qpos[idx+7])
 
         time.sleep(0.001)
