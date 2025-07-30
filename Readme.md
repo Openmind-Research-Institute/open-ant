@@ -65,3 +65,11 @@ git config --global http.postBuffer 1048576000
 - Commanded velocity in x and y
 
 For reward: position of the body in x and y, and the angle of the body.
+
+
+## Run the simulation
+
+```
+cd sim
+python3 ant_mujoco.py
+```
