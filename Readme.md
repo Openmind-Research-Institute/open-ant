@@ -9,7 +9,13 @@ The hardware is designed to be easy to build and use:
 - no battery: continuous operation with wall adapter
 - all COTS parts + 3D printed parts
 - no soldering required
-- no special tools required (only a screwdriver for M2 and M2.5)
+- no special tools required (only a screwdriver for M2, M2.5, M3)
+
+### Specs
+
+- hip range +/- 45deg
+- knee range +/- 70deg
+
 
 ### Bill of Materials
 
@@ -35,7 +41,7 @@ The hardware is designed to be easy to build and use:
 
 ### Dynamixel Setup (before assembling the robot!)
 
-The Dynamixels should be configured to 1Mbaud, set to zero position (for assembly), and have their IDs changed to the as follows:
+The Dynamixels should be configured to 1Mbaud, set to zero position (for assembly), and have their IDs changed to the following:
 
 | Motor Position      | Motor ID |
 |---------------------|----------|
@@ -50,17 +56,17 @@ The Dynamixels should be configured to 1Mbaud, set to zero position (for assembl
 
 Use the following script to change the IDs of the motors, connecting one at a time.
 ```
-python3 dynamixel_change_id.py /dev/tty.usbserial-XXXXXXX <NEW_ID> 57600
+python3 embodied_ant_env/dynamixel_change_id.py /dev/tty.usbserial-XXXXXXX <NEW_ID> 57600
 ```
 
 When done, the following command will change the baudrate of all connected motors on the port to 1Mbaud.
 ```
-python3 dynamixel_change_baud.py /dev/tty.usbserial-XXXXXXX 1000000
+python3 embodied_ant_env/dynamixel_change_baud.py /dev/tty.usbserial-XXXXXXX 1000000
 ```
 
 Finally, use the following script to move the motors to their zero position.
 ```
-python3 dynamixel_set_zero.py /dev/tty.usbserial-XXXXXXX 1000000
+python3 embodied_ant_env/dynamixel_set_zero.py /dev/tty.usbserial-XXXXXXX 1000000
 ```
 
 
@@ -72,6 +78,14 @@ python3.12 -m venv ant_env
 source ant_env/bin/activate
 pip install -r requirements.txt
 ```
+
+To create a new config file, run:
+```
+python3 embodied_ant_env/make_ant_config.py /dev/tty.usbserial-XXXXXXX <APRIL_TAG_ID>
+```
+which will create a new config file `ant<APRIL_TAG_ID>.json` in the current directory.
+
+Next, edit the config file to specify imu port, camera id and fov.
 
 ### Misc
 

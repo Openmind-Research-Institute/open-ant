@@ -68,7 +68,6 @@ class MotorController:
             data = [0] * 4
             pos = np.clip(pos, motor['min_position'], motor['max_position'])
             pos_dxl_units = self.pos_to_dxl_units(pos + offset)
-            print(pos_dxl_units)
             data[0] = pos_dxl_units & 0xFF
             data[1] = (pos_dxl_units >> 8) & 0xFF
             data[2] = (pos_dxl_units >> 16) & 0xFF
@@ -106,7 +105,6 @@ class MotorController:
             else:
                 raise Exception(f"Motor {motor['id']} not found in sync read")
         sync_read.clearParam()
-        print('read', positions)
         return positions, velocities, loads
 
     def get_feedback(self):
@@ -120,25 +118,27 @@ class MotorController:
 
 
 if __name__ == "__main__":
+    import json
     import sys
     import time
-    drv = MotorController(port=sys.argv[1], motor_list=[
-        {'id': 10, 'min_position': -0.79, 'max_position': 0.79, 'offset': 0.79},
-        {'id': 11, 'min_position': -0.79, 'max_position': 0.79, 'offset': 0.79},
-        {'id': 20, 'min_position': -0.79, 'max_position': 0.79, 'offset': -0.79},
-        {'id': 21, 'min_position': -0.79, 'max_position': 0.79, 'offset': 0.79},
-        {'id': 30, 'min_position': -0.79, 'max_position': 0.79, 'offset': 0.79},
-        {'id': 31, 'min_position': -0.79, 'max_position': 0.79, 'offset': 0.79},
-        {'id': 40, 'min_position': -0.79, 'max_position': 0.79, 'offset': -0.79},
-        {'id': 41, 'min_position': -0.79, 'max_position': 0.79, 'offset': -0.79},
-    ])
+    # drv = MotorController(port=sys.argv[1], motor_list=[
+    #     {'id': 10, 'min_position': -0.79, 'max_position': 0.79, 'offset': 0.79},
+    #     {'id': 11, 'min_position': -0.79, 'max_position': 0.79, 'offset': 0.79},
+    #     {'id': 20, 'min_position': -0.79, 'max_position': 0.79, 'offset': -0.79},
+    #     {'id': 21, 'min_position': -0.79, 'max_position': 0.79, 'offset': 0.79},
+    #     {'id': 30, 'min_position': -0.79, 'max_position': 0.79, 'offset': 0.79},
+    #     {'id': 31, 'min_position': -0.79, 'max_position': 0.79, 'offset': 0.79},
+    #     {'id': 40, 'min_position': -0.79, 'max_position': 0.79, 'offset': -0.79},
+    #     {'id': 41, 'min_position': -0.79, 'max_position': 0.79, 'offset': -0.79},
+    # ])
+    cfg = json.load(open(sys.argv[1]))
+    drv = MotorController(port=cfg['motor_port'], motor_list=cfg['motor_list'])
     drv.disable()
     drv.enable()
     while True:
         t_start = time.time()
         pos, vel, load = drv.get_feedback()
-        print(time.time() - t_start)
-        # print(pos)
+        print(pos)
         # time.sleep(0.01)
         drv.set_positions([np.sin(time.time())*0.8]*len(drv.motor_list))
         t_end = time.time()

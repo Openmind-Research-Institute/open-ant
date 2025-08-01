@@ -17,7 +17,7 @@ class VisionTracker:
             [0, f, cy], 
             [0, 0, 1]], dtype=np.float32)
 
-    def __init__(self, camera_id=0, fov_diagonal_deg=60, K=None, tag_sizes={}, tag_labels={}, flip_z_up=True):
+    def __init__(self, camera_id=0, fov_diagonal_deg=60, K=None, tag_sizes={}, tag_ids={}, flip_z_up=True):
         self.cap = cv2.VideoCapture(camera_id)
         self.detector = Detector(families='tagCircle21h7', nthreads=1, quad_decimate=2)
         if K is None:
@@ -28,9 +28,9 @@ class VisionTracker:
             self.K = K
         fx, fy, cx, cy = self.K[0,0], self.K[1,1], self.K[0,2], self.K[1,2]
         self.camera_params = [fx, fy, cx, cy]
-        self.tag_sizes = tag_sizes
-        self.tag_labels = tag_labels
-        self.origin_tag_id = {v: k for k, v in tag_labels.items()}['origin']
+        self.tag_sizes = {tag_ids[name]: size for name, size in tag_sizes.items()}
+        self.tag_labels = {tag_ids[name]: name for name in tag_ids.keys()}
+        self.origin_tag_id = tag_ids['origin']
         self.last_origin_detection = None
         self.flip_z_up = flip_z_up
 
@@ -138,7 +138,7 @@ def show_image(frame):
 if __name__ == "__main__":
     import sys
     camera_id = int(sys.argv[1]) if len(sys.argv) > 1 else 0
-    tracker = VisionTracker(camera_id=camera_id, fov_diagonal_deg=60, tag_sizes={0: 0.1, 12: 0.045}, tag_labels={0: 'origin', 12: 'body'})
+    tracker = VisionTracker(camera_id=camera_id, fov_diagonal_deg=60, tag_sizes={'origin': 0.1, 'body': 0.045}, tag_ids={'origin': 0, 'body': 12})
 
     while True:
         bodies, frame, vis_frame = tracker.track()

@@ -1,10 +1,11 @@
 import numpy as np
-from embodied_ant_env.imu_msp import IMU_MSP
-from embodied_ant_env.motor_controller import MotorController
-from embodied_ant_env.apriltag_tracking import VisionTracker, show_image
 import threading
 import time
 from collections import defaultdict
+
+from imu_msp import IMU_MSP
+from motor_controller import MotorController
+from apriltag_tracking import VisionTracker, show_image
 
 class Space:
     def __init__(self, shape, dtype):
@@ -17,9 +18,11 @@ class EmbodiedAnt:
 
     def __init__(self, motor_controller, imu, tracker, step_size=0.02, render_mode=None):
         self.motor_controller = motor_controller
+        self.motor_controller.enable()
         self.step_size = step_size
         self.last_step_time = None
         self.render_mode = render_mode
+        self.i = 0
 
         self._threads_should_exit = False
 
@@ -67,6 +70,11 @@ class EmbodiedAnt:
 
         observation, info = self.get_observation()
         reward, terminated, truncated = self.get_reward(info)
+
+        if self.render_mode == 'human':
+            self.i += 1
+            if self.i % 10 == 0:
+                show_image(info['vis_frame'])
 
         self.last_step_time = time.time()
         return observation, reward, terminated, truncated, info
@@ -128,12 +136,6 @@ class EmbodiedAnt:
                 truncated = True # body is out of frame
         return progress, terminated, truncated
 
-    def render(self):
-        if self.render_mode == 'human':
-            print("render(mode='human') this is the real world, look at your robot!")
-        elif self.render_mode == 'rgb_array':
-            return self.camera.get_image()
-
     def close(self):
         self._threads_should_exit = True
         self._imu_thread.join()
@@ -158,6 +160,15 @@ class EmbodiedAnt:
             except Exception as e:
                 print(f"Error in _poll_tracker: {e}")
                 self._threads_should_exit = True
+
+def make_ant_env(cfg, **kwargs):
+    motor_controller = MotorController(port=cfg['motor_port'], motor_list=cfg['motor_list'])
+    imu = IMU_MSP(port=cfg['imu_port'])
+    tracker = VisionTracker(camera_id=cfg['camera_id'],
+                            fov_diagonal_deg=cfg['camera_fov_diagonal_deg'],
+                            tag_sizes=cfg['camera_tag_sizes'],
+                            tag_ids=cfg['camera_tag_ids'])
+    return EmbodiedAnt(motor_controller=motor_controller, imu=imu, tracker=tracker, **kwargs)
 
 class DummyMotorController:
     def __init__(self, port=None, motor_list=[0]*8):
@@ -188,31 +199,28 @@ class DummyTracker:
 
 if __name__ == "__main__":
     import sys
-    motor_list=[
-        {'id': 10, 'min_position': -0.79, 'max_position': 0.79, 'offset': 0.79},
-        {'id': 11, 'min_position': -0.79, 'max_position': 0.79, 'offset': 0.79},
-        {'id': 20, 'min_position': -0.79, 'max_position': 0.79, 'offset': -0.79},
-        {'id': 21, 'min_position': -0.79, 'max_position': 0.79, 'offset': 0.79},
-        {'id': 30, 'min_position': -0.79, 'max_position': 0.79, 'offset': 0.79},
-        {'id': 31, 'min_position': -0.79, 'max_position': 0.79, 'offset': 0.79},
-        {'id': 40, 'min_position': -0.79, 'max_position': 0.79, 'offset': -0.79},
-        {'id': 41, 'min_position': -0.79, 'max_position': 0.79, 'offset': -0.79},
-    ]
-    # motor_controller = MotorController(port=sys.argv[1], motor_list=motor_list)
-    motor_controller = DummyMotorController()
-    imu = IMU_MSP(port=sys.argv[2])
+    import json
+    cfg = json.load(open(sys.argv[1]))
+    motor_controller = MotorController(port=cfg['motor_port'], motor_list=cfg['motor_list'])
+    # motor_controller = DummyMotorController()
+    imu = IMU_MSP(port=cfg['imu_port'])
     # imu = DummyIMU()
-    tracker = VisionTracker(camera_id=1, fov_diagonal_deg=60, tag_sizes={0: 0.1, 12: 0.045}, tag_labels={0: 'origin', 12: 'body'})
+    print(cfg)
+    tracker = VisionTracker(camera_id=cfg['camera_id'],
+                            fov_diagonal_deg=cfg['camera_fov_diagonal_deg'],
+                            tag_sizes=cfg['camera_tag_sizes'],
+                            tag_ids=cfg['camera_tag_ids'])
     env = EmbodiedAnt(motor_controller=motor_controller, imu=imu, tracker=tracker)
     i = 0
     while True:
         # time.sleep(1)
         obs, rew, term, trunc, info = env.step(np.zeros(8))
+        # obs, rew, term, trunc, info = env.step(np.random.uniform(-0.3, 0.3, 8))
         # print(obs)
         print(rew)
         # print(term)
         # print(trunc)
         # print(info)
 
-        # if (i := i + 1) % 10 == 0:
-        #     show_image(info['vis_frame'])
+        if (i := i + 1) % 10 == 0:
+            show_image(info['vis_frame'])
