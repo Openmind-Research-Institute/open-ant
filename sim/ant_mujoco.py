@@ -29,13 +29,16 @@ class AntEnv(MujocoEnv, utils.EzPickle):
     def __init__(
         self,
         xml_file: str = "ant_position.xml",
-        frame_skip: int = 5,
+        dt: float = 0.02,
         default_camera_config: dict[str, float | int] = DEFAULT_CAMERA_CONFIG,
         forward_reward_weight: float = 1,
         main_body: int | str = 1,
         reset_noise_scale: float = 0.1,
         **kwargs,
     ):
+        sim_dt = 0.001
+        frame_skip = dt / sim_dt
+
         utils.EzPickle.__init__(
             self,
             xml_file,
@@ -59,6 +62,7 @@ class AntEnv(MujocoEnv, utils.EzPickle):
             default_camera_config=default_camera_config,
             **kwargs,
         )
+        self.model.opt.timestep = sim_dt
 
         self.metadata = {
             "render_modes": [
