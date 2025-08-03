@@ -87,14 +87,14 @@
     </body>
   </worldbody>
   <actuator>
-    <position joint="hip_1" kp="1.0" kv="0.05" ctrllimited="true" ctrlrange="-0.52 0.52"/>
-    <position joint="ankle_1" kp="1.0" kv="0.05" ctrllimited="true" ctrlrange="-1.57 1.57"/>
-    <position joint="hip_2" kp="1.0" kv="0.05" ctrllimited="true" ctrlrange="-0.52 0.52"/>
-    <position joint="ankle_2" kp="1.0" kv="0.05" ctrllimited="true" ctrlrange="-1.57 1.57"/>
-    <position joint="hip_3" kp="1.0" kv="0.05" ctrllimited="true" ctrlrange="-0.52 0.52"/>
-    <position joint="ankle_3" kp="1.0" kv="0.05" ctrllimited="true" ctrlrange="-1.57 1.57"/>
-    <position joint="hip_4" kp="1.0" kv="0.05" ctrllimited="true" ctrlrange="-0.52 0.52"/>
-    <position joint="ankle_4" kp="1.0" kv="0.05" ctrllimited="true" ctrlrange="-1.57 1.57"/>
+    <position joint="hip_1" kp="3.0" kv="0.1" ctrllimited="true" ctrlrange="-0.52 0.52"/>
+    <position joint="ankle_1" kp="3.0" kv="0.1" ctrllimited="true" ctrlrange="-1.57 1.57"/>
+    <position joint="hip_2" kp="3.0" kv="0.1" ctrllimited="true" ctrlrange="-0.52 0.52"/>
+    <position joint="ankle_2" kp="3.0" kv="0.1" ctrllimited="true" ctrlrange="-1.57 1.57"/>
+    <position joint="hip_3" kp="3.0" kv="0.1" ctrllimited="true" ctrlrange="-0.52 0.52"/>
+    <position joint="ankle_3" kp="3.0" kv="0.1" ctrllimited="true" ctrlrange="-1.57 1.57"/>
+    <position joint="hip_4" kp="3.0" kv="0.1" ctrllimited="true" ctrlrange="-0.52 0.52"/>
+    <position joint="ankle_4" kp="3.0" kv="0.1" ctrllimited="true" ctrlrange="-1.57 1.57"/>
   </actuator>
   <!-- <actuator>
     <motor ctrllimited="true" ctrlrange="-1.0 1.0" joint="hip_4" gear="150" name="hip_4"/>
