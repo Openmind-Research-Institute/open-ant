@@ -142,8 +142,8 @@ class AntEnv(MujocoEnv, utils.EzPickle):
 
         joint_angles = qpos[7:]
         joint_velocities = qvel[6:]
-        orientation = qpos[3:7]
-        heading_vector = (transform.Rotation.from_quat(orientation).as_matrix() @ np.array([1, 0, 0]))[0:2]
+        quaternion_wxyz = qpos[3:7]
+        heading_vector = (transform.Rotation.from_quat(quaternion_wxyz, scalar_first=True).as_matrix() @ np.array([1, 0, 0]))[0:2]
         heading_vector = heading_vector / np.linalg.norm(heading_vector)
 
         imu_data = self._get_sensor_data("accelerometer")
