@@ -16,10 +16,10 @@ class EmbodiedAnt:
     action_space = Space(shape=(8,), dtype=np.float32)
     observation_space = Space(shape=(24,), dtype=np.float32)
 
-    def __init__(self, motor_controller, imu, tracker, step_size=0.02, render_mode=None):
+    def __init__(self, motor_controller, imu, tracker, dt=0.02, render_mode=None):
         self.motor_controller = motor_controller
         self.motor_controller.enable()
-        self.step_size = step_size
+        self.dt = dt
         self.last_step_time = None
         self.render_mode = render_mode
         self.i = 0
@@ -58,10 +58,10 @@ class EmbodiedAnt:
 
         self.motor_controller.set_positions(action)
 
-        sleep_duration = self.step_size
+        sleep_duration = self.dt
         if self.last_step_time is not None:
             time_since_last_step = time.time() - self.last_step_time
-            sleep_duration = self.step_size - time_since_last_step
+            sleep_duration = self.dt - time_since_last_step
             if sleep_duration < 0:
                 print(f"Warning: calls to step() exceeded step size (time since last step: {time_since_last_step:.3f}s).")
                 sleep_duration = 0
