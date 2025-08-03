@@ -37,7 +37,7 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         **kwargs,
     ):
         sim_dt = 0.001
-        frame_skip = dt / sim_dt
+        frame_skip = int(dt / sim_dt)
 
         utils.EzPickle.__init__(
             self,
