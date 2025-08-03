@@ -5,14 +5,13 @@ import time
 import matplotlib.pyplot as plt
 import numpy as np
 import datetime
+import json
 
 from ant_mujoco import AntEnv
 import sys
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from embodied_ant_env.embodied_ant_env import EmbodiedAnt
-from embodied_ant_env.motor_controller import MotorController
-from embodied_ant_env.imu_msp import IMU_MSP
-from embodied_ant_env.apriltag_tracking import VisionTracker
+sys.path.append(os.path.join(os.path.dirname(__file__), '../embodied_ant_env'))
+from embodied_ant_env import make_ant_env
+
 
 from ppo.ppo import Agent
 
@@ -122,23 +121,10 @@ os.makedirs(results_dir, exist_ok=True)
 # Load the ant environment.
 HARDWARE = True
 if HARDWARE:
-    import sys
-    motor_list=[
-        {'id': 10, 'min_position': -0.79, 'max_position': 0.79, 'offset': 0.79},
-        {'id': 11, 'min_position': -0.79, 'max_position': 0.79, 'offset': 0.79},
-        {'id': 20, 'min_position': -0.79, 'max_position': 0.79, 'offset': -0.79},
-        {'id': 21, 'min_position': -0.79, 'max_position': 0.79, 'offset': 0.79},
-        {'id': 30, 'min_position': -0.79, 'max_position': 0.79, 'offset': 0.79},
-        {'id': 31, 'min_position': -0.79, 'max_position': 0.79, 'offset': 0.79},
-        {'id': 40, 'min_position': -0.79, 'max_position': 0.79, 'offset': -0.79},
-        {'id': 41, 'min_position': -0.79, 'max_position': 0.79, 'offset': -0.79},
-    ]
-    motor_controller = MotorController(port=sys.argv[1], motor_list=motor_list)
-    motor_controller.disable()
-    motor_controller.enable()
-    imu = IMU_MSP(port=sys.argv[2])
-    tracker = VisionTracker(camera_id=1, fov_diagonal_deg=60, tag_sizes={0: 0.1, 12: 0.045}, tag_labels={0: 'origin', 12: 'body'})
-    env = EmbodiedAnt(motor_controller=motor_controller, imu=imu, tracker=tracker)
+    config_file = sys.argv[1]
+    with open(config_file, 'r') as f:
+        cfg = json.load(f)
+    env = make_ant_env(cfg, render_mode='human')
 else:
     env = AntEnv(xml_file=os.path.join(current_path, "assets/ant_position.xml"),
                  render_mode="human",
