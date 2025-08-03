@@ -142,7 +142,7 @@ if HARDWARE:
 else:
     env = AntEnv(xml_file=os.path.join(current_path, "assets/ant_position.xml"),
                  render_mode="human",
-                 frame_skip=10)
+                 dt=0.01)
 obs_dim = env.observation_space.shape[0]
 act_dim = env.action_space.shape[0]
 print('Observation dimension:', obs_dim)
