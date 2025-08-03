@@ -34,6 +34,7 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         forward_reward_weight: float = 1,
         main_body: int | str = 1,
         reset_noise_scale: float = 0.1,
+        joint_config: dict[str, float] | None = None,
         **kwargs,
     ):
         sim_dt = 0.001
@@ -80,10 +81,17 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         )
 
         self.action_space = Box(
-            low=-np.inf, high=np.inf, shape=(8,), dtype=np.float64
+            low=-1, high=1, shape=(8,), dtype=np.float64
         )
+        if joint_config is None:
+            joint_config = {
+                'hip_zero': 0,
+                'knee_zero': -np.radians(50),
+                'hip_range': np.radians(45),
+                'knee_range': np.radians(20),
+            }
 
-        self._default_joint_angles = self.model.keyframe("home").qpos[7:]
+        self._joint_config = joint_config
         self.init_qpos = [0] * self.model.nq
         self.init_qpos[2] = 0.2
         self.init_qpos[3] = 1.0
@@ -92,6 +100,9 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         self.previous_x_position = 0.0
 
     def step(self, action):
+        for i in range(4):
+            action[2*i] = np.clip(action[2*i], -1, 1) * self._joint_config['hip_range'] + self._joint_config['hip_zero']
+            action[2*i + 1] = np.clip(action[2*i + 1], -1, 1) * self._joint_config['knee_range'] + self._joint_config['knee_zero']
         self.do_simulation(action, self.frame_skip)
 
         observation = self._get_obs()
@@ -209,11 +220,10 @@ def main():
     counter = 0
     while counter < 500:
         delta_actions = [2*np.sin(time.time())*0.8]*8
-        default_joint_angles = env._default_joint_angles
-        env.step(delta_actions + default_joint_angles)
+        env.step(delta_actions)
 
         for idx, (joint_name, joint_data) in enumerate(joints_dict.items()):
-            joint_data['desired'].append(default_joint_angles[idx] + delta_actions[idx])
+            joint_data['desired'].append(delta_actions[idx])
             joint_data['actual'].append(env.data.qpos[idx+7])
 
         time.sleep(0.001)

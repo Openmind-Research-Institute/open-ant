@@ -16,13 +16,21 @@ class EmbodiedAnt:
     action_space = Space(shape=(8,), dtype=np.float32)
     observation_space = Space(shape=(24,), dtype=np.float32)
 
-    def __init__(self, motor_controller, imu, tracker, dt=0.02, render_mode=None):
+    def __init__(self, motor_controller, imu, tracker, dt=0.02, render_mode=None, joint_config=None):
         self.motor_controller = motor_controller
         self.motor_controller.enable()
         self.dt = dt
         self.last_step_time = None
         self.render_mode = render_mode
         self.i = 0
+        if joint_config is None:
+            joint_config = {
+                'hip_zero': 0,
+                'knee_zero': -np.radians(50),
+                'hip_range': np.radians(45),
+                'knee_range': np.radians(20),
+            }
+        self.joint_config = joint_config
 
         self._threads_should_exit = False
 
@@ -56,6 +64,9 @@ class EmbodiedAnt:
         if self._threads_should_exit:
             raise RuntimeError("EmbodiedAnt.step() called after close()")
 
+        for i in range(4):
+            action[2*i] = np.clip(action[2*i], -1, 1) * self.joint_config['hip_range'] + self.joint_config['hip_zero']
+            action[2*i + 1] = np.clip(action[2*i + 1], -1, 1) * self.joint_config['knee_range'] + self.joint_config['knee_zero']
         self.motor_controller.set_positions(action)
 
         sleep_duration = self.dt
