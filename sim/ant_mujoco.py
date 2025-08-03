@@ -84,7 +84,7 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         self.init_qpos[2] = 0.2
         self.init_qpos[3] = 1.0
         self.init_qvel = [0] * self.model.nv
-        
+
         self.previous_x_position = 0.0
 
     def step(self, action):
@@ -105,8 +105,8 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         self.previous_x_position = self.data.qpos[0]
 
         # truncation=False as the time limit is handled by the `TimeLimit` wrapper added during `make`
-        terminated = self._get_termination() # TODO: change this to truncated.
-        truncated = False
+        truncated = self._get_truncated()
+        terminated = False
         return observation, reward, terminated, truncated, info
 
     def _get_rew(self):
@@ -115,7 +115,7 @@ class AntEnv(MujocoEnv, utils.EzPickle):
 
         return reward, reward_info
 
-    def _get_termination(self):
+    def _get_truncated(self):
 
         x_pos = self.data.qpos[0]
         y_pos = self.data.qpos[1]
@@ -148,15 +148,15 @@ class AntEnv(MujocoEnv, utils.EzPickle):
 
         imu_data = self._get_sensor_data("accelerometer")
         accelerations = imu_data[:3]
-        gyro_data = self._get_sensor_data("gyro")
+        angular_vel = self._get_sensor_data("gyro")
 
         obs = np.concatenate([
                 joint_angles, # 8
                 joint_velocities, # 8
                 heading_vector, # 2
                 accelerations, # 3
-                gyro_data, # 3
-                ])
+                angular_vel, # 3
+                ], axis=None)
 
         return obs
 
