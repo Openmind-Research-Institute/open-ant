@@ -124,13 +124,13 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         x_pos = self.data.qpos[0]
         y_pos = self.data.qpos[1]
 
-        termination = (
+        truncation_condition = (
             np.isnan(self.data.qpos).any() | np.isnan(self.data.qvel).any() |
             (x_pos < -WORKSPACE_LENGTH / 2.0) | (x_pos > WORKSPACE_LENGTH / 2.0) |
             (y_pos < -WORKSPACE_WIDTH / 2.0) | (y_pos > WORKSPACE_WIDTH / 2.0)
         )
 
-        return termination
+        return truncation_condition
 
     def _get_sensor_data(self, sensor_name: str) -> np.ndarray:
         """Gets sensor data given sensor name."""
