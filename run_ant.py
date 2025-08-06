@@ -9,23 +9,27 @@ import json
 import numpy as np
 import time
 
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), 'sim')))
+from ant_mujoco import AntEnv
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), 'embodied_ant_env')))
 from embodied_ant_env import make_ant_env
 
 def main():
-    if len(sys.argv) != 2:
-        print("Usage: python run_ant.py <config_file.json>")
-        sys.exit(1)
+    if len(sys.argv) > 1:
+        config_file = sys.argv[1]
+        with open(config_file, 'r') as f:
+            cfg = json.load(f)
+        env = make_ant_env(cfg, render_mode='human', dt=0.05)
+    else:
+        env = AntEnv(render_mode="human",
+                     dt=0.05)
+    env.reset()
 
-    config_file = sys.argv[1]
-    with open(config_file, 'r') as f:
-        cfg = json.load(f)
-    env = make_ant_env(cfg, render_mode='human')
-    
     try:
         i = 0
         while True:
-            obs, rew, term, trunc, info = env.step(np.zeros(8))
+            obs, rew, term, trunc, info = env.step(np.random.uniform(-1, 1, 8))
             print(f"Reward: {rew}")
 
     except KeyboardInterrupt:
