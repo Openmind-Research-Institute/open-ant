@@ -83,6 +83,14 @@ class EmbodiedAnt:
         observation, info = self.get_observation()
         reward, terminated, truncated = self.get_reward(info)
 
+        errors = self.motor_controller.check_errors()
+        if len(errors) > 0:
+            print('motor controller errors:')
+            for error in errors:
+                print(error[2])
+            truncated = True
+            self.motor_controller.recover_from_error()
+
         if self.render_mode == 'human':
             self.i += 1
             if self.i % 10 == 0:
