@@ -28,7 +28,7 @@ class AntEnv(MujocoEnv, utils.EzPickle):
 
     def __init__(
         self,
-        xml_file: str = "ant_position.xml",
+        xml_file: str = os.path.join(os.path.dirname(__file__), "assets/ant_position.xml"),
         dt: float = 0.02,
         default_camera_config: dict[str, float | int] = DEFAULT_CAMERA_CONFIG,
         forward_reward_weight: float = 1,

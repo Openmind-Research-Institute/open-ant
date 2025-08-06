@@ -7,13 +7,14 @@ import numpy as np
 import datetime
 import json
 
-from ant_mujoco import AntEnv
 import sys
-sys.path.append(os.path.join(os.path.dirname(__file__), '../embodied_ant_env'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '../../sim'))
+from ant_mujoco import AntEnv
+sys.path.append(os.path.join(os.path.dirname(__file__), '../../embodied_ant_env'))
 from embodied_ant_env import make_ant_env
 
 
-from ppo.ppo import Agent
+from ppo import Agent
 
 def plot_rewards(test_rewards: list[float], window_size: int = 50):
     """Plot rewards with moving average and confidence intervals."""
@@ -119,15 +120,13 @@ results_dir = os.path.join(current_path, "results", current_date_time)
 os.makedirs(results_dir, exist_ok=True)
 
 # Load the ant environment.
-HARDWARE = True
-if HARDWARE:
+if len(sys.argv) > 1:
     config_file = sys.argv[1]
     with open(config_file, 'r') as f:
         cfg = json.load(f)
     env = make_ant_env(cfg, render_mode='human')
 else:
-    env = AntEnv(xml_file=os.path.join(current_path, "assets/ant_position.xml"),
-                 render_mode="human",
+    env = AntEnv(render_mode="human",
                  dt=0.01)
 obs_dim = env.observation_space.shape[0]
 act_dim = env.action_space.shape[0]
