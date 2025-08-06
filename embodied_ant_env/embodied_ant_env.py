@@ -53,7 +53,8 @@ class EmbodiedAnt:
     def __del__(self):
         self.close()
 
-    def reset(self):
+    def reset(self, seed=None, options=None):
+        self.step(np.zeros(8))
         print('reset(): please move the ant back to the origin.')
         input('press enter when ready')
         obs, info = self.get_observation()
@@ -140,10 +141,12 @@ class EmbodiedAnt:
         terminated = False
         truncated = False
         if time.time() - self.last_seen > 2:
+            print('body tracker not seen for 2 seconds')
             truncated = True
         if 'body' in info['bodies']:
             img_pos = info['bodies']['body']['image_pos']
             if img_pos[0] < 0.1 or img_pos[0] > 0.9 or img_pos[1] < 0.1 or img_pos[1] > 0.9:
+                print('body is out of camera frame')
                 truncated = True # body is out of frame
         return progress, terminated, truncated
 
