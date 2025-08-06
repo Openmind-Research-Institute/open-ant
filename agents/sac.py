@@ -1,6 +1,7 @@
 from skrl.agents.torch.sac import SAC, SAC_DEFAULT_CONFIG
 from skrl.memories.torch import RandomMemory
 from skrl.models.torch import DeterministicMixin, GaussianMixin, Model
+from skrl.resources.preprocessors.torch import RunningStandardScaler
 from skrl.envs.wrappers.torch import wrap_env
 import torch
 import torch.nn as nn
@@ -71,7 +72,8 @@ def main():
             cfg = json.load(f)
         env = make_ant_env(cfg, render_mode='human', dt=0.05)
     else:
-        env = AntEnv(render_mode="human", dt=0.05)
+        # env = AntEnv(render_mode="human", dt=0.05)
+        env = AntEnv(dt=0.05)
 
     env = wrap_env(env, "gymnasium")
     device = env.device
@@ -87,12 +89,19 @@ def main():
 
     cfg = SAC_DEFAULT_CONFIG.copy()
     cfg["discount_factor"] = 0.98
-    cfg["batch_size"] = 100
+    cfg["polyak"] = 0.005
+    cfg["actor_learning_rate"] = 1e-3
+    cfg["critic_learning_rate"] = 1e-3
+    cfg["batch_size"] = 4096
     cfg["random_timesteps"] = 0
-    cfg["learning_starts"] = 1000
+    cfg["learning_starts"] = 100
     cfg["learn_entropy"] = True
+    cfg["entropy_learning_rate"] = 5e-3
+    cfg["initial_entropy_value"] = 1.0
+    cfg["state_preprocessor"] = RunningStandardScaler
+    cfg["state_preprocessor_kwargs"] = {"size": env.observation_space, "device": device}
     # logging to TensorBoard and write checkpoints (in timesteps)
-    cfg["experiment"]["write_interval"] = 10
+    cfg["experiment"]["write_interval"] = 100
     cfg["experiment"]["checkpoint_interval"] = 1000
     cfg["experiment"]["directory"] = "runs/sac/"
 
