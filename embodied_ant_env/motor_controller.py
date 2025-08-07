@@ -10,6 +10,8 @@ class MotorController:
     ADDR_PRESENT_POSITION = 132
     ADDR_OPERATING_MODE = 11
     ADDR_HARDWARE_ERROR_STATUS = 70
+    ADDR_PWM_LIMIT = 36
+    ADDR_SHUTDOWN = 63
 
     def __init__(self, port, motor_list, baudrate=1000000):
         self.port = dynamixel_sdk.PortHandler(port)
@@ -36,9 +38,20 @@ class MotorController:
 
     def enable(self):
         for motor in self.motor_list:
+            res, err = self.packet.write1ByteTxRx(self.port, motor['id'], self.ADDR_TORQUE_ENABLE, 0)
+            if res != dynamixel_sdk.COMM_SUCCESS:
+                raise Exception(f"Failed to disable torque: {self.packet.getTxRxResult(res)}")
             res, err = self.packet.write1ByteTxRx(self.port, motor['id'], self.ADDR_OPERATING_MODE, 4) # multi-turn mode
             if res != dynamixel_sdk.COMM_SUCCESS:
                 raise Exception(f"Failed to set operating mode: {self.packet.getTxRxResult(res)}")
+            res, err = self.packet.write2ByteTxRx(self.port, motor['id'], self.ADDR_PWM_LIMIT, int(50/0.113)) # set PWM limit
+            if res != dynamixel_sdk.COMM_SUCCESS:
+                raise Exception(f"Failed to set PWM limit: {self.packet.getTxRxResult(res)}")
+            val = (1 << 0) | (1 << 2) | (1 << 3) | (1 << 4) # faults: voltage, overheat, encoder, electrical (no overload)
+            res, err = self.packet.write1ByteTxRx(self.port, motor['id'], self.ADDR_SHUTDOWN, val) # set fault shutdown
+            if res != dynamixel_sdk.COMM_SUCCESS:
+                raise Exception(f"Failed to set fault shutdown: {self.packet.getTxRxResult(res)}")
+            # all settings must be changed before enabling torque
             res, err = self.packet.write1ByteTxRx(self.port, motor['id'], self.ADDR_TORQUE_ENABLE, 1)
             if res != dynamixel_sdk.COMM_SUCCESS:
                 raise Exception(f"Failed to enable torque: {self.packet.getTxRxResult(res)}")
@@ -142,7 +155,7 @@ class MotorController:
         for motor in self.motor_list:
             if sync_read.isAvailable(motor['id'], self.ADDR_HARDWARE_ERROR_STATUS, 1):
                 data = sync_read.getData(motor['id'], self.ADDR_HARDWARE_ERROR_STATUS, 1)
-                if data != 0:
+                if data & (0xFF - (1 << 5)) != 0:
                     errors.append((motor['id'], data, f"motor {motor['id']}: 0x{data:02X} errors: {self.get_error_string(data)}"))
             else:
                 raise Exception(f"Motor {motor['id']} not found in sync read")
