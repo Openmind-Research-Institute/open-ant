@@ -15,4 +15,5 @@ scipy
 # algorithms
 torch
 matplotlib
+skrl
 
