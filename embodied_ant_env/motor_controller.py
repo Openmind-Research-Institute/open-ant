@@ -1,5 +1,6 @@
 import dynamixel_sdk
 import numpy as np
+import time
 
 class MotorController:
     ADDR_TORQUE_ENABLE = 64
@@ -8,6 +9,7 @@ class MotorController:
     ADDR_PRESENT_VELOCITY = 128
     ADDR_PRESENT_POSITION = 132
     ADDR_OPERATING_MODE = 11
+    ADDR_HARDWARE_ERROR_STATUS = 70
 
     def __init__(self, port, motor_list, baudrate=1000000):
         self.port = dynamixel_sdk.PortHandler(port)
@@ -114,6 +116,43 @@ class MotorController:
         velocities = [self.dxl_units_to_vel(vel) for vel in velocities_raw]
         loads = [load/1000 for load in loads_raw]
         return positions, velocities, loads
+
+    def get_error_string(self, hw_error_status):
+        errors = []
+        if hw_error_status & (1 << 0):
+            errors.append("Input voltage")
+        if hw_error_status & (1 << 2):
+            errors.append("Overheat")
+        if hw_error_status & (1 << 3):
+            errors.append("Encoder")
+        if hw_error_status & (1 << 4):
+            errors.append("Electrical")
+        if hw_error_status & (1 << 5):
+            errors.append("Overload")
+        return ", ".join(errors)
+
+    def check_errors(self):
+        sync_read = dynamixel_sdk.GroupSyncRead(self.port, self.packet, self.ADDR_HARDWARE_ERROR_STATUS, 1)
+        for motor in self.motor_list:
+            sync_read.addParam(motor['id'])
+        dxl_comm_result = sync_read.txRxPacket()
+        if dxl_comm_result != dynamixel_sdk.COMM_SUCCESS:
+            raise Exception(f"Failed to get error: {self.packet.getTxRxResult(dxl_comm_result)}")
+        errors = []
+        for motor in self.motor_list:
+            if sync_read.isAvailable(motor['id'], self.ADDR_HARDWARE_ERROR_STATUS, 1):
+                data = sync_read.getData(motor['id'], self.ADDR_HARDWARE_ERROR_STATUS, 1)
+                if data != 0:
+                    errors.append((motor['id'], data, f"motor {motor['id']}: 0x{data:02X} errors: {self.get_error_string(data)}"))
+            else:
+                raise Exception(f"Motor {motor['id']} not found in sync read")
+        return errors
+
+    def recover_from_error(self):
+        for motor in self.motor_list:
+            self.packet.reboot(self.port, motor['id'])
+            time.sleep(0.1)
+        self.enable()
 
 
 
