@@ -7,6 +7,7 @@ class MotorController:
     ADDR_PRESENT_LOAD = 126
     ADDR_PRESENT_VELOCITY = 128
     ADDR_PRESENT_POSITION = 132
+    ADDR_PRESENT_TEMPERATURE = 146
     ADDR_OPERATING_MODE = 11
     ADDR_HARDWARE_ERROR_STATUS = 70
     ADDR_PWM_LIMIT = 36
@@ -154,7 +155,7 @@ class MotorController:
         for motor in self.motor_list:
             if sync_read.isAvailable(motor['id'], self.ADDR_HARDWARE_ERROR_STATUS, 1):
                 data = sync_read.getData(motor['id'], self.ADDR_HARDWARE_ERROR_STATUS, 1)
-                if data & (0xFF - (1 << 5)) != 0:
+                if data & (0xFF - (1 << 5)) != 0: # ignore overload error
                     errors.append((motor['id'], data, f"motor {motor['id']}: 0x{data:02X} errors: {self.get_error_string(data)}"))
             else:
                 raise Exception(f"Motor {motor['id']} not found in sync read")
@@ -165,6 +166,23 @@ class MotorController:
             self.packet.reboot(self.port, motor['id'])
             time.sleep(0.1)
         self.enable()
+
+    def get_temperature(self):
+        sync_read = dynamixel_sdk.GroupSyncRead(self.port, self.packet, self.ADDR_PRESENT_TEMPERATURE, 1)
+        for motor in self.motor_list:
+            sync_read.addParam(motor['id'])
+        dxl_comm_result = sync_read.txRxPacket()
+        if dxl_comm_result != dynamixel_sdk.COMM_SUCCESS:
+            raise Exception(f"Failed to get temperature: {self.packet.getTxRxResult(dxl_comm_result)}")
+        temperatures = []
+        for motor in self.motor_list:
+            if sync_read.isAvailable(motor['id'], self.ADDR_PRESENT_TEMPERATURE, 1):
+                data = sync_read.getData(motor['id'], self.ADDR_PRESENT_TEMPERATURE, 1)
+                temperatures.append(data)
+            else:
+                raise Exception(f"Motor {motor['id']} not found in sync read")
+        sync_read.clearParam()
+        return temperatures
 
 
 if __name__ == "__main__":
