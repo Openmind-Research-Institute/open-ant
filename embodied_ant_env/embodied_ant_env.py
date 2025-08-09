@@ -89,6 +89,14 @@ class EmbodiedAnt:
         self.temperature_log.write(f"{time.time()}, " + ", ".join(map(str, info['temperatures'])) + "\n")
         self.temperature_log.flush()
 
+        errors = self.motor_controller.check_errors()
+        if len(errors) > 0:
+            print('motor controller errors:')
+            for error in errors:
+                print(error[2])
+            truncated = True
+            self.motor_controller.recover_from_error()
+
         if self.render_mode == 'human':
             self.i += 1
             if self.i % 10 == 0:
