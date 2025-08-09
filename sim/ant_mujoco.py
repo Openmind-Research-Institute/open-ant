@@ -7,6 +7,7 @@ import scipy.spatial.transform as transform
 import os
 import time
 import matplotlib.pyplot as plt
+import mujoco
 
 DEFAULT_CAMERA_CONFIG = {
     "distance": 4.0,
@@ -96,6 +97,13 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         self.init_qpos[2] = 0.2
         self.init_qpos[3] = 1.0
         self.init_qvel = [0] * self.model.nv
+
+        self.name_joints = self.get_joint_names()
+        self.q_joints = {}
+        for key in self.name_joints:
+            id_joint_mj = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, key)
+            self.q_joints[key] = id_joint_mj
+        print(self.q_joints)
 
         self.previous_x_position = 0.0
 
@@ -193,6 +201,14 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         observation = self._get_obs()
 
         return observation
+
+    def get_joint_names(self):
+        '''Returns the names of the joints.'''
+        self.name_joints = []
+        for i in range(1, self.model.njnt):  # skip root
+            self.name_joints.append(mujoco.mj_id2name(
+                self.model, mujoco.mjtObj.mjOBJ_JOINT, i))
+        return self.name_joints
 
 def main():
     current_path = os.path.dirname(os.path.abspath(__file__))
