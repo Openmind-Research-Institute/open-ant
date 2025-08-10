@@ -152,6 +152,8 @@ optimizer = torch.optim.Adam(Q.parameters(), lr=0.001)
 #         options_env.render()
 #     # if terminated or truncated:
 #     #     options_env.reset()
+import pandas as pd
+df = pd.DataFrame(columns=["episode", "reward"])
 
 while True:
     
@@ -204,9 +206,11 @@ while True:
             break
 
     print(f"Episode {idx_episode} reward: {reward_per_episode}")
-
+    df.loc[idx_episode] = [idx_episode, reward_per_episode]
     idx_episode += 1
 
-    # Save Q model
-    torch.save(Q.state_dict(), os.path.join(log_dir, f"Q_model_{idx_episode}.pth"))
+    # Save df.
+    df.to_csv(os.path.join(log_dir, "rewards.csv"), index=False)
 
+    # Save Q model.
+    torch.save(Q.state_dict(), os.path.join(log_dir, f"Q_model_{idx_episode}.pth"))
