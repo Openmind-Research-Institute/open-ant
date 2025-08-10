@@ -47,8 +47,6 @@ def ramp(start_pos: float, end_pos: float, duration: float):
     return input_pos_list
 
 env.reset()
-
-
 options = []
 for i in range(4):
     # hip
@@ -87,38 +85,27 @@ class OptionEnv:
     def step(self, option: int):
         opt = self.options[option]
         traj = ramp(self.joint_pos[opt['joint']], opt['target'], opt['duration'])
-        print("from to", self.joint_pos[opt['joint']], opt['target'])
         total_reward = 0
-        for i in range(int(opt['duration'] / DT)):
+        for i in range(self.duration_steps(option)):
             self.joint_pos[opt['joint']] = traj[i]
-            print( traj[i])
-            print(self.joint_pos)
             obs, reward, terminated, truncated, info = self.env.step(self.joint_pos)
-            print(self.joint_pos)
             total_reward = reward + self.discount * total_reward
             if terminated or truncated:
                 return obs, total_reward, terminated, truncated, info
-        print("final", self.joint_pos)
         return obs, total_reward, terminated, truncated, info
 
     def reset(self):
         self.joint_pos = np.zeros(len(self.env.q_joints))
         return self.env.reset()
-    
+
     def render(self):
         return self.env.render()
+    
+    def duration_steps(self, option: int):
+        return int(self.options[option]['duration'] / DT)
 
 
-options_env = OptionEnv(env, options)
-
-while True:
-    obs, reward, terminated, truncated, info = options_env.step(np.random.randint(len(options)))
-    if hw_config is None:
-        options_env.render()
-    # if terminated or truncated:
-    #     options_env.reset()
-
-
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -133,4 +120,93 @@ class QFunction(nn.Module):
     def forward(self, x):
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
-        return self.out(x) # [B, num_options]
+        return self.out(x).squeeze(0) # [B, num_options]
+
+
+N_EPISODES = 100 # Number of episodes.
+idx_episode = 0
+DURATION_EPISODE = 10 # seconds
+MAX_STEPS_PER_EPISODE = int(DURATION_EPISODE / DT)
+EPSILON = 0.05 # Epsilon-greedy exploration.
+STEP_SIZE_TD = 0.01
+DISCOUNTING = 0.99
+
+# LOG 
+import datetime
+log_dir = os.path.join(os.path.dirname(__file__), 'logs', datetime.datetime.now().strftime('%Y%m%d_%H%M%S'))
+os.makedirs(log_dir, exist_ok=True)
+
+state_dim = env.observation_space.shape[0]
+num_options = len(options)
+assert num_options == 16
+
+Q = QFunction(state_dim=state_dim,
+              num_options=num_options)
+options_env = OptionEnv(env, options)
+
+optimizer = torch.optim.Adam(Q.parameters(), lr=0.001)
+
+# while True:
+#     obs, reward, terminated, truncated, info = options_env.step(np.random.randint(len(options)))
+#     if hw_config is None:
+#         options_env.render()
+#     # if terminated or truncated:
+#     #     options_env.reset()
+
+while True:
+    
+    # Reward per episode.
+    reward_per_episode = 0
+    
+    # Initialize S.
+    S, _ = env.reset()
+
+    # Choose option O from S using policy derived from Q (epsilon-greedy).
+    random_number = np.random.rand()
+    if random_number < EPSILON:
+        O = np.random.randint(len(options))
+    else:
+        with torch.no_grad():
+            S_tensor = torch.FloatTensor(S).unsqueeze(0)
+            O = np.argmax(Q(S_tensor))
+
+    for t in range(MAX_STEPS_PER_EPISODE):
+        # Take option O, observe R, S'.
+        S_prime, R, terminated, truncated, info = options_env.step(O)
+        S_prime_tensor = torch.FloatTensor(S_prime).unsqueeze(0)
+
+        # Choose option O' from S' using policy derived from Q (epsilon-greedy).
+        random_number = np.random.rand()
+        if random_number < EPSILON:
+            O_prime = np.random.randint(len(options))
+        else:
+            with torch.no_grad():
+                O_prime = np.argmax(Q(S_prime_tensor))
+
+        k = options_env.duration_steps(O)
+        # Update Q(S, O)
+        # Q(S, O) = Q(S, O) + STEP_SIZE_TD * (R + DISCOUNTING^k Q(S', O') - Q(S, O))
+        with torch.no_grad():
+            target = R + (DISCOUNTING * DT) ** k * Q(S_prime_tensor)[O_prime]
+
+        optimizer.zero_grad()
+        S_tensor = torch.FloatTensor(S).unsqueeze(0)
+        loss = F.mse_loss(Q(S_tensor)[O], target)
+        loss.backward()
+        optimizer.step()
+
+        S = S_prime.copy()
+        O = O_prime
+
+        reward_per_episode += R
+
+        if terminated or truncated:
+            break
+
+    print(f"Episode {idx_episode} reward: {reward_per_episode}")
+
+    idx_episode += 1
+
+    # Save Q model
+    torch.save(Q.state_dict(), os.path.join(log_dir, f"Q_model_{idx_episode}.pth"))
+
