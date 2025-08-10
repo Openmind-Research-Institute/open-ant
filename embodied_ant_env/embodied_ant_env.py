@@ -68,6 +68,7 @@ class EmbodiedAnt:
         if self._threads_should_exit:
             raise RuntimeError("EmbodiedAnt.step() called after close()")
 
+        action = action.copy()
         for i in range(4):
             action[2*i] = np.clip(action[2*i], -1, 1) * self.joint_config['hip_range'] + self.joint_config['hip_zero']
             action[2*i + 1] = np.clip(action[2*i + 1], -1, 1) * self.joint_config['knee_range'] + self.joint_config['knee_zero']
