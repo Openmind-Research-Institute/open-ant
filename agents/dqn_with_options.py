@@ -8,9 +8,9 @@ from embodied_ant_env import make_ant_env
 import numpy as np
 import json
 import matplotlib.pyplot as plt
+import sys
 
-
-hw_config = None
+hw_config = sys.argv[1] if len(sys.argv) > 1 else None
 render = "human"
 DT = 0.02
 
@@ -18,8 +18,9 @@ joint_config = {
             'hip_zero': 0,
             'knee_zero': -np.radians(60),
             'hip_range': np.radians(30),
-            'knee_range': np.radians(10),
+            'knee_range': np.radians(60),
         }
+
 if hw_config is None:
     env_id = 'ant_mujoco'
     current_path = os.path.dirname(os.path.abspath(__file__))
@@ -85,8 +86,11 @@ options_dict = {
 
 import random
 options_list = list(options_dict.keys())
-
-for i in range(1000):
+N = 6
+time_ = 0
+action_list = []
+time_list = []
+for i in range(N):
     # Pick a random option.
     current_option = random.choice(options_list)
     print('Current option: ', current_option)
@@ -95,12 +99,25 @@ for i in range(1000):
         option_value = options_dict[current_option]['option'][j]
         action = np.zeros(len(env.q_joints))
         for joint_name in options_dict[current_option]['joint_names']:
-            action[env.q_joints[joint_name]] = option_value
-        print(action)
-        # obs, reward, terminated, truncated, info = env.step(action)
-        # env.render()
-        # if terminated or truncated:
-        #     env.reset()
-        #     break
+            action[env.q_joints[joint_name] - 1] = option_value
+        obs, reward, terminated, truncated, info = env.step(action)
+        if hw_config is None:
+            env.render()
+        action_list.append(action)
+        time_ += DT
+        time_list.append(time_)
 
+action_np = np.array(action_list)
+fig, ax = plt.subplots(len(env.name_joints)//2, 2)
+for i in range(len(env.name_joints)//2):
+    ax[i, 0].plot(time_list, action_np[:, i])
+    ax[i, 0].set_title(env.name_joints[i])
+    ax[i, 0].set_xlabel('Time (s)')
+    ax[i, 0].set_ylabel('Action')
+    ax[i, 1].plot(time_list, action_np[:, i + len(env.name_joints)//2])
+    ax[i, 1].set_title(env.name_joints[i + len(env.name_joints)//2])
+    ax[i, 1].set_xlabel('Time (s)')
+    ax[i, 1].set_ylabel('Action')
+plt.tight_layout()
+plt.show()
 
