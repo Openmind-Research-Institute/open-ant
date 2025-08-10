@@ -42,9 +42,8 @@ else:
 
 
 def ramp(start_pos: float, end_pos: float, duration: float):
-    input_pos_list = [start_pos]
-    for i in range(int(duration / DT)):
-        input_pos_list.append(input_pos_list[-1] + (end_pos - start_pos) / (duration / DT))
+    num = int(duration / DT)
+    input_pos_list = np.linspace(start_pos, end_pos, num)
     return input_pos_list
 
 env.reset()
