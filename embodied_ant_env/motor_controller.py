@@ -1,5 +1,6 @@
 import dynamixel_sdk
 import numpy as np
+import time
 
 class MotorController:
     ADDR_TORQUE_ENABLE = 64
