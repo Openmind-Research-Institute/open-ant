@@ -27,7 +27,7 @@ if hw_config is None:
     print(current_path)
     render_mode = "human" if render else "rgb_array"
     env = AntEnv(xml_file=os.path.join(current_path, "../sim/assets/ant_position.xml"),
-                 render_mode=render_mode,
+                #  render_mode=render_mode,
                  dt=DT,
                  joint_config=joint_config)
 else:
@@ -113,19 +113,23 @@ import torch.nn.functional as F
 class QFunction(nn.Module):
     def __init__(self, state_dim, num_options):
         super().__init__()
-        self.fc1 = nn.Linear(state_dim, 128)   # first hidden layer
-        self.fc2 = nn.Linear(128, 128)         # second hidden layer
-        self.out = nn.Linear(128, num_options) # output Q-values for each action
+        self.fc1 = nn.Linear(state_dim, 8)   # first hidden layer
+        self.fc2 = nn.Linear(8, 8)         # second hidden layer
+        self.out = nn.Linear(8, num_options) # output Q-values for each action
 
     def forward(self, x):
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
-        return self.out(x).squeeze(0) # [B, num_options]
+        return self.out(x) # [B, num_options]
 
+state_dim = env.observation_space.shape[0]
+state_mock = np.zeros(state_dim)
+state_mock_tensor = torch.FloatTensor(state_mock)
+print(state_mock_tensor.shape)
 
 N_EPISODES = 100 # Number of episodes.
 idx_episode = 0
-DURATION_EPISODE = 10 # seconds
+DURATION_EPISODE = 30 # seconds
 MAX_STEPS_PER_EPISODE = int(DURATION_EPISODE / DT)
 EPSILON = 0.05 # Epsilon-greedy exploration.
 STEP_SIZE_TD = 0.01
@@ -170,12 +174,12 @@ while True:
     else:
         with torch.no_grad():
             S_tensor = torch.FloatTensor(S).unsqueeze(0)
-            O = np.argmax(Q(S_tensor))
+            O = np.argmax(Q(S_tensor).squeeze(0))
 
     for t in range(MAX_STEPS_PER_EPISODE):
         # Take option O, observe R, S'.
         S_prime, R, terminated, truncated, info = options_env.step(O)
-        S_prime_tensor = torch.FloatTensor(S_prime).unsqueeze(0)
+        S_prime_tensor = torch.FloatTensor(S_prime).unsqueeze(0) # [1, state_dim]
 
         # Choose option O' from S' using policy derived from Q (epsilon-greedy).
         random_number = np.random.rand()
@@ -183,17 +187,17 @@ while True:
             O_prime = np.random.randint(len(options))
         else:
             with torch.no_grad():
-                O_prime = np.argmax(Q(S_prime_tensor))
+                O_prime = np.argmax(Q(S_prime_tensor).squeeze(0))
 
         k = options_env.duration_steps(O)
         # Update Q(S, O)
         # Q(S, O) = Q(S, O) + STEP_SIZE_TD * (R + DISCOUNTING^k Q(S', O') - Q(S, O))
         with torch.no_grad():
-            target = R + (DISCOUNTING * DT) ** k * Q(S_prime_tensor)[O_prime]
+            target = R + (DISCOUNTING ** k) * Q(S_prime_tensor)[0, O_prime]
 
         optimizer.zero_grad()
         S_tensor = torch.FloatTensor(S).unsqueeze(0)
-        loss = F.mse_loss(Q(S_tensor)[O], target)
+        loss = F.mse_loss(Q(S_tensor)[0, O], target)
         loss.backward()
         optimizer.step()
 
