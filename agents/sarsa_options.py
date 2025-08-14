@@ -113,9 +113,9 @@ import torch.nn.functional as F
 class QFunction(nn.Module):
     def __init__(self, state_dim, num_options):
         super().__init__()
-        self.fc1 = nn.Linear(state_dim, 8)   # first hidden layer
-        self.fc2 = nn.Linear(8, 8)         # second hidden layer
-        self.out = nn.Linear(8, num_options) # output Q-values for each action
+        self.fc1 = nn.Linear(state_dim, 8)
+        self.fc2 = nn.Linear(8, 8)
+        self.out = nn.Linear(8, num_options)
 
     def forward(self, x):
         x = F.relu(self.fc1(x))
