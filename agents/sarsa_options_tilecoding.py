@@ -130,7 +130,7 @@ def greedy_option(w, T, state, num_options):
     return int(np.random.choice(best)), q_vals
 
 def select_option_epsilon_greedy(S):
-    # ε-greedy over options using tile-coded Q.
+    # ε-greedy over options using tile-coded T(s).
     if np.random.rand() < EPSILON:
         return np.random.randint(num_options)
     O_greedy, _ = greedy_option(w, T, S, num_options)
@@ -141,7 +141,7 @@ def clip_state_to_limits(S, limits):
     return np.clip(S, limits[:, 0], limits[:, 1])
 
 # Constants.
-DURATION_EPISODE = 30  # seconds
+DURATION_EPISODE = 30 # seconds
 MAX_STEPS_PER_EPISODE = int(DURATION_EPISODE / DT)
 EPSILON = 0.05
 DISCOUNTING = 0.99
