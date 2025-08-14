@@ -79,7 +79,7 @@ if hw_config is None:
     print(current_path)
     render_mode = "human" if render else "rgb_array"
     env = AntEnv(xml_file=os.path.join(current_path, "../sim/assets/ant_position.xml"),
-                 # render_mode=render_mode,
+                 render_mode=render_mode,
                  dt=DT,
                  joint_config=joint_config)
 else:
@@ -113,7 +113,6 @@ class SuttonTileCoderWrapper:
     def n_tiles(self):
         return self.iht.size
 
-
 log_dir = os.path.join(os.path.dirname(__file__), 'logs', datetime.datetime.now().strftime('%Y%m%d_%H%M%S'))
 os.makedirs(log_dir, exist_ok=True)
 df = pd.DataFrame(columns=["episode", "reward"])
@@ -129,9 +128,9 @@ def greedy_option(w, T, state, num_options):
     best = np.flatnonzero(q_vals == maxq)
     return int(np.random.choice(best)), q_vals
 
-def select_option_epsilon_greedy(S):
+def select_option_epsilon_greedy(S, epsilon, w, T):
     # ε-greedy over options using tile-coded T(s).
-    if np.random.rand() < EPSILON:
+    if np.random.rand() < epsilon:
         return np.random.randint(num_options)
     O_greedy, _ = greedy_option(w, T, S, num_options)
     return O_greedy
@@ -161,7 +160,10 @@ num_options = len(options)
 # IHT table size.
 tiles_per_dim = [DIM_TILING] * state_limits.shape[0]
 iht = IHT(IHT_SIZE)
-T = SuttonTileCoderWrapper(iht=iht, tiles_per_dim=tiles_per_dim, value_limits=state_limits, tilings=TILINGS)
+T = SuttonTileCoderWrapper(iht=iht,
+                           tiles_per_dim=tiles_per_dim,
+                           value_limits=state_limits,
+                           tilings=TILINGS)
 
 # TODO: integrate Kris's tile coding.
 # from tilecoding import KrisTileCoder
@@ -169,8 +171,16 @@ T = SuttonTileCoderWrapper(iht=iht, tiles_per_dim=tiles_per_dim, value_limits=st
 
 # Linear weights: [num_options, iht.size].
 # Q is parametrized as w * T(s), with T(s) being the tile-coded state.
-w = np.zeros((num_options, iht.size), dtype=np.float32)
-print(f"w.shape: {w.shape}")
+
+train_mode = False
+if train_mode:
+    w = np.zeros((num_options, iht.size), dtype=np.float32)
+    print(f"w.shape: {w.shape}")
+else:
+    log_dir = 'logs/20250814_150622'
+    w = np.load(os.path.join(log_dir, "weights_1800.npy"))
+    print(w)
+    print(f"w.shape: {w.shape}")
 
 # Step-size.
 # See: http://incompleteideas.net/tiles/tiles3.html
@@ -178,6 +188,7 @@ step_size = 0.1 / TILINGS
 
 idx_episode = 0
 while True:
+    true_pos_xy = []
     reward_per_episode = 0.0
 
     # Reset environment.
@@ -185,7 +196,12 @@ while True:
     S = clip_state_to_limits(S, state_limits) # Ensure state is within limits of the tile coder.
 
     # Select option.
-    O = select_option_epsilon_greedy(S)
+    if train_mode:
+        EPSILON = 0.05
+    else:
+        EPSILON = 0.02
+    O = select_option_epsilon_greedy(S, EPSILON, w, T)
+    print(f"O: {O}")
 
     # Run episode.
     for t in range(MAX_STEPS_PER_EPISODE):
@@ -195,25 +211,32 @@ while True:
         S_prime = clip_state_to_limits(S_prime, state_limits) # Ensure state is within limits of the tile coder.
 
         # Next option (ε-greedy).
-        O_prime = select_option_epsilon_greedy(S_prime)
+        if train_mode:
+            EPSILON = 0.05
+        else:
+            EPSILON = 0.02
+        O_prime = select_option_epsilon_greedy(S_prime, EPSILON, w, T)
+        print(f"O_prime: {O_prime}")
 
         # TD.
-        k = options_env.duration_steps(O)
-        idx_S  = T[S]
-        idx_S_prime = T[S_prime]
+        if train_mode:
+            k = options_env.duration_steps(O)
+            idx_S  = T[S]
+            idx_S_prime = T[S_prime]
 
-        # TODO: add the Delta Ts.
-        target = R + (DISCOUNTING ** k) * q_of(w, idx_S_prime, O_prime)
-        pred = q_of(w, idx_S,  O)
-        delta = target - pred
+            # TODO: add the Delta Ts.
+            target = R + (DISCOUNTING ** k) * q_of(w, idx_S_prime, O_prime)
+            pred = q_of(w, idx_S,  O)
+            delta = target - pred
 
-        # Update weights.
-        w[O, idx_S] += step_size * delta
+            # Update weights.
+            w[O, idx_S] += step_size * delta
 
         S = S_prime
         O = O_prime
         reward_per_episode += R
 
+        true_pos_xy.append([info["current_x_position"], info["current_y_position"]])
         if terminated or truncated:
             break
 
@@ -223,6 +246,8 @@ while True:
 
     # Save logs and weights.
     df.to_csv(os.path.join(log_dir, "rewards.csv"), index=False)
+    df_true_pos_xy = pd.DataFrame(true_pos_xy, columns=["x", "y"])
+    df_true_pos_xy.to_csv(os.path.join(log_dir, f"true_pos_xy_{idx_episode}.csv"), index=False)
     if idx_episode % 30 == 0:
         np.save(os.path.join(log_dir, f"weights_{idx_episode}.npy"), w)
     with open(os.path.join(log_dir, "tile_config.json"), "w") as f:
