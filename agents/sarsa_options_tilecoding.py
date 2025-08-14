@@ -197,7 +197,7 @@ while True:
         # Next option (ε-greedy).
         O_prime = select_option_epsilon_greedy(S_prime)
 
-        # Option duration k for semi-MDP target.
+        # TD.
         k = options_env.duration_steps(O)
         idx_S  = T[S]
         idx_S_prime = T[S_prime]
