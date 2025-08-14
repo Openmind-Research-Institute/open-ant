@@ -6,9 +6,10 @@ from matplotlib.colors import ListedColormap
 
 # Tile coding from Kris de Asis.
 
-class TileCoder:
+class KrisTileCoder:
 	def __init__(self, tiles_per_dim, value_limits, tilings, offset=lambda n: 2 * np.arange(n) + 1):
 		tiling_dims = np.array(np.ceil(tiles_per_dim), dtype=int) + 1
+		print(f"tiling_dims: {tiling_dims}")
 		self._offsets = offset(len(tiles_per_dim)) * \
 			np.repeat([np.arange(tilings)], len(tiles_per_dim), 0).T / float(tilings) % 1
 		self._limits = np.array(value_limits)
@@ -137,7 +138,7 @@ if __name__ == '__main__':
 	tiles_per_dim = [10, 10]
 	lims = [(0.0, 10.0), (0.0, 10.0)]
 	tilings = 8
-	T = TileCoder(tiles_per_dim, lims, tilings)
+	T = KrisTileCoder(tiles_per_dim, lims, tilings)
 	test_points = [(3.6, 7.21)]
 	print(T[test_points[0]])
 
