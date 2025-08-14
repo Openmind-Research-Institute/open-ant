@@ -77,8 +77,11 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         }
 
         obs_size = 8 + 8 + 2 + 3 + 3
+        # self.observation_space = Box(
+        #     low=-np.inf, high=np.inf, shape=(obs_size,), dtype=np.float64
+        # )
         self.observation_space = Box(
-            low=-np.inf, high=np.inf, shape=(obs_size,), dtype=np.float64
+            low=-1, high=1, shape=(obs_size,), dtype=np.float64
         )
 
         self.action_space = Box(
@@ -123,6 +126,7 @@ class AntEnv(MujocoEnv, utils.EzPickle):
 
         info = {
             "current_x_position": self.data.qpos[0],
+            "current_y_position": self.data.qpos[1],
             "previous_x_position": self.previous_x_position,
             "distance_from_origin": np.linalg.norm(self.data.qpos[0:2], ord=2),
         }
