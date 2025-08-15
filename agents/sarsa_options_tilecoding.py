@@ -33,10 +33,12 @@ class OptionEnv:
         opt = self.options[option]
         traj = ramp(self.joint_pos[opt['joint']], opt['target'], opt['duration'])
         total_reward = 0.0
+        gamma_i = 1.0
         for i in range(self.duration_steps(option)):
             self.joint_pos[opt['joint']] = traj[i]
             obs, reward, terminated, truncated, info = self.env.step(self.joint_pos)
-            total_reward = reward + self.discount * total_reward
+            total_reward += gamma_i * reward
+            gamma_i *= self.discount
             if terminated or truncated:
                 return obs, total_reward, terminated, truncated, info
         return obs, total_reward, terminated, truncated, info
@@ -172,7 +174,7 @@ T = SuttonTileCoderWrapper(iht=iht,
 # Linear weights: [num_options, iht.size].
 # Q is parametrized as w * T(s), with T(s) being the tile-coded state.
 
-train_mode = False
+train_mode = True
 if train_mode:
     w = np.zeros((num_options, iht.size), dtype=np.float32)
     print(f"w.shape: {w.shape}")
@@ -201,7 +203,6 @@ while True:
     else:
         EPSILON = 0.02
     O = select_option_epsilon_greedy(S, EPSILON, w, T)
-    print(f"O: {O}")
 
     # Run episode.
     for t in range(MAX_STEPS_PER_EPISODE):
@@ -216,7 +217,6 @@ while True:
         else:
             EPSILON = 0.02
         O_prime = select_option_epsilon_greedy(S_prime, EPSILON, w, T)
-        print(f"O_prime: {O_prime}")
 
         # TD.
         if train_mode:
