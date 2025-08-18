@@ -99,6 +99,11 @@ class AntEnv(MujocoEnv, utils.EzPickle):
 
         self.previous_x_position = 0.0
 
+        self.info = {
+            "last_last_action": np.zeros(8),
+            "last_action": np.zeros(8),
+        }
+
     def step(self, action):
         action = action.copy()
         for i in range(4):
@@ -113,20 +118,24 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         if self.render_mode == "human":
             self.render()
 
-        info = {
+        self.info = {
             "current_x_position": self.data.qpos[0],
             "previous_x_position": self.previous_x_position,
             "distance_from_origin": np.linalg.norm(self.data.qpos[0:2], ord=2),
+            "last_last_action": self.info["last_action"],
+            "last_action": action,
         }
         self.previous_x_position = self.data.qpos[0]
 
         # truncation=False as the time limit is handled by the `TimeLimit` wrapper added during `make`
         truncated = self._get_truncated()
         terminated = False
-        return observation, reward, terminated, truncated, info
+        return observation, reward, terminated, truncated, self.info
 
     def _get_rew(self):
-        reward = (self.data.qpos[0] - self.previous_x_position) * self._forward_reward_weight
+        ctrl_cost = 0.005 * np.sum(np.square(self.info["last_last_action"] - self.info["last_action"]))
+        forward_progress_reward = (self.data.qpos[0] - self.previous_x_position) * self._forward_reward_weight
+        reward = forward_progress_reward - ctrl_cost
         reward_info = {"reward": reward}
 
         return reward, reward_info
