@@ -100,6 +100,7 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         self.previous_x_position = 0.0
 
     def step(self, action):
+        action = action.copy()
         for i in range(4):
             action[2*i] = np.clip(action[2*i], -1, 1) * self._joint_config['hip_range'] + self._joint_config['hip_zero']
             action[2*i + 1] = np.clip(action[2*i + 1], -1, 1) * self._joint_config['knee_range'] + self._joint_config['knee_zero']

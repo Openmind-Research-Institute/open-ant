@@ -50,6 +50,9 @@ class EmbodiedAnt:
         self.last_heading_vector = np.array([1, 0])
         self.last_seen = 0
 
+        self.temperature_log = open('temperature_log.csv', 'a')
+        # self.temperature_log = open('temperature_log.csv', 'w')
+
     def __del__(self):
         self.close()
 
@@ -65,6 +68,7 @@ class EmbodiedAnt:
         if self._threads_should_exit:
             raise RuntimeError("EmbodiedAnt.step() called after close()")
 
+        action = action.copy()
         for i in range(4):
             action[2*i] = np.clip(action[2*i], -1, 1) * self.joint_config['hip_range'] + self.joint_config['hip_zero']
             action[2*i + 1] = np.clip(action[2*i + 1], -1, 1) * self.joint_config['knee_range'] + self.joint_config['knee_zero']
@@ -82,6 +86,9 @@ class EmbodiedAnt:
 
         observation, info = self.get_observation()
         reward, terminated, truncated = self.get_reward(info)
+
+        self.temperature_log.write(f"{time.time()}, " + ", ".join(map(str, info['temperatures'])) + "\n")
+        self.temperature_log.flush()
 
         errors = self.motor_controller.check_errors()
         if len(errors) > 0:
@@ -111,10 +118,12 @@ class EmbodiedAnt:
             else:
                 bodies, frame, vis_frame = {}, np.zeros((640, 480, 3)), np.zeros((640, 480, 3))
         joint_positions, joint_velocities, joint_loads = self.motor_controller.get_feedback()
+        temperatures = self.motor_controller.get_temperature()
         info = imu_data
         info['joint_positions'] = joint_positions
         info['joint_velocities'] = joint_velocities
         info['joint_loads'] = joint_loads
+        info['temperatures'] = temperatures
         info['bodies'] = bodies
         info['frame'] = frame
         info['vis_frame'] = vis_frame

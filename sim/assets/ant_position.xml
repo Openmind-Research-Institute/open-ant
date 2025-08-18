@@ -40,61 +40,65 @@
       <site name="left_pupil" pos="0.06 0.03 0.02" size="0.022" type="sphere" rgba="0 0 0 1"/>
       <site name="right_pupil" pos="0.06 -0.03 0.02" size="0.022" type="sphere" rgba="0 0 0 1"/>
 
-      <body name="front_left_leg" pos="0 0 0">
-        <geom fromto="0.0 0.0 0.0 0.06 0.06 0.0" name="aux_1_geom" size="0.024" type="capsule" mass="0.020"/>
-        <body name="aux_1" pos="0.06 0.06 0">
-          <joint axis="0 0 1" name="hip_1" pos="0.0 0.0 0.0" range="-0.52 0.52" type="hinge"/>
-          <geom fromto="0.0 0.0 0.0 0.06 0.06 0.0" name="left_leg_geom" size="0.024" type="capsule" mass="0.080"/>
-          <body pos="0.06 0.06 0">
-            <joint axis="1 -1 0" name="ankle_1" pos="0.0 0.0 0.0" range="-1.57 1.57" type="hinge"/>
-            <geom fromto="0.0 0.0 0.0 0.12 0.12 0.0" name="left_ankle_geom" size="0.024" type="capsule" mass="0.030" rgba="1 0 0 1"/>
-          </body>
-        </body>
-      </body>
-      <body name="front_right_leg" pos="0 0 0">
-        <geom fromto="0.0 0.0 0.0 -0.06 0.06 0.0" name="aux_2_geom" size="0.024" type="capsule" mass="0.020"/>
-        <body name="aux_2" pos="-0.06 0.06 0">
-          <joint axis="0 0 1" name="hip_2" pos="0.0 0.0 0.0" range="-0.52 0.52" type="hinge"/>
-          <geom fromto="0.0 0.0 0.0 -0.06 0.06 0.0" name="right_leg_geom" size="0.024" type="capsule" mass="0.080"/>
-          <body pos="-0.06 0.06 0">
-            <joint axis="1 1 0" name="ankle_2" pos="0.0 0.0 0.0" range="-1.57 1.57" type="hinge"/>
-            <geom fromto="0.0 0.0 0.0 -0.12 0.12 0.0" name="right_ankle_geom" size="0.024" type="capsule" mass="0.030" rgba="0 1 0 1"/>
-          </body>
-        </body>
-      </body>
-      <body name="back_leg" pos="0 0 0">
-        <geom fromto="0.0 0.0 0.0 -0.06 -0.06 0.0" name="aux_3_geom" size="0.024" type="capsule" mass="0.020"/>
+      <body name="rear_right_leg" pos="0 0 0">
+        <geom fromto="0.0 0.0 0.0 -0.06 -0.06 0.0" name="rear_right_leg_geom" size="0.024" type="capsule" mass="0.020"/>
         <body name="aux_3" pos="-0.06 -0.06 0">
-          <joint axis="0 0 1" name="hip_3" pos="0.0 0.0 0.0" range="-0.52 0.52" type="hinge"/>
-          <geom fromto="0.0 0.0 0.0 -0.06 -0.06 0.0" name="back_leg_geom" size="0.024" type="capsule" mass="0.080"/>
+          <joint axis="0 0 1" name="hip_rr" pos="0.0 0.0 0.0" range="-0.785 0.785" type="hinge"/>
+          <geom fromto="0.0 0.0 0.0 -0.06 -0.06 0.0" name="rear_right_upper_leg_geom" size="0.024" type="capsule" mass="0.080"/>
           <body pos="-0.06 -0.06 0">
-            <joint axis="-1 1 0" name="ankle_3" pos="0.0 0.0 0.0" range="-1.57 1.57" type="hinge"/>
-            <geom fromto="0.0 0.0 0.0 -0.12 -0.12 0.0" name="third_ankle_geom" size="0.024" type="capsule" mass="0.030" rgba="0 0 1 1"/>
+            <joint axis="-1 1 0" name="knee_rr" pos="0.0 0.0 0.0" range="-1.22 1.22" type="hinge"/>
+            <geom fromto="0.0 0.0 0.0 -0.12 -0.12 0.0" name="rear_right_lower_leg_geom" size="0.024" type="capsule" mass="0.030" rgba="0 0 1 1"/>
           </body>
         </body>
       </body>
-      <body name="right_back_leg" pos="0 0 0">
-        <geom fromto="0.0 0.0 0.0 0.06 -0.06 0.0" name="aux_4_geom" size="0.024" type="capsule" mass="0.020"/>
+
+      <body name="front_right_leg" pos="0 0 0">
+        <geom fromto="0.0 0.0 0.0 0.06 -0.06 0.0" name="front_right_leg_geom" size="0.024" type="capsule" mass="0.020"/>
         <body name="aux_4" pos="0.06 -0.06 0">
-          <joint axis="0 0 1" name="hip_4" pos="0.0 0.0 0.0" range="-0.52 0.52" type="hinge"/>
-          <geom fromto="0.0 0.0 0.0 0.06 -0.06 0.0" name="rightback_leg_geom" size="0.024" type="capsule" mass="0.080"/>
+          <joint axis="0 0 1" name="hip_fr" pos="0.0 0.0 0.0" range="-0.785 0.785" type="hinge"/>
+          <geom fromto="0.0 0.0 0.0 0.06 -0.06 0.0" name="front_right_upper_leg_geom" size="0.024" type="capsule" mass="0.080"/>
           <body pos="0.06 -0.06 0">
-            <joint axis="-1 -1 0" name="ankle_4" pos="0.0 0.0 0.0" range="-1.57 1.57" type="hinge"/>
-            <geom fromto="0.0 0.0 0.0 0.12 -0.12 0.0" name="fourth_ankle_geom" size="0.024" type="capsule" mass="0.030" rgba="1 1 1 1"/>
+            <joint axis="-1 -1 0" name="knee_fr" pos="0.0 0.0 0.0" range="-1.22 1.22" type="hinge"/>
+            <geom fromto="0.0 0.0 0.0 0.12 -0.12 0.0" name="front_right_lower_leg_geom" size="0.024" type="capsule" mass="0.030" rgba="1 1 1 1"/>
           </body>
         </body>
       </body>
+
+      <body name="front_left_leg" pos="0 0 0">
+        <geom fromto="0.0 0.0 0.0 0.06 0.06 0.0" name="front_left_leg_geom" size="0.024" type="capsule" mass="0.020"/>
+        <body name="aux_1" pos="0.06 0.06 0">
+          <joint axis="0 0 1" name="hip_fl" pos="0.0 0.0 0.0" range="-0.785 0.785" type="hinge"/>
+          <geom fromto="0.0 0.0 0.0 0.06 0.06 0.0" name="front_leg_upper_leg_geom" size="0.024" type="capsule" mass="0.080"/>
+          <body pos="0.06 0.06 0">
+            <joint axis="1 -1 0" name="knee_fl" pos="0.0 0.0 0.0" range="-1.22 1.22" type="hinge"/>
+            <geom fromto="0.0 0.0 0.0 0.12 0.12 0.0" name="front_left_lower_leg_geom" size="0.024" type="capsule" mass="0.030" rgba="1 0 0 1"/>
+          </body>
+        </body>
+      </body>
+
+      <body name="rear_left_leg" pos="0 0 0">
+        <geom fromto="0.0 0.0 0.0 -0.06 0.06 0.0" name="rear_left_leg_geom" size="0.024" type="capsule" mass="0.020"/>
+        <body name="aux_2" pos="-0.06 0.06 0">
+          <joint axis="0 0 1" name="hip_rl" pos="0.0 0.0 0.0" range="-0.785 0.785" type="hinge"/>
+          <geom fromto="0.0 0.0 0.0 -0.06 0.06 0.0" name="rear_leg_upper_leg_geom" size="0.024" type="capsule" mass="0.080"/>
+          <body pos="-0.06 0.06 0">
+            <joint axis="1 1 0" name="knee_rl" pos="0.0 0.0 0.0" range="-1.22 1.22" type="hinge"/>
+            <geom fromto="0.0 0.0 0.0 -0.12 0.12 0.0" name="rear_left_lower_leg_geom" size="0.024" type="capsule" mass="0.030" rgba="0 1 0 1"/>
+          </body>
+        </body>
+      </body>
+
     </body>
   </worldbody>
   <actuator>
-    <position joint="hip_1" kp="3.0" kv="0.1" ctrllimited="true" ctrlrange="-0.52 0.52"/>
-    <position joint="ankle_1" kp="3.0" kv="0.1" ctrllimited="true" ctrlrange="-1.57 1.57"/>
-    <position joint="hip_2" kp="3.0" kv="0.1" ctrllimited="true" ctrlrange="-0.52 0.52"/>
-    <position joint="ankle_2" kp="3.0" kv="0.1" ctrllimited="true" ctrlrange="-1.57 1.57"/>
-    <position joint="hip_3" kp="3.0" kv="0.1" ctrllimited="true" ctrlrange="-0.52 0.52"/>
-    <position joint="ankle_3" kp="3.0" kv="0.1" ctrllimited="true" ctrlrange="-1.57 1.57"/>
-    <position joint="hip_4" kp="3.0" kv="0.1" ctrllimited="true" ctrlrange="-0.52 0.52"/>
-    <position joint="ankle_4" kp="3.0" kv="0.1" ctrllimited="true" ctrlrange="-1.57 1.57"/>
+    <position joint="hip_rr" kp="3.0" kv="0.1"/>
+    <position joint="knee_rr" kp="3.0" kv="0.1"/>
+    <position joint="hip_fr" kp="3.0" kv="0.1"/>
+    <position joint="knee_fr" kp="3.0" kv="0.1"/>
+    <position joint="hip_fl" kp="3.0" kv="0.1"/>
+    <position joint="knee_fl" kp="3.0" kv="0.1"/>
+    <position joint="hip_rl" kp="3.0" kv="0.1"/>
+    <position joint="knee_rl" kp="3.0" kv="0.1"/>
   </actuator>
   <!-- <actuator>
     <motor ctrllimited="true" ctrlrange="-1.0 1.0" joint="hip_4" gear="150" name="hip_4"/>
