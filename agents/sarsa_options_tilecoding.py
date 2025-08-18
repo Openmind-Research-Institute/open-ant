@@ -10,8 +10,13 @@ import json
 import matplotlib.pyplot as plt
 import pandas as pd
 import datetime
+import cv2
 
 np.set_printoptions(precision=4, suppress=True, linewidth=120, threshold=1000)
+
+RED = "\033[91m"
+YELLOW = "\033[93m"
+RESET = "\033[0m"
 
 # Random seed.
 np.random.seed(42)
@@ -28,7 +33,7 @@ class OptionEnv:
         self.options = options
         self.discount = discount
         self.joint_pos = np.zeros(len(env.q_joints))
-    
+
     def step(self, option: int):
         opt = self.options[option]
         traj = ramp(self.joint_pos[opt['joint']], opt['target'], opt['duration'])
@@ -81,7 +86,7 @@ if hw_config is None:
     print(current_path)
     render_mode = "human" if render else "rgb_array"
     env = AntEnv(xml_file=os.path.join(current_path, "../sim/assets/ant_position.xml"),
-                 render_mode=render_mode,
+                 render_mode="rgb_array",
                  dt=DT,
                  joint_config=joint_config)
 else:
@@ -117,7 +122,7 @@ class SuttonTileCoderWrapper:
 
 log_dir = os.path.join(os.path.dirname(__file__), 'logs', datetime.datetime.now().strftime('%Y%m%d_%H%M%S'))
 os.makedirs(log_dir, exist_ok=True)
-df = pd.DataFrame(columns=["episode", "reward"])
+df = pd.DataFrame(columns=["episode", "reward", "real_time_seconds"])
 
 def q_of(w, idx, o):
     return w[o, idx].sum()
@@ -128,6 +133,14 @@ def greedy_option(w, T, state, num_options):
     # Tie-break among maxima, in case of ties.
     maxq = q_vals.max()
     best = np.flatnonzero(q_vals == maxq)
+    # plt.clf()
+    # plt.bar(range(len(q_vals)), q_vals)
+    # # Color the highest q-value in red.
+    # plt.bar(np.argmax(q_vals), q_vals[np.argmax(q_vals)], color='red')
+    # plt.title('Q-values for each option')
+    # plt.xlabel('Option')
+    # plt.ylabel('Q-value')
+    # plt.pause(0.01)
     return int(np.random.choice(best)), q_vals
 
 def select_option_epsilon_greedy(S, epsilon, w, T):
@@ -142,8 +155,8 @@ def clip_state_to_limits(S, limits):
     return np.clip(S, limits[:, 0], limits[:, 1])
 
 # Constants.
-DURATION_EPISODE = 30 # seconds
-MAX_STEPS_PER_EPISODE = int(DURATION_EPISODE / DT)
+# DURATION_EPISODE = 5 # seconds
+MAX_STEP_OPTIONS_PER_EPISODE = 300
 EPSILON = 0.05
 DISCOUNTING = 0.99
 
@@ -174,21 +187,33 @@ T = SuttonTileCoderWrapper(iht=iht,
 # Linear weights: [num_options, iht.size].
 # Q is parametrized as w * T(s), with T(s) being the tile-coded state.
 
-train_mode = True
-if train_mode:
+load_previous_weights = True
+if load_previous_weights == False:
     w = np.zeros((num_options, iht.size), dtype=np.float32)
     print(f"w.shape: {w.shape}")
 else:
-    log_dir = 'logs/20250814_150622'
-    w = np.load(os.path.join(log_dir, "weights_1800.npy"))
-    print(w)
+    log_dir = 'logs/20250817_151556'
+    # find the latest weights file.
+    # print(f"Latest weights file: {latest_weights_file}")
+    w = np.load(os.path.join(log_dir, 'weights_493.npy'))
+    print('Loaded weights from previous run.')
     print(f"w.shape: {w.shape}")
 
 # Step-size.
 # See: http://incompleteideas.net/tiles/tiles3.html
 step_size = 0.1 / TILINGS
 
+with open(os.path.join(log_dir, "tile_config.json"), "w") as f:
+    json.dump({
+        "tiles_per_dim": tiles_per_dim,
+        "tilings": TILINGS,
+        "state_limits": state_limits.tolist(),
+        "iht_size": IHT_SIZE
+    }, f, indent=2)
+
 idx_episode = 0
+real_time_seconds = 0.0
+
 while True:
     true_pos_xy = []
     reward_per_episode = 0.0
@@ -198,62 +223,102 @@ while True:
     S = clip_state_to_limits(S, state_limits) # Ensure state is within limits of the tile coder.
 
     # Select option.
-    if train_mode:
-        EPSILON = 0.05
-    else:
-        EPSILON = 0.02
     O = select_option_epsilon_greedy(S, EPSILON, w, T)
 
     # Run episode.
-    for t in range(MAX_STEPS_PER_EPISODE):
+    for t in range(MAX_STEP_OPTIONS_PER_EPISODE):
+        # print(f"Episode {idx_episode} | step {t} | option {O}")
 
         # Run option O.
         S_prime, R, terminated, truncated, info = options_env.step(O)
         S_prime = clip_state_to_limits(S_prime, state_limits) # Ensure state is within limits of the tile coder.
+        # if idx_episode % 100 == 0:
+        #     frame = env.render()
+        #     cv2.imshow("Ant", cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+        #     cv2.waitKey(1) # 1 ms delay so the window updates
 
         # Next option (ε-greedy).
-        if train_mode:
-            EPSILON = 0.05
-        else:
-            EPSILON = 0.02
         O_prime = select_option_epsilon_greedy(S_prime, EPSILON, w, T)
 
         # TD.
-        if train_mode:
-            k = options_env.duration_steps(O)
-            idx_S  = T[S]
-            idx_S_prime = T[S_prime]
+        k = options_env.duration_steps(O)
+        idx_S  = T[S]
+        idx_S_prime = T[S_prime]
 
-            # TODO: add the Delta Ts.
-            target = R + (DISCOUNTING ** k) * q_of(w, idx_S_prime, O_prime)
-            pred = q_of(w, idx_S,  O)
-            delta = target - pred
+        # TODO: add the Delta Ts.
+        target = R + (DISCOUNTING ** k) * q_of(w, idx_S_prime, O_prime)
+        pred = q_of(w, idx_S,  O)
+        delta = target - pred
 
-            # Update weights.
-            w[O, idx_S] += step_size * delta
+        # Update weights.
+        w[O, idx_S] += step_size * delta
 
         S = S_prime
         O = O_prime
         reward_per_episode += R
+        duration_option = options_env.duration_steps(O)
+        real_time_seconds += duration_option * DT
 
-        true_pos_xy.append([info["current_x_position"], info["current_y_position"]])
+        # true_pos_xy.append([info["current_x_position"], info["current_y_position"]])
         if terminated or truncated:
             break
 
-    print(f"Episode {idx_episode} reward: {reward_per_episode:.4f}")
-    df.loc[idx_episode] = [idx_episode, reward_per_episode]
+    print(f"Episode {idx_episode} | reward: {YELLOW}{reward_per_episode:.4f}{RESET} | time in seconds: {(t * idx_episode * DT):.4f}")
+    df.loc[idx_episode] = [idx_episode, reward_per_episode, real_time_seconds]
     idx_episode += 1
+
+    # Save weights.
+    np.save(os.path.join(log_dir, f"weights_{idx_episode}.npy"), w)
 
     # Save logs and weights.
     df.to_csv(os.path.join(log_dir, "rewards.csv"), index=False)
-    df_true_pos_xy = pd.DataFrame(true_pos_xy, columns=["x", "y"])
-    df_true_pos_xy.to_csv(os.path.join(log_dir, f"true_pos_xy_{idx_episode}.csv"), index=False)
-    if idx_episode % 30 == 0:
-        np.save(os.path.join(log_dir, f"weights_{idx_episode}.npy"), w)
-    with open(os.path.join(log_dir, "tile_config.json"), "w") as f:
-        json.dump({
-            "tiles_per_dim": tiles_per_dim,
-            "tilings": TILINGS,
-            "state_limits": state_limits.tolist(),
-            "iht_size": IHT_SIZE
-        }, f, indent=2)
+
+    if idx_episode % 100 == 0:
+        # Reward plot.
+        fig, ax1 = plt.subplots()
+        ax1.plot(df['episode'], df['reward'], color="blue", label='rewards')
+        ax1.set_xlabel('Episode')
+        ax1.set_ylabel('Reward')
+        ax1.set_title('Rewards over Time')
+        ax1.axhline(y=0, color='black', linestyle='--', linewidth=0.5)
+        ax1.legend()
+        ax2 = ax1.twiny()
+        ax2.set_xlim(ax1.get_xlim())
+        ax2.xaxis.set_ticks_position("bottom")
+        ax2.xaxis.set_label_position("bottom")
+        ax2.spines["bottom"].set_position(("outward", 40))  # shift it down
+        max_time = df['real_time_seconds'].max()
+        max_episode = df['episode'].max()
+        time_ticks = np.linspace(0, max_time, 10)  # 10 evenly spaced time points
+        episode_ticks = np.linspace(0, max_episode, 10)  # 10 evenly spaced episode points
+        ax1.set_xticks(episode_ticks)
+        ax1.set_xticklabels([f"{int(e)}" for e in episode_ticks])
+        ax2.set_xticks(episode_ticks)
+        ax2.set_xticklabels([f"{t:.0f}s" for t in time_ticks])
+        ax2.set_xlabel("Real Time (seconds)")
+        plt.tight_layout()
+        plt.savefig(os.path.join(log_dir, f"rewards.png"))
+        plt.close()
+
+        # Save and plot the trajectory.
+        # df_true_pos_xy = pd.DataFrame(true_pos_xy, columns=["x", "y"])
+        # df_true_pos_xy.to_csv(os.path.join(log_dir, f"true_pos_xy_{idx_episode}.csv"), index=False)
+        # # Generate a plot.
+        # true_pos_xy_df = pd.read_csv(os.path.join(log_dir, f'true_pos_xy_{idx_episode}.csv'))
+        # x0 = true_pos_xy_df['x'][0]
+        # y0 = true_pos_xy_df['y'][0]
+        # xf = true_pos_xy_df['x'].iloc[-1]
+        # yf = true_pos_xy_df['y'].iloc[-1]
+        # distance = np.linalg.norm([xf - x0, yf - y0])
+        # print(f"distance: {distance/30}")
+        # plt.figure()
+        # plt.plot(true_pos_xy_df['x'], true_pos_xy_df['y'], label=f'traj {idx_episode}', alpha=0.5)
+        # plt.scatter(true_pos_xy_df['x'][0], true_pos_xy_df['y'][0], color='red', label='start')
+        # plt.scatter(true_pos_xy_df['x'].iloc[-1], true_pos_xy_df['y'].iloc[-1], color='green', label='end')
+        # plt.xlabel('x')
+        # plt.ylabel('y')
+        # plt.title('Trajectory')
+        # plt.ylim(-1, 1)
+        # plt.legend()
+        # plt.savefig(os.path.join(log_dir, f"trajectory_{idx_episode}.png"))
+        # plt.close()
