@@ -27,6 +27,15 @@ class MotorController:
     def __del__(self):
         self.disable()
 
+    @staticmethod
+    def sync_read_rxtx_retry(sync_read_obj, num_retries=3):
+        for _ in range(num_retries):
+            dxl_comm_result = sync_read_obj.txRxPacket()
+            if dxl_comm_result == dynamixel_sdk.COMM_SUCCESS:
+                return dxl_comm_result
+            print(f"Failed to perform sync read: {dxl_comm_result}, retrying...")
+        raise Exception(f"Failed to perform sync read: {dxl_comm_result}")
+
     def find_offset(self):
         self.offset = [0] * len(self.motor_list)
         initial_positions = self.get_feedback()[0]
@@ -98,9 +107,7 @@ class MotorController:
         sync_read = dynamixel_sdk.GroupSyncRead(self.port, self.packet, self.ADDR_PRESENT_LOAD, 2 + 4 + 4)
         for motor in self.motor_list:
             sync_read.addParam(motor['id'])
-        dxl_comm_result = sync_read.txRxPacket()
-        if dxl_comm_result != dynamixel_sdk.COMM_SUCCESS:
-            raise Exception(f"Failed to get feedback: {self.packet.getTxRxResult(dxl_comm_result)}")
+        self.sync_read_rxtx_retry(sync_read)
         positions = []
         velocities = []
         loads = []
@@ -149,9 +156,7 @@ class MotorController:
         sync_read = dynamixel_sdk.GroupSyncRead(self.port, self.packet, self.ADDR_HARDWARE_ERROR_STATUS, 1)
         for motor in self.motor_list:
             sync_read.addParam(motor['id'])
-        dxl_comm_result = sync_read.txRxPacket()
-        if dxl_comm_result != dynamixel_sdk.COMM_SUCCESS:
-            raise Exception(f"Failed to get error: {self.packet.getTxRxResult(dxl_comm_result)}")
+        self.sync_read_rxtx_retry(sync_read)
         errors = []
         for motor in self.motor_list:
             if sync_read.isAvailable(motor['id'], self.ADDR_HARDWARE_ERROR_STATUS, 1):
@@ -172,9 +177,7 @@ class MotorController:
         sync_read = dynamixel_sdk.GroupSyncRead(self.port, self.packet, self.ADDR_PRESENT_TEMPERATURE, 1)
         for motor in self.motor_list:
             sync_read.addParam(motor['id'])
-        dxl_comm_result = sync_read.txRxPacket()
-        if dxl_comm_result != dynamixel_sdk.COMM_SUCCESS:
-            raise Exception(f"Failed to get temperature: {self.packet.getTxRxResult(dxl_comm_result)}")
+        self.sync_read_rxtx_retry(sync_read)
         temperatures = []
         for motor in self.motor_list:
             if sync_read.isAvailable(motor['id'], self.ADDR_PRESENT_TEMPERATURE, 1):
