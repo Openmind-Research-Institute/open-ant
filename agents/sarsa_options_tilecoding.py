@@ -156,7 +156,7 @@ def clip_state_to_limits(S, limits):
 
 # Constants.
 # DURATION_EPISODE = 5 # seconds
-MAX_STEP_OPTIONS_PER_EPISODE = 300
+MAX_OPTIONS_PER_EPISODE = 300
 EPSILON = 0.05
 DISCOUNTING = 0.99
 
@@ -187,7 +187,7 @@ T = SuttonTileCoderWrapper(iht=iht,
 # Linear weights: [num_options, iht.size].
 # Q is parametrized as w * T(s), with T(s) being the tile-coded state.
 
-load_previous_weights = True
+load_previous_weights = False
 if load_previous_weights == False:
     w = np.zeros((num_options, iht.size), dtype=np.float32)
     print(f"w.shape: {w.shape}")
@@ -215,6 +215,8 @@ idx_episode = 0
 real_time_seconds = 0.0
 
 while True:
+    EPSILON = max(0.05, 0.2 - idx_episode * 0.00015)
+
     true_pos_xy = []
     reward_per_episode = 0.0
 
@@ -226,7 +228,7 @@ while True:
     O = select_option_epsilon_greedy(S, EPSILON, w, T)
 
     # Run episode.
-    for t in range(MAX_STEP_OPTIONS_PER_EPISODE):
+    for t in range(MAX_OPTIONS_PER_EPISODE):
         # print(f"Episode {idx_episode} | step {t} | option {O}")
 
         # Run option O.
@@ -263,7 +265,7 @@ while True:
         if terminated or truncated:
             break
 
-    print(f"Episode {idx_episode} | reward: {YELLOW}{reward_per_episode:.4f}{RESET} | time in seconds: {(t * idx_episode * DT):.4f}")
+    print(f"Episode {idx_episode} | reward: {YELLOW}{reward_per_episode:.4f}{RESET} | time in seconds: {(t * idx_episode * DT):.4f} | time in hours: {(t * idx_episode * DT) / 3600:.4f} | epsilon: {EPSILON:.4f}")
     df.loc[idx_episode] = [idx_episode, reward_per_episode, real_time_seconds]
     idx_episode += 1
 
