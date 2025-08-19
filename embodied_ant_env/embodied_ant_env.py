@@ -6,15 +6,12 @@ from collections import defaultdict
 from imu_msp import IMU_MSP
 from motor_controller import MotorController
 from apriltag_tracking import VisionTracker, show_image
+import gymnasium as gym
+from gymnasium import spaces
 
-class Space:
-    def __init__(self, shape, dtype):
-        self.shape = shape
-        self.dtype = dtype
-
-class EmbodiedAnt:
-    action_space = Space(shape=(8,), dtype=np.float32)
-    observation_space = Space(shape=(24,), dtype=np.float32)
+class EmbodiedAnt(gym.Env):
+    action_space = spaces.Box(low=-1, high=1, shape=(8,), dtype=np.float32)
+    observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(24,), dtype=np.float32)
 
     def __init__(self, motor_controller, imu, tracker, dt=0.02, render_mode=None, joint_config=None):
         self.motor_controller = motor_controller
