@@ -61,11 +61,12 @@ class OptionEnv:
 options = []
 for i in range(4):
     # hip
-    options.append({"joint": 2*i, "target": np.radians(40),  "duration": 0.3})
-    options.append({"joint": 2*i, "target": -np.radians(40), "duration": 0.3})
+    options.append({"joint": 2*i, "target": np.radians(40),  "duration": 0.5})
+    options.append({"joint": 2*i, "target": -np.radians(40), "duration": 0.5})
     # knee
-    options.append({"joint": 2*i + 1, "target": np.radians(30),  "duration": 0.3})
-    options.append({"joint": 2*i + 1, "target": -np.radians(30), "duration": 0.3})
+    options.append({"joint": 2*i + 1, "target": np.radians(45),  "duration": 0.5})
+    options.append({"joint": 2*i + 1, "target": -np.radians(45), "duration": 0.5})
+
 
 # Constants.
 render = "human"
@@ -76,7 +77,7 @@ joint_config = {
     'hip_zero': 0,
     'knee_zero': -np.radians(60),
     'hip_range': np.radians(45),
-    'knee_range': np.radians(30),
+    'knee_range': np.radians(45),
 }
 
 hw_config = sys.argv[1] if len(sys.argv) > 1 else None
@@ -86,7 +87,7 @@ if hw_config is None:
     print(current_path)
     render_mode = "human" if render else "rgb_array"
     env = AntEnv(xml_file=os.path.join(current_path, "../sim/assets/ant_position.xml"),
-                 render_mode="rgb_array",
+                #  render_mode="human",
                  dt=DT,
                  joint_config=joint_config)
 else:
@@ -97,6 +98,7 @@ else:
                        render_mode='human',
                        dt=DT,
                        joint_config=joint_config)
+
 
 # Tile coding.
 from tilecoding import IHT, tiles
@@ -155,14 +157,19 @@ def clip_state_to_limits(S, limits):
     return np.clip(S, limits[:, 0], limits[:, 1])
 
 # Constants.
-# DURATION_EPISODE = 5 # seconds
 MAX_OPTIONS_PER_EPISODE = 300
 EPSILON = 0.05
 DISCOUNTING = 0.99
 
+# Eligibility trace parameters
+LAMBDA = 0.9  # Eligibility trace decay parameter
+USE_ELIGIBILITY_TRACES = False  # Set to False to disable eligibility traces
+
 DIM_TILING = 10 # Number of tiles per dimension.
 TILINGS = 8 # Number of offset tilings.
 IHT_SIZE = 2**18
+
+USE_DECAYING_EPSILON = False
 
 # Environment.
 env.reset()
@@ -180,27 +187,35 @@ T = SuttonTileCoderWrapper(iht=iht,
                            value_limits=state_limits,
                            tilings=TILINGS)
 
-# TODO: integrate Kris's tile coding.
-# from tilecoding import KrisTileCoder
-# T = KrisTileCoder(tiles_per_dim, state_limits, TILINGS)
-
-# Linear weights: [num_options, iht.size].
-# Q is parametrized as w * T(s), with T(s) being the tile-coded state.
-
+# Load previous weights.
 load_previous_weights = False
 if load_previous_weights == False:
     w = np.zeros((num_options, iht.size), dtype=np.float32)
     print(f"w.shape: {w.shape}")
 else:
-    log_dir = 'logs/20250817_151556'
+    log_dir = 'logs/20250819_172403'
     # find the latest weights file.
     # print(f"Latest weights file: {latest_weights_file}")
-    w = np.load(os.path.join(log_dir, 'weights_493.npy'))
+    w = np.load(os.path.join(log_dir, 'weights_1317.npy'))
     print('Loaded weights from previous run.')
     print(f"w.shape: {w.shape}")
+    
+    # Try to load eligibility traces if they exist
+    if USE_ELIGIBILITY_TRACES:
+        try:
+            e = np.load(os.path.join(log_dir, 'eligibility_traces_493.npy'))
+            print('Loaded eligibility traces from previous run.')
+        except FileNotFoundError:
+            e = np.zeros((num_options, iht.size), dtype=np.float32)
+            print('No previous eligibility traces found, initializing new ones.')
+        print(f"e.shape: {e.shape}")
 
-# Step-size.
-# See: http://incompleteideas.net/tiles/tiles3.html
+# Initialize eligibility traces if using them and not loaded.
+if USE_ELIGIBILITY_TRACES and not load_previous_weights:
+    e = np.zeros((num_options, iht.size), dtype=np.float32)
+    print(f"e.shape: {e.shape}")
+
+# Step-size, see: http://incompleteideas.net/tiles/tiles3.html.
 step_size = 0.1 / TILINGS
 
 with open(os.path.join(log_dir, "tile_config.json"), "w") as f:
@@ -208,14 +223,39 @@ with open(os.path.join(log_dir, "tile_config.json"), "w") as f:
         "tiles_per_dim": tiles_per_dim,
         "tilings": TILINGS,
         "state_limits": state_limits.tolist(),
-        "iht_size": IHT_SIZE
+        "iht_size": IHT_SIZE,
+        "use_eligibility_traces": USE_ELIGIBILITY_TRACES,
+        "lambda": LAMBDA if USE_ELIGIBILITY_TRACES else None,
+        "step_size": step_size,
+        "discount": DISCOUNTING,
+        "epsilon": EPSILON,
+        "max_options_per_episode": MAX_OPTIONS_PER_EPISODE,
+        "use_decaying_epsilon": USE_DECAYING_EPSILON,
+        "log_dir": log_dir,
+        "env_id": env_id,
+        "dt": DT,
+        "joint_config": joint_config,
     }, f, indent=2)
 
 idx_episode = 0
 real_time_seconds = 0.0
 
+
+# # Go through each option and run the option on the env.
+# env.reset()
+# import time
+# for i in range(len(options)):
+#     option = options[i]
+#     print(f"Option {i} | joint: {option['joint']} | target: {option['target']} | duration: {option['duration']}")
+#     S, reward, terminated, truncated, info = options_env.step(i)
+#     print(f"Option {i} | reward: {reward:.4f}")
+    
+# import sys
+# sys.exit()
+
 while True:
-    EPSILON = max(0.05, 0.2 - idx_episode * 0.00015)
+    if USE_DECAYING_EPSILON:
+        EPSILON = max(0.05, 0.2 - idx_episode * 0.00015)
 
     true_pos_xy = []
     reward_per_episode = 0.0
@@ -223,6 +263,10 @@ while True:
     # Reset environment.
     S, _ = env.reset()
     S = clip_state_to_limits(S, state_limits) # Ensure state is within limits of the tile coder.
+
+    # Reset eligibility traces at the start of each episode.
+    if USE_ELIGIBILITY_TRACES:
+        e.fill(0.0)
 
     # Select option.
     O = select_option_epsilon_greedy(S, EPSILON, w, T)
@@ -234,7 +278,7 @@ while True:
         # Run option O.
         S_prime, R, terminated, truncated, info = options_env.step(O)
         S_prime = clip_state_to_limits(S_prime, state_limits) # Ensure state is within limits of the tile coder.
-        # if idx_episode % 100 == 0:
+        # if idx_episode % 10 == 0:
         #     frame = env.render()
         #     cv2.imshow("Ant", cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
         #     cv2.waitKey(1) # 1 ms delay so the window updates
@@ -252,8 +296,14 @@ while True:
         pred = q_of(w, idx_S,  O)
         delta = target - pred
 
-        # Update weights.
-        w[O, idx_S] += step_size * delta
+        # Update weights and eligibility traces.
+        if USE_ELIGIBILITY_TRACES:
+            e *= LAMBDA * DISCOUNTING
+            e[O, idx_S] += 1.0            
+            w += step_size * delta * e
+        else:
+            # Standard SARSA update.
+            w[O, idx_S] += step_size * delta
 
         S = S_prime
         O = O_prime
@@ -265,12 +315,17 @@ while True:
         if terminated or truncated:
             break
 
-    print(f"Episode {idx_episode} | reward: {YELLOW}{reward_per_episode:.4f}{RESET} | time in seconds: {(t * idx_episode * DT):.4f} | time in hours: {(t * idx_episode * DT) / 3600:.4f} | epsilon: {EPSILON:.4f}")
+    trace_info = f" | λ={LAMBDA}" if USE_ELIGIBILITY_TRACES else " | no traces"
+    print(f"Episode {idx_episode} | reward: {YELLOW}{reward_per_episode:.4f}{RESET} | time in seconds: {(real_time_seconds):.4f} | time in hours: {(real_time_seconds) / 3600:.4f} | epsilon: {EPSILON:.4f}{trace_info}")
     df.loc[idx_episode] = [idx_episode, reward_per_episode, real_time_seconds]
     idx_episode += 1
 
     # Save weights.
     np.save(os.path.join(log_dir, f"weights_{idx_episode}.npy"), w)
+    
+    # Save eligibility traces if using them
+    if USE_ELIGIBILITY_TRACES:
+        np.save(os.path.join(log_dir, f"eligibility_traces_{idx_episode}.npy"), e)
 
     # Save logs and weights.
     df.to_csv(os.path.join(log_dir, "rewards.csv"), index=False)
