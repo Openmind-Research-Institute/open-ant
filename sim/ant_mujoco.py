@@ -141,7 +141,7 @@ class AntEnv(MujocoEnv, utils.EzPickle):
             (y_pos < -WORKSPACE_WIDTH / 2.0) | (y_pos > WORKSPACE_WIDTH / 2.0)
         )
 
-        return truncation_condition
+        return bool(truncation_condition)
 
     def _get_sensor_data(self, sensor_name: str) -> np.ndarray:
         """Gets sensor data given sensor name."""
