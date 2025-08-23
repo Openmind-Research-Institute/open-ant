@@ -120,7 +120,6 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         }
         self.previous_x_position = self.data.qpos[0]
 
-        # truncation=False as the time limit is handled by the `TimeLimit` wrapper added during `make`
         truncated = self._get_truncated()
         terminated = False
         return observation, reward, terminated, truncated, info
