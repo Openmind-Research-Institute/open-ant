@@ -11,7 +11,6 @@ from datetime import datetime
 
 # import the skrl components to build the RL system
 from skrl.agents.torch.ppo import PPO, PPO_DEFAULT_CONFIG
-from skrl.envs.loaders.torch import load_isaacgym_env_preview4
 from skrl.envs.wrappers.torch import wrap_env
 from skrl.memories.torch import RandomMemory
 from skrl.models.torch import DeterministicMixin, GaussianMixin, Model
@@ -91,7 +90,6 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # from gymnasium.wrappers import TimeLimit
 # env = TimeLimit(env, max_episode_steps=1000)
 env = wrap_env(env)
-print(env.num_envs)
 
 memory = RandomMemory(memory_size=2048, num_envs=env.num_envs, device=device)
 
@@ -140,8 +138,12 @@ if train == True:
     print('Training...')
 
     # Configure and instantiate the RL trainer. 
-    time_in_hours = 2 # 10 hours
+    time_in_hours = 10 # 10 hours
     total_timesteps = int(time_in_hours * 3600 / DT)
+
+    # Record every 30 minutes.
+    cfg["experiment"]["checkpoint_interval"] = int(30 * 60 / DT)
+
     print(f"Training for {total_timesteps} timesteps")
     cfg_trainer = {"timesteps": total_timesteps, "headless": True}
     trainer = SequentialTrainer(cfg=cfg_trainer, env=env, agents=agent)
