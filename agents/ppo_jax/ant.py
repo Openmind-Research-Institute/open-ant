@@ -21,6 +21,7 @@
 from brax import math
 from typing import Optional, Dict, Any, Union
 import time
+import json
 
 import jax
 from jax import numpy as jp
@@ -51,7 +52,7 @@ WORKSPACE_WIDTH = 10.0 # m
 
 def default_config() -> config_dict.ConfigDict:
   return config_dict.create(
-      ctrl_dt=0.02,
+      ctrl_dt=0.05,
       sim_dt=0.001,
       reward_config=config_dict.create(
         ctrl_cost_weight=0.0,
@@ -72,7 +73,7 @@ class Ant(mjx_env.MjxEnv):
     super().__init__(config, config_overrides)
 
     self._xml_path = xml_path
-    
+
     # Initialize the model and the mjx model.
     self._mj_model = mujoco.MjModel.from_xml_path(xml_path)
     self._mjx_model = mjx.put_model(self._mj_model)
@@ -82,7 +83,7 @@ class Ant(mjx_env.MjxEnv):
     self._mj_model.opt.timestep = config.sim_dt
     self.ctrl_dt = config.ctrl_dt
     self._sim_dt = config.sim_dt
-    
+
     self._joint_config = {
                 'hip_zero': 0,
                 'knee_zero': -np.radians(50),
@@ -109,6 +110,9 @@ class Ant(mjx_env.MjxEnv):
       shutil.copy(XML_PATH, os.path.join(save_config_folder, 'ant.xml'))
       path_to_env = 'ant.py'
       shutil.copy(path_to_env, os.path.join(save_config_folder, 'ant.py'))
+      # export the config dict to a json file
+      with open(os.path.join(save_config_folder, 'config.json'), 'w') as f:
+        json.dump(config.to_dict(), f)
 
   def reset(self, rng: jax.Array) -> mjx_env.State:
     """Resets the environment to an initial state."""
@@ -184,7 +188,7 @@ class Ant(mjx_env.MjxEnv):
         action_processed = action_processed.at[2*i + 1].set(
             jp.clip(action[2*i + 1], -1, 1) * self._joint_config['knee_range'] + self._joint_config['knee_zero']
         )
-        
+
     data = mjx_env.step(
       self.mjx_model, state.data, action_processed, self.n_substeps
     )
