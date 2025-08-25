@@ -3,17 +3,12 @@ import os
 import numpy as np
 np.set_printoptions(precision=3, suppress=True, linewidth=100)
 
-
 from brax.training.agents.ppo import checkpoint as ppo_checkpoint
 
 import jax
 from jax import numpy as jp
 from matplotlib import pyplot as plt
-import mediapy as media
-import mujoco
 import numpy as np
-
-import pandas as pd
 
 from etils import epath
 
