@@ -120,7 +120,6 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         }
         self.previous_x_position = self.data.qpos[0]
 
-        # truncation=False as the time limit is handled by the `TimeLimit` wrapper added during `make`
         truncated = self._get_truncated()
         terminated = False
         return observation, reward, terminated, truncated, info
@@ -142,7 +141,7 @@ class AntEnv(MujocoEnv, utils.EzPickle):
             (y_pos < -WORKSPACE_WIDTH / 2.0) | (y_pos > WORKSPACE_WIDTH / 2.0)
         )
 
-        return truncation_condition
+        return bool(truncation_condition)
 
     def _get_sensor_data(self, sensor_name: str) -> np.ndarray:
         """Gets sensor data given sensor name."""
