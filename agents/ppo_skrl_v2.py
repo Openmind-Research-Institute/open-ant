@@ -30,7 +30,7 @@ from datetime import datetime
 
 
 # seed for reproducibility
-set_seed(42)  # e.g. `set_seed(42)` for fixed seed
+set_seed(0)  # e.g. `set_seed(42)` for fixed seed
 
 class Shared(GaussianMixin, DeterministicMixin, Model):
     def __init__(self, observation_space, action_space, device, clip_actions=False,
@@ -72,7 +72,7 @@ def run(agent, env):
     i = 0
     time_window = 10.0  # seconds
     window_size = int(time_window / env.dt)
-    moving_average_reward_queue = deque(maxlen=window_size)
+    moving_reward_queue = deque(maxlen=window_size)
 
     df = pd.DataFrame(columns=['step', 'reward'])
     while True:
@@ -91,14 +91,14 @@ def run(agent, env):
             obs, info = env.reset()
 
         reward_per_second = reward.item()/env.dt
-        moving_average_reward_queue.append(reward_per_second)
-        if len(moving_average_reward_queue) > window_size:
+        moving_reward_queue.append(reward_per_second)
+        if len(moving_reward_queue) > window_size:
             # Pop the leftmost element.
-            moving_average_reward_queue.popleft()
+            moving_reward_queue.popleft()
 
-        average_reward_per_second = sum(moving_average_reward_queue) / len(moving_average_reward_queue)
+        average_reward_per_second = sum(moving_reward_queue) / len(moving_reward_queue)
         if i % 5000 == 0:
-            print(f"Step {i}, moving average reward {average_reward_per_second:.4f}")
+            print(f"Step {i}, time [s] {i * env.dt:.2f}, time [min] {i * env.dt / 60:.2f}, moving average reward {average_reward_per_second:.4f}")
             df = pd.concat([df, pd.DataFrame({'step': [i], 'reward': [average_reward_per_second]})], ignore_index=True)
             df.to_csv(os.path.join(LOG_FOLDER, f'rewards_{DATE_NOW}.csv'), index=False)
 
@@ -112,18 +112,18 @@ else:
     current_path = os.path.dirname(os.path.abspath(__file__))
     print(current_path)
     env = AntEnv(
-        xml_file=os.path.join(current_path, "../sim/assets/ant_position.xml"),
-        render_mode="human",
+        # render_mode="human",
         dt=0.05)
 
 env = wrap_env(env, "gymnasium")
 device = env.device
+print("device", device)
 models = {}
 models["policy"] = Shared(env.observation_space, env.action_space, device)
 models["value"] = models["policy"]  # same instance: shared model
 
 DATE_NOW = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-TRAIN = False
+TRAIN = True
 LOG_FOLDER = 'logs_ppo_skrl_v2'
 if not os.path.exists(LOG_FOLDER):
     os.makedirs(LOG_FOLDER)
@@ -139,12 +139,12 @@ cfg["learning_rate_scheduler"] = KLAdaptiveRL
 cfg["learning_rate_scheduler_kwargs"] = {"kl_threshold": 0.008}
 cfg["random_timesteps"] = 0
 cfg["learning_starts"] = 0
-cfg["grad_norm_clip"] = 0.5
+cfg["grad_norm_clip"] = 0.0
 cfg["ratio_clip"] = 0.2
-# cfg["value_clip"] = 0.2
-cfg["clip_predicted_values"] = False
+cfg["value_clip"] = 0.2
+cfg["clip_predicted_values"] = True
 cfg["entropy_loss_scale"] = 0.0
-cfg["value_loss_scale"] = 0.5
+cfg["value_loss_scale"] = 1.0
 cfg["kl_threshold"] = 0
 cfg["state_preprocessor"] = RunningStandardScaler
 cfg["state_preprocessor_kwargs"] = {"size": env.observation_space, "device": device}
@@ -152,7 +152,7 @@ cfg["value_preprocessor"] = RunningStandardScaler
 cfg["value_preprocessor_kwargs"] = {"size": 1, "device": device}
 # logging to TensorBoard and write checkpoints (in timesteps)
 cfg["experiment"]["write_interval"] = 1000
-cfg["experiment"]["checkpoint_interval"] = 5000
+cfg["experiment"]["checkpoint_interval"] = 10000
 cfg["experiment"]["directory"] = LOG_FOLDER
 
 memory = RandomMemory(memory_size=2048, num_envs=env.num_envs, device=device)
