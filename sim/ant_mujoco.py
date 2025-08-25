@@ -32,6 +32,8 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         dt: float = 0.02,
         default_camera_config: dict[str, float | int] = DEFAULT_CAMERA_CONFIG,
         forward_reward_weight: float = 1,
+        ctrl_cost_weight: float = 0.0,
+        reward_upside_down_weight: float = -10.0,
         main_body: int | str = 1,
         reset_noise_scale: float = 0.1,
         joint_config: dict[str, float] | None = None,
@@ -46,12 +48,15 @@ class AntEnv(MujocoEnv, utils.EzPickle):
             frame_skip,
             default_camera_config,
             forward_reward_weight,
+            reward_upside_down_weight,
             main_body,
             reset_noise_scale,
             **kwargs,
         )
 
         self._forward_reward_weight = forward_reward_weight
+        self._ctrl_cost_weight = ctrl_cost_weight
+        self._reward_upside_down_weight = reward_upside_down_weight
 
         self._reset_noise_scale = reset_noise_scale
 
@@ -127,16 +132,32 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         }
         self.previous_x_position = self.data.qpos[0]
 
-        # truncation=False as the time limit is handled by the `TimeLimit` wrapper added during `make`
         truncated = self._get_truncated()
-        terminated = False
+        if reward_info["upside_down"] < 0:
+            terminated = True
+        else:
+            terminated = False
         return observation, reward, terminated, truncated, self.info
 
     def _get_rew(self):
-        ctrl_cost = 0.005 * np.sum(np.square(self.info["last_last_action"] - self.info["last_action"]))
+        ctrl_cost = self._ctrl_cost_weight * np.sum(np.square(self.info["last_last_action"] - self.info["last_action"]))
         forward_progress_reward = (self.data.qpos[0] - self.previous_x_position) * self._forward_reward_weight
-        reward = forward_progress_reward - ctrl_cost
-        reward_info = {"reward": reward}
+        quaternion_wxyz = self.data.qpos[3:7]
+        up_vector_ant_in_world = transform.Rotation.from_quat(quaternion_wxyz, scalar_first=True).as_matrix()[:, 2]
+        z_world = np.array([0, 0, 1])
+
+        upside_down = np.dot(up_vector_ant_in_world, z_world)
+
+        reward_upside_down = 0.0
+        if upside_down < 0:
+            reward_upside_down = self._reward_upside_down_weight
+            print("Upside down")
+
+        reward = forward_progress_reward + reward_upside_down - ctrl_cost
+        reward_info = {"reward": reward,
+                       "forward_progress_reward": forward_progress_reward,
+                       "ctrl_cost": ctrl_cost,
+                       "upside_down": upside_down}
 
         return reward, reward_info
 
