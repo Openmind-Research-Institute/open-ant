@@ -37,6 +37,7 @@ import shutil
 # Local imports.
 import mjx_env as mjx_env
 
+# Constants.
 NAME_ROBOT = 'ant'
 parent_dir = os.path.abspath(os.path.join(os.getcwd()))
 XML_PATH = os.path.join(parent_dir, '../../sim/assets/ant_position.xml')
@@ -252,6 +253,7 @@ class Ant(mjx_env.MjxEnv):
     return data.sensordata[sensor_adr : sensor_adr + sensor_dim]
 
   def _get_obs(self, data: mjx.Data) -> jax.Array:
+    """Gets the observation of the environment."""
     qpos = data.qpos.copy()
     qvel = data.qvel.copy()
 
