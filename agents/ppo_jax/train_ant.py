@@ -9,11 +9,9 @@ from brax.training.agents.ppo import train as ppo
 from brax.training.agents.ppo import checkpoint as ppo_checkpoint
 from IPython.display import clear_output
 from matplotlib import pyplot as plt
-import numpy as np
 from ml_collections import config_dict
-from wrapper import wrap_for_brax_training
 
-import time
+import sys
 from etils import epath
 import jax
 import mujoco
@@ -23,17 +21,82 @@ import mediapy as media
 import argparse
 
 # Local imports.
+from wrapper import wrap_for_brax_training
 from ant import Ant
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
+from reward import RewardTracker
 
-# Set seed.
-SEED = 0
-rng = jax.random.PRNGKey(SEED)
+def test_ant(env, rng):
+  # Testing: load the latest weights and test the policy.
+  RESULTS_FOLDER_PATH = os.path.abspath('results')
+  folders = sorted(os.listdir(RESULTS_FOLDER_PATH))
+  latest_folder = folders[-1]
+  folders = sorted(os.listdir(epath.Path(RESULTS_FOLDER_PATH) / latest_folder))
+  folders = [f for f in folders if os.path.isdir(epath.Path(RESULTS_FOLDER_PATH) / latest_folder / f)]
+  if len(folders) == 0:
+    print('No weights found')
+    return
+  latest_weights_folder = folders[-1]
+  print(f'Latest weights folder: {latest_weights_folder}')
+  policy_fn = ppo_checkpoint.load_policy(epath.Path(RESULTS_FOLDER_PATH) / latest_folder / latest_weights_folder)
+
+  jit_reset = jax.jit(env.reset)
+  jit_step = jax.jit(env.step)
+  jit_policy = jax.jit(policy_fn)
+  rollout = []
+
+  state = jit_reset(rng)
+
+  reward_tracker = RewardTracker(env_dt=env.dt, time_window=10.0, log_folder=epath.Path(RESULTS_FOLDER_PATH) / latest_folder)
+
+  metrics_list = []
+  ctrl_list = []
+  state_list = []
+  for i in tqdm(range(1000)):
+    act_rng, rng = jax.random.split(rng)
+    delta_ctrl, _ = jit_policy(state.obs, act_rng)
+    ctrl_list.append(delta_ctrl)
+    state = jit_step(state, delta_ctrl)
+    state_list.append(state.obs["state"])
+    metrics_list.append(state.metrics)
+
+    average_reward_per_second = reward_tracker.update(state.metrics["reward"])
+    reward_tracker.log(i, average_reward_per_second)
+
+    if state.done or state.info["truncation"]:
+      print(average_reward_per_second)
+      break
+    rollout.append(state)
+
+  render_every = 1
+  fps = 1.0 / eval_env.ctrl_dt / render_every
+  traj = rollout[::render_every]
+
+  scene_option = mujoco.MjvOption()
+  scene_option.geomgroup[2] = True
+  scene_option.geomgroup[3] = False
+  scene_option.flags[mujoco.mjtVisFlag.mjVIS_CONTACTPOINT] = True
+  scene_option.flags[mujoco.mjtVisFlag.mjVIS_TRANSPARENT] = False
+  scene_option.flags[mujoco.mjtVisFlag.mjVIS_PERTFORCE] = False
+
+  frames = eval_env.render(
+      traj,
+      camera="track",
+      scene_option=scene_option,
+      width=640,
+      height=480,
+  )
+
+  media.write_video(f'{epath.Path(RESULTS_FOLDER_PATH) / latest_folder}/ant_{latest_weights_folder}.mp4', frames, fps=fps)
+  print('Video saved')
 
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--train', type=bool, default=False)
+parser.add_argument('--seed', type=int, default=0)
 args = parser.parse_args()
 print('Training: ', args.train)
+rng = jax.random.PRNGKey(args.seed)
 
 if args.train == True:
   # Folders.
@@ -50,7 +113,7 @@ if args.train == True:
 
   # Brax PPO config.
   brax_ppo_config = config_dict.create(
-        num_timesteps=200_000_000,
+        num_timesteps=100_000_000,
         num_evals=15,
         reward_scaling=1.0,
         clipping_epsilon=0.2,
@@ -93,6 +156,9 @@ if args.train == True:
 
     reward_list.append([num_steps, metrics["eval/episode_reward"]])
 
+    # Test the policy.
+    test_ant(eval_env, rng)
+
     _, ax = plt.subplots()
     ax.set_xlim([0, ppo_params["num_timesteps"] * 1.25])
     ax.set_xlabel("# environment steps")
@@ -103,7 +169,7 @@ if args.train == True:
     plt.savefig(f'{ABS_FOLDER_RESUlTS}/reward.pdf')
     plt.savefig(f'{ABS_FOLDER_RESUlTS}/reward.png')
     print("Reward for {} steps: {:.3f}".format(num_steps, y_data[-1]))
-    
+
   ppo_training_params = dict(ppo_params)
   network_factory = ppo_networks.make_ppo_networks
   if "network_factory" in ppo_params:
@@ -128,63 +194,6 @@ if args.train == True:
   )
   print(f"time to jit: {times[1] - times[0]}")
   print(f"time to train: {times[-1] - times[1]}")
-
 else:
-  # Testing: load the latest weights and test the policy.
-  RESULTS_FOLDER_PATH = os.path.abspath('results')
-  folders = sorted(os.listdir(RESULTS_FOLDER_PATH))
-  latest_folder = folders[-1]
-  folders = sorted(os.listdir(epath.Path(RESULTS_FOLDER_PATH) / latest_folder))
-  folders = [f for f in folders if os.path.isdir(epath.Path(RESULTS_FOLDER_PATH) / latest_folder / f)]
-
-  latest_weights_folder = folders[-1]
-  print(f'Latest weights folder: {latest_weights_folder}')
-  policy_fn = ppo_checkpoint.load_policy(epath.Path(RESULTS_FOLDER_PATH) / latest_folder / latest_weights_folder)
-
   eval_env = Ant()
-  jit_reset = jax.jit(eval_env.reset)
-  jit_step = jax.jit(eval_env.step)
-  jit_policy = jax.jit(policy_fn)
-  step_fn = jax.jit(eval_env.step)
-  rollout = []
-  modify_scene_fns = []
-
-  state = jit_reset(rng)
-
-  metrics_list = []
-  ctrl_list = []
-  state_list = []
-  for i in tqdm(range(1400)):
-    act_rng, rng = jax.random.split(rng)
-    delta_ctrl, _ = jit_policy(state.obs, act_rng)
-    ctrl_list.append(delta_ctrl)
-    state = jit_step(state, delta_ctrl)
-    state_list.append(state.obs["state"])
-    metrics_list.append(state.metrics)
-    if state.done:
-      break
-    rollout.append(state)
-
-  render_every = 1
-  fps = 1.0 / eval_env.ctrl_dt / render_every
-  traj = rollout[::render_every]
-  # mod_fns = modify_scene_fns[::render_every]
-
-  scene_option = mujoco.MjvOption()
-  scene_option.geomgroup[2] = True
-  scene_option.geomgroup[3] = False
-  scene_option.flags[mujoco.mjtVisFlag.mjVIS_CONTACTPOINT] = True
-  scene_option.flags[mujoco.mjtVisFlag.mjVIS_TRANSPARENT] = False
-  scene_option.flags[mujoco.mjtVisFlag.mjVIS_PERTFORCE] = False
-
-  frames = eval_env.render(
-      traj,
-      camera="track",
-      scene_option=scene_option,
-      width=640,
-      height=480,
-      # modify_scene_fns=mod_fns,
-  )
-  
-  media.write_video(f'{epath.Path(RESULTS_FOLDER_PATH) / latest_folder / latest_weights_folder}/ant.mp4', frames, fps=fps)
-  print('Video saved')
+  test_ant(eval_env, rng)
