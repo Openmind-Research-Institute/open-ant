@@ -168,6 +168,7 @@ class Ant(mjx_env.MjxEnv):
         "qvel": data.qvel,
         "xfrc_applied": data.xfrc_applied,
         "previous_pos_x": jp.array(0.0),
+        "truncation": jp.array(0.0, dtype=jp.float32),
     }
 
     return mjx_env.State(data, obs, reward, done, metrics, info)
@@ -194,6 +195,10 @@ class Ant(mjx_env.MjxEnv):
     state.info["qvel"] = data.qvel
     state.info["xfrc_applied"] = data.xfrc_applied
 
+    # Get the truncation.
+    truncation = self._get_truncation(data)
+    state.info["truncation"] = truncation
+
     # Compute the reward.
     forward_progress = data.qpos[0:2] - state.data.qpos[0:2]
     forward_progress_x = forward_progress[0]
@@ -205,8 +210,8 @@ class Ant(mjx_env.MjxEnv):
     upside_down = jp.dot(up_vector_ant_in_world, z_world)
     reward_upside_down = jp.where(upside_down < 0, -10.0, 0.0)
 
-    reward = (forward_progress_x - ctrl_cost + reward_upside_down) * self.ctrl_dt
-  
+    reward = forward_progress_x - ctrl_cost + reward_upside_down
+
     done = upside_down < 0
     done = done.astype(reward.dtype)
     
@@ -225,6 +230,19 @@ class Ant(mjx_env.MjxEnv):
 
     state = state.replace(data=data, obs=obs, reward=reward, done=done, metrics=metrics)
     return state
+
+  def _get_truncation(self, data: mjx.Data) -> jax.Array:
+    """Gets the truncation of the environment."""
+    x_pos = data.qpos[0]
+    y_pos = data.qpos[1]
+
+    truncation = (
+        jp.isnan(data.qpos).any() | jp.isnan(data.qvel).any() |
+        (x_pos < -WORKSPACE_LENGTH / 2.0).astype(jp.bool_) | (x_pos > WORKSPACE_LENGTH / 2.0).astype(jp.bool_) |
+        (y_pos < -WORKSPACE_WIDTH / 2.0).astype(jp.bool_) | (y_pos > WORKSPACE_WIDTH / 2.0).astype(jp.bool_)
+    )
+
+    return truncation.astype(jp.float32)
 
   def _get_sensor_data(self, data: mjx.Data, sensor_name: str) -> jax.Array:
     """Gets sensor data given sensor name."""
