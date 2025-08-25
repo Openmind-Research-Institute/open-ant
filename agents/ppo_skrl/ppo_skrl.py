@@ -70,7 +70,7 @@ if hw_config is None:
     print(current_path)
     render_mode = "human" if render else "rgb_array"
     env = AntEnv(xml_file=os.path.join(current_path, "../sim/assets/ant_position.xml"),
-                # render_mode="human",
+                render_mode="human",
                 dt=DT,
                 )
 else:
@@ -132,7 +132,7 @@ agent = PPO(models=models,
             device=device)
 
 
-train = True
+train = False
 if train == True:
     # Start training.
     print('Training...')
