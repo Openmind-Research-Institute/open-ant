@@ -240,9 +240,17 @@ if __name__ == "__main__":
                             tag_ids=cfg['camera_tag_ids'])
     env = EmbodiedAnt(motor_controller=motor_controller, imu=imu, tracker=tracker)
     i = 0
+
     while True:
         # time.sleep(1)
-        obs, rew, term, trunc, info = env.step(np.zeros(8))
+        time_now = time.time()
+        ctrl = np.zeros(8)
+        ctrl[1] = np.sin(10*time_now)*1.5
+        ctrl[3] = np.sin(10*time_now)*1.5
+        ctrl[5] = np.sin(10*time_now)*1.5
+        ctrl[7] = np.sin(10*time_now)*1.5
+        ctrl = np.array(ctrl)
+        obs, rew, term, trunc, info = env.step(ctrl)
         # obs, rew, term, trunc, info = env.step(np.random.uniform(-0.3, 0.3, 8))
         # print(obs)
         print(rew)
