@@ -150,10 +150,25 @@ if train == True:
     trainer.train()
 else:
     print('Starting evaluation...')
-    # Get the latest folder in main_folder.
-    latest_folder = max(os.listdir(LOG_FOLDER), key=lambda x: os.path.getctime(os.path.join(LOG_FOLDER, x)))
-    print(latest_folder)
-    path = os.path.join(LOG_FOLDER, latest_folder, 'checkpoints', 'agent_70000.pt')
+    all_folders = [folder for folder in os.listdir(LOG_FOLDER) if os.path.isdir(os.path.join(LOG_FOLDER, folder))]
+    all_folders.sort(key=lambda x: os.path.getctime(os.path.join(LOG_FOLDER, x)))
+    print(f"Found {len(all_folders)} folders:")
+    # Find the latest folder with non-empty checkpoints.
+    latest_folder_with_checkpoints = None
+    for folder in reversed(all_folders):  # Start from newest
+        checkpoint_path = os.path.join(LOG_FOLDER, folder, 'checkpoints')
+        if os.path.exists(checkpoint_path) and len(os.listdir(checkpoint_path)) > 0:
+            latest_folder_with_checkpoints = folder
+            break
+
+    if latest_folder_with_checkpoints is None:
+        print("No folders with checkpoints found!")
+        exit()
+
+    print(f"Using folder with checkpoints: {latest_folder_with_checkpoints}")
+    latest_folder = latest_folder_with_checkpoints
+
+    path = os.path.join(LOG_FOLDER, latest_folder, 'checkpoints', 'best_agent.pt')
     agent.load(path)
     cfg_trainer = {"timesteps": 1000, "headless": False}
     trainer = SequentialTrainer(cfg=cfg_trainer, env=env, agents=agent)
