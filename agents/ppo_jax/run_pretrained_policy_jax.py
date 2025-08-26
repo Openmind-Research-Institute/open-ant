@@ -30,9 +30,10 @@ if hw_config is not None:
                        dt=0.05,
                        joint_config=None)
 else:
+    env_id = "ant_sim"
     current_path = os.path.dirname(os.path.abspath(__file__))
     env = AntEnv(xml_file=os.path.join(current_path, "../../sim/assets/ant_position.xml"),
-                #  render_mode="human",
+                 render_mode="human",
                  dt=0.05)
     default_joint_config = env.model.keyframe("home").qpos[7:]
     print('Default joint config:', default_joint_config)
@@ -50,7 +51,10 @@ policy_fn = ppo_checkpoint.load_policy(epath.Path(RESULTS_FOLDER_PATH) / latest_
 
 jit_policy = jax.jit(policy_fn)
 
-reward_tracker = RewardTracker(env_dt=env.dt, time_window=10.0, log_folder=epath.Path(RESULTS_FOLDER_PATH) / latest_folder)
+reward_tracker = RewardTracker(env_dt=env.dt,
+                               env_id=env_id,
+                               time_window=10.0,
+                               log_folder=epath.Path(RESULTS_FOLDER_PATH) / latest_folder)
 
 # Initialize random key for JAX.
 rng = jax.random.PRNGKey(0)
@@ -81,11 +85,11 @@ for i in range(num_steps):
 
     # Update the reward tracker.
     average_reward_per_second = reward_tracker.update(reward)
-    reward_tracker.log(i, average_reward_per_second)
     
     action_list.append(action)
     reward_list.append(reward)
 
     if terminated or truncated:
         print(f"Average reward per second: {average_reward_per_second}")
+        reward_tracker.log(i, average_reward_per_second)
         obs, _ = env.reset()
