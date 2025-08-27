@@ -161,10 +161,6 @@ MAX_OPTIONS_PER_EPISODE = 300
 EPSILON = 0.05
 DISCOUNTING = 0.99
 
-# Eligibility trace parameters
-LAMBDA = 0.9  # Eligibility trace decay parameter
-USE_ELIGIBILITY_TRACES = False  # Set to False to disable eligibility traces
-
 DIM_TILING = 10 # Number of tiles per dimension.
 TILINGS = 8 # Number of offset tilings.
 IHT_SIZE = 2**18
@@ -199,21 +195,6 @@ else:
     w = np.load(os.path.join(log_dir, 'weights_1317.npy'))
     print('Loaded weights from previous run.')
     print(f"w.shape: {w.shape}")
-    
-    # Try to load eligibility traces if they exist
-    if USE_ELIGIBILITY_TRACES:
-        try:
-            e = np.load(os.path.join(log_dir, 'eligibility_traces_493.npy'))
-            print('Loaded eligibility traces from previous run.')
-        except FileNotFoundError:
-            e = np.zeros((num_options, iht.size), dtype=np.float32)
-            print('No previous eligibility traces found, initializing new ones.')
-        print(f"e.shape: {e.shape}")
-
-# Initialize eligibility traces if using them and not loaded.
-if USE_ELIGIBILITY_TRACES and not load_previous_weights:
-    e = np.zeros((num_options, iht.size), dtype=np.float32)
-    print(f"e.shape: {e.shape}")
 
 # Step-size, see: http://incompleteideas.net/tiles/tiles3.html.
 step_size = 0.1 / TILINGS
@@ -224,8 +205,6 @@ with open(os.path.join(log_dir, "tile_config.json"), "w") as f:
         "tilings": TILINGS,
         "state_limits": state_limits.tolist(),
         "iht_size": IHT_SIZE,
-        "use_eligibility_traces": USE_ELIGIBILITY_TRACES,
-        "lambda": LAMBDA if USE_ELIGIBILITY_TRACES else None,
         "step_size": step_size,
         "discount": DISCOUNTING,
         "epsilon": EPSILON,
@@ -264,10 +243,6 @@ while True:
     S, _ = env.reset()
     S = clip_state_to_limits(S, state_limits) # Ensure state is within limits of the tile coder.
 
-    # Reset eligibility traces at the start of each episode.
-    if USE_ELIGIBILITY_TRACES:
-        e.fill(0.0)
-
     # Select option.
     O = select_option_epsilon_greedy(S, EPSILON, w, T)
 
@@ -296,14 +271,8 @@ while True:
         pred = q_of(w, idx_S,  O)
         delta = target - pred
 
-        # Update weights and eligibility traces.
-        if USE_ELIGIBILITY_TRACES:
-            e *= LAMBDA * DISCOUNTING
-            e[O, idx_S] += 1.0            
-            w += step_size * delta * e
-        else:
-            # Standard SARSA update.
-            w[O, idx_S] += step_size * delta
+        # Update weights.
+        w[O, idx_S] += step_size * delta
 
         S = S_prime
         O = O_prime
@@ -315,17 +284,12 @@ while True:
         if terminated or truncated:
             break
 
-    trace_info = f" | λ={LAMBDA}" if USE_ELIGIBILITY_TRACES else " | no traces"
-    print(f"Episode {idx_episode} | reward: {YELLOW}{reward_per_episode:.4f}{RESET} | time in seconds: {(real_time_seconds):.4f} | time in hours: {(real_time_seconds) / 3600:.4f} | epsilon: {EPSILON:.4f}{trace_info}")
+    print(f"Episode {idx_episode} | reward: {YELLOW}{reward_per_episode:.4f}{RESET} | time in seconds: {(real_time_seconds):.4f} | time in hours: {(real_time_seconds) / 3600:.4f} | epsilon: {EPSILON:.4f}")
     df.loc[idx_episode] = [idx_episode, reward_per_episode, real_time_seconds]
     idx_episode += 1
 
     # Save weights.
     np.save(os.path.join(log_dir, f"weights_{idx_episode}.npy"), w)
-    
-    # Save eligibility traces if using them
-    if USE_ELIGIBILITY_TRACES:
-        np.save(os.path.join(log_dir, f"eligibility_traces_{idx_episode}.npy"), e)
 
     # Save logs and weights.
     df.to_csv(os.path.join(log_dir, "rewards.csv"), index=False)
