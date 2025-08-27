@@ -1,0 +1,65 @@
+{
+  "motor_port": "/dev/tty.usbserial-FTAAMLB9",
+  "motor_list": [
+    {
+      "id": 10,
+      "min_position": -0.7853981633974483,
+      "max_position": 0.7853981633974483,
+      "offset": -2.356194490192345
+    },
+    {
+      "id": 11,
+      "min_position": -1.2217304763960306,
+      "max_position": 1.2217304763960306,
+      "offset": 3.9269908169872414
+    },
+    {
+      "id": 20,
+      "min_position": -0.7853981633974483,
+      "max_position": 0.7853981633974483,
+      "offset": -0.7853981633974483
+    },
+    {
+      "id": 21,
+      "min_position": -1.2217304763960306,
+      "max_position": 1.2217304763960306,
+      "offset": 0.7853981633974483
+    },
+    {
+      "id": 30,
+      "min_position": -0.7853981633974483,
+      "max_position": 0.7853981633974483,
+      "offset": 0.7853981633974483
+    },
+    {
+      "id": 31,
+      "min_position": -1.2217304763960306,
+      "max_position": 1.2217304763960306,
+      "offset": 0.7853981633974483
+    },
+    {
+      "id": 40,
+      "min_position": -0.7853981633974483,
+      "max_position": 0.7853981633974483,
+      "offset": -0.7853981633974483
+    },
+    {
+      "id": 41,
+      "min_position": -1.2217304763960306,
+      "max_position": 1.2217304763960306,
+      "offset": 0.7853981633974483
+    }
+  ],
+  "motor_baudrate": 1000000,
+  "imu_port": "/dev/tty.usbmodem0D88A0E114C41",
+  "camera_id": 1,
+  "camera_fov_diagonal_deg": 60,
+  "camera_tag_sizes": {
+    "origin": 0.06,
+    "body": 0.045
+  },
+  "camera_tag_ids": {
+    "origin": 0,
+    "body": 34
+  }
+}

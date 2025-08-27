@@ -54,7 +54,7 @@ class MotorController:
             res, err = self.packet.write1ByteTxRx(self.port, motor['id'], self.ADDR_OPERATING_MODE, 4) # multi-turn mode
             if res != dynamixel_sdk.COMM_SUCCESS:
                 raise Exception(f"Failed to set operating mode: {self.packet.getTxRxResult(res)}")
-            res, err = self.packet.write2ByteTxRx(self.port, motor['id'], self.ADDR_PWM_LIMIT, int(50/0.113)) # set PWM limit
+            res, err = self.packet.write2ByteTxRx(self.port, motor['id'], self.ADDR_PWM_LIMIT, int(80/0.113)) # set PWM limit
             if res != dynamixel_sdk.COMM_SUCCESS:
                 raise Exception(f"Failed to set PWM limit: {self.packet.getTxRxResult(res)}")
             val = (1 << 0) | (1 << 2) | (1 << 3) | (1 << 4) # faults: voltage, overheat, encoder, electrical (no overload)

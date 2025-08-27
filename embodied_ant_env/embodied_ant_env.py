@@ -8,6 +8,7 @@ from motor_controller import MotorController
 from apriltag_tracking import VisionTracker, show_image
 import gymnasium as gym
 from gymnasium import spaces
+from gymnasium.spaces import Box
 
 class EmbodiedAnt(gym.Env):
     action_space = spaces.Box(low=-1, high=1, shape=(8,), dtype=np.float32)
@@ -30,6 +31,14 @@ class EmbodiedAnt(gym.Env):
         self.joint_config = joint_config
 
         self._threads_should_exit = False
+
+        self.observation_space = Box(
+            low=-1, high=1, shape=(24,), dtype=np.float64
+        )
+
+        self.action_space = Box(
+            low=-1, high=1, shape=(8,), dtype=np.float64
+        )
 
         self.imu = imu
         self._imu_data = None
