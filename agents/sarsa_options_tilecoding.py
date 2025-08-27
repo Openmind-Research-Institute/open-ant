@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import datetime
 import cv2
+import pickle
 
 np.set_printoptions(precision=4, suppress=True, linewidth=120, threshold=1000)
 
@@ -87,7 +88,7 @@ if hw_config is None:
     print(current_path)
     render_mode = "human" if render else "rgb_array"
     env = AntEnv(xml_file=os.path.join(current_path, "../sim/assets/ant_position.xml"),
-                #  render_mode="human",
+                 render_mode="human",
                  dt=DT,
                  joint_config=joint_config)
 else:
@@ -175,26 +176,30 @@ options_env = OptionEnv(env, options)
 state_limits = np.array([env.observation_space.low, env.observation_space.high]).T  # [state_dim, 2]
 num_options = len(options)
 
+# Load previous weights.
+load_previous_weights = True
+if load_previous_weights == False:
+    iht = IHT(IHT_SIZE)
+    w = np.zeros((num_options, iht.size), dtype=np.float32)
+    print(f"w.shape: {w.shape}")
+else:
+    log_dir_to_load = 'logs/20250826_224149'
+    # find the latest weights file.
+    # print(f"Latest weights file: {latest_weights_file}")
+    print(os.path.join(log_dir_to_load, 'weights.npy'))
+    w = np.load(os.path.join(log_dir_to_load, 'weights.npy'))
+    # Load iht.
+    with open(os.path.join(log_dir_to_load, "iht.pkl"), "rb") as f:
+        iht = pickle.load(f)
+    print('Loaded weights from previous run.')
+    print(f"w.shape: {w.shape}")
+    
 # IHT table size.
 tiles_per_dim = [DIM_TILING] * state_limits.shape[0]
-iht = IHT(IHT_SIZE)
 T = SuttonTileCoderWrapper(iht=iht,
                            tiles_per_dim=tiles_per_dim,
                            value_limits=state_limits,
                            tilings=TILINGS)
-
-# Load previous weights.
-load_previous_weights = False
-if load_previous_weights == False:
-    w = np.zeros((num_options, iht.size), dtype=np.float32)
-    print(f"w.shape: {w.shape}")
-else:
-    log_dir = 'logs/20250819_172403'
-    # find the latest weights file.
-    # print(f"Latest weights file: {latest_weights_file}")
-    w = np.load(os.path.join(log_dir, 'weights_1317.npy'))
-    print('Loaded weights from previous run.')
-    print(f"w.shape: {w.shape}")
 
 # Step-size, see: http://incompleteideas.net/tiles/tiles3.html.
 step_size = 0.1 / TILINGS
@@ -289,7 +294,8 @@ while True:
     idx_episode += 1
 
     # Save weights.
-    np.save(os.path.join(log_dir, f"weights_{idx_episode}.npy"), w)
+    np.save(os.path.join(log_dir, f"weights.npy"), w)
+    pickle.dump(iht, open(os.path.join(log_dir, f"iht.pkl"), "wb"))
 
     # Save logs and weights.
     df.to_csv(os.path.join(log_dir, "rewards.csv"), index=False)
