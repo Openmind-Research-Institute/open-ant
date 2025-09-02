@@ -30,10 +30,10 @@ The hardware is designed to be easy to build and use:
 | short USB-A to miro-USB cable | 1   | For Dynamixel U2D2           | [Amazon](https://www.amazon.com/dp/B08BZD66H4?th=1)
 | USB-A extension cable    | 1       | As tether for the robot       | [Amazon](https://www.amazon.com/dp/B07ZV6FHWF/)
 | Screw M2x5mm             | 64      | Output shaft, 8 per motor     | [McMaster](https://www.mcmaster.com/91290A012/)
-| Screw M2x12mm            | 24      | 3D print assembly 5 per leg + IMU | [McMaster](https://www.mcmaster.com/91290A019/)
+| Screw M2x12mm            | 20      | 3D print assembly 5 per leg   | [McMaster](https://www.mcmaster.com/91290A019/)
 | Screw M2.5x16mm          | 32      | motor mount, 4 per motor      | [McMaster](https://www.mcmaster.com/91290a106/)
 | Nut M2                   | 20      | 3D print assembly 5 per leg   | [McMaster](https://www.mcmaster.com/91828A111/)
-| Screw M3x8mm             | 2       | U2D2 power board mount        | [McMaster](https://www.mcmaster.com/91290A113/)
+| Screw M3x8mm             | 6       | U2D2 power board mount + IMU  | [McMaster](https://www.mcmaster.com/91290A113/)
 | Nut M3                   | 2       | U2D2 power board mount        | [McMaster](https://www.mcmaster.com/91828A211/)
 | 3D Printed Parts         | -       | STL files in `hardware/`      | -                                         |
 
