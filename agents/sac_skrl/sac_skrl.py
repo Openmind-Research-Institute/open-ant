@@ -11,9 +11,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../sim')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../sim')))
 from ant_mujoco import AntEnv
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../embodied_ant_env')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../embodied_ant_env')))
 from embodied_ant_env import make_ant_env
 from collections import deque
 import pandas as pd
