@@ -52,6 +52,7 @@ class EmbodiedAnt(gym.Env):
 
         self.temperature_log = open('temperature_log.csv', 'a')
         # self.temperature_log = open('temperature_log.csv', 'w')
+        self.error_log = open('error_log.csv', 'w')
 
     def __del__(self):
         self.close()
@@ -87,10 +88,15 @@ class EmbodiedAnt(gym.Env):
         observation, info = self.get_observation()
         reward, terminated, truncated = self.get_reward(info, action)
 
-        self.temperature_log.write(f"{time.time()}, " + ", ".join(map(str, info['temperatures'])) + "\n")
+        # Logs.
+        self.temperature_log.write(f"{time.time()}, " + ", ".join(map(str, info['temperatures'])) + "," + ", ".join(map(str, info['joint_positions'])) + "\n")
         self.temperature_log.flush()
 
         errors = self.motor_controller.check_errors()
+        if len(errors) > 0: # only log errors if there are any
+            self.error_log.write(f"{time.time()}, " + ", ".join(map(str, errors)) + "\n")
+            self.error_log.flush()
+
         if len(errors) > 0:
             print('motor controller errors:')
             for error in errors:
