@@ -44,8 +44,11 @@ class EmbodiedAnt(gym.Env):
         self._tracker_thread.start()
 
         self.last_pos = np.array([0, 0, 0])
+        self.last_action = np.zeros(self.action_space.shape[0])
         self.last_heading_vector = np.array([1, 0])
         self.last_seen = 0
+
+        self.ctrl_cost_weight = 0.0
 
         self.temperature_log = open('temperature_log.csv', 'a')
         # self.temperature_log = open('temperature_log.csv', 'w')
@@ -54,11 +57,11 @@ class EmbodiedAnt(gym.Env):
         self.close()
 
     def reset(self, seed=None, options=None):
-        self.step(np.zeros(8))
+        self.step(np.zeros(self.action_space.shape[0]))
         print('reset(): please move the ant back to the origin.')
         input('press enter when ready')
         obs, info = self.get_observation()
-        self.get_reward(info)
+        self.get_reward(info, np.zeros(self.action_space.shape[0]))
         return obs, info
 
     def step(self, action, sleep_until_next_step=True):
@@ -82,7 +85,7 @@ class EmbodiedAnt(gym.Env):
             time.sleep(sleep_duration)
 
         observation, info = self.get_observation()
-        reward, terminated, truncated = self.get_reward(info)
+        reward, terminated, truncated = self.get_reward(info, action)
 
         self.temperature_log.write(f"{time.time()}, " + ", ".join(map(str, info['temperatures'])) + "\n")
         self.temperature_log.flush()
@@ -144,14 +147,16 @@ class EmbodiedAnt(gym.Env):
         ], axis=None)
         return observation, info
 
-    def get_reward(self, info):
+    def get_reward(self, info, action):
         if 'body' in info['bodies']:
             pos = info['bodies']['body']['position']
             self.last_seen = time.time()
         else:
             pos = self.last_pos
         progress = (pos - self.last_pos)[0]
+        cost_action = np.sum(np.square(self.last_action - action)) * self.ctrl_cost_weight
         self.last_pos = pos
+        self.last_action = action.copy()
         terminated = False
         truncated = False
         if time.time() - self.last_seen > 2:
@@ -162,7 +167,9 @@ class EmbodiedAnt(gym.Env):
             if img_pos[0] < 0.1 or img_pos[0] > 0.9 or img_pos[1] < 0.1 or img_pos[1] > 0.9:
                 print('body is out of camera frame')
                 truncated = True # body is out of frame
-        return progress, terminated, truncated
+
+        total_reward = progress - cost_action
+        return total_reward, terminated, truncated
 
     def close(self):
         self._threads_should_exit = True
