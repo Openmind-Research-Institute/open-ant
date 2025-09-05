@@ -1,6 +1,7 @@
 import os
 import pandas as pd
 from collections import deque
+import matplotlib.pyplot as plt
 
 class RewardTracker:
     def __init__(self, env_dt, env_id, time_window=10.0, log_folder=".", date_now="log"):
@@ -19,7 +20,7 @@ class RewardTracker:
         average_reward_per_second = sum(self.queue) / len(self.queue)
         return average_reward_per_second
 
-    def log(self, step, average_reward_per_second, log_interval=5000):
+    def log(self, step, average_reward_per_second):
         print(f"Step {step}, time [s] {step * self.env_dt:.2f}, "
                 f"time [min] {step * self.env_dt / 60:.2f}, "
                 f"moving average reward {average_reward_per_second:.4f}")
@@ -28,3 +29,9 @@ class RewardTracker:
             ignore_index=True
         )
         self.df.to_csv(os.path.join(self.log_folder, f"eval_{self.env_id}_rewards_{self.date_now}.csv"), index=False)
+
+    def plot(self, save_path=None):
+        plt.plot(self.df["step"], self.df["reward"])
+        if save_path is not None:
+            plt.savefig(save_path)
+            plt.close()
