@@ -107,6 +107,7 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         self.info = {
             "last_last_action": np.zeros(8),
             "last_action": np.zeros(8),
+            "heading_vector": np.zeros(2),
         }
 
     def step(self, action):
@@ -123,13 +124,13 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         if self.render_mode == "human":
             self.render()
 
-        self.info = {
+        self.info.update({
             "current_x_position": self.data.qpos[0],
             "previous_x_position": self.previous_x_position,
             "distance_from_origin": np.linalg.norm(self.data.qpos[0:2], ord=2),
             "last_last_action": self.info["last_action"],
             "last_action": action,
-        }
+        })
         self.previous_x_position = self.data.qpos[0]
 
         truncated = self._get_truncated()
@@ -203,6 +204,8 @@ class AntEnv(MujocoEnv, utils.EzPickle):
                 accelerations, # 3
                 angular_vel, # 3
                 ], axis=None)
+
+        self.info["heading_vector"] = heading_vector
 
         return obs
 
