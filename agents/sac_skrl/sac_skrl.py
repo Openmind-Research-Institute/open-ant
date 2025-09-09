@@ -20,6 +20,8 @@ import pandas as pd
 from datetime import datetime
 import matplotlib.pyplot as plt
 
+set_seed(42)
+
 class Actor(GaussianMixin, Model):
     def __init__(self, observation_space, action_space, device, clip_actions=False,
                 clip_log_std=True, min_log_std=-20, max_log_std=2, reduction="sum"):
