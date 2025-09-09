@@ -64,8 +64,11 @@ hw_config = sys.argv[1] if len(sys.argv) > 1 else None
 if hw_config is None:
     env_id = 'ant_mujoco'
     env = AntEnv(
-        # render_mode=render,
-        dt=DT
+        render_mode=render,
+        dt=DT,
+        forward_reward_weight=1.0,
+        ctrl_cost_weight=0.005,
+        reward_upside_down_weight=0.0
     )
 else:
     env_id = 'ant_hw'
@@ -93,12 +96,12 @@ for model in models.values():
     model.init_parameters(method_name="normal_", mean=0.0, std=0.1)
 
 # Memory
-memory = RandomMemory(memory_size=20000, device=device)
+memory = RandomMemory(memory_size=1_000_000, device=device)
 
 # Config
 cfg = SAC_DEFAULT_CONFIG.copy()
-cfg["gradient_steps"] = 1
-cfg["batch_size"] = 4096
+cfg["gradient_steps"] = 4
+cfg["batch_size"] = 256
 cfg["discount_factor"] = 0.99
 cfg["polyak"] = 0.005
 cfg["actor_learning_rate"] = 5e-4
