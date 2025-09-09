@@ -3,6 +3,7 @@ from skrl.memories.torch import RandomMemory
 from skrl.models.torch import DeterministicMixin, GaussianMixin, Model
 from skrl.envs.wrappers.torch import wrap_env
 from skrl.resources.preprocessors.torch import RunningStandardScaler
+from skrl.utils import set_seed
 
 import sys
 import os
