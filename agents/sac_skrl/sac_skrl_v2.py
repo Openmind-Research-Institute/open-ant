@@ -92,8 +92,6 @@ models = {
     "target_critic_1": Critic(env.observation_space, env.action_space, device),
     "target_critic_2": Critic(env.observation_space, env.action_space, device)
 }
-for model in models.values():
-    model.init_parameters(method_name="normal_", mean=0.0, std=0.1)
 
 # Memory
 memory = RandomMemory(memory_size=1_000_000, device=device)

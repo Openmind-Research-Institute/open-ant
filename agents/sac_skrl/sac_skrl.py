@@ -26,9 +26,9 @@ class Actor(GaussianMixin, Model):
         Model.__init__(self, observation_space, action_space, device)
         GaussianMixin.__init__(self, clip_actions, clip_log_std, min_log_std, max_log_std, reduction)
 
-        self.linear_layer_1 = nn.Linear(self.num_observations, 400)
-        self.linear_layer_2 = nn.Linear(400, 300)
-        self.action_layer = nn.Linear(300, self.num_actions)
+        self.linear_layer_1 = nn.Linear(self.num_observations, 256)
+        self.linear_layer_2 = nn.Linear(256, 256)
+        self.action_layer = nn.Linear(256, self.num_actions)
 
         self.log_std_parameter = nn.Parameter(torch.zeros(self.num_actions))
 
@@ -42,9 +42,9 @@ class Critic(DeterministicMixin, Model):
         Model.__init__(self, observation_space, action_space, device)
         DeterministicMixin.__init__(self, clip_actions)
 
-        self.linear_layer_1 = nn.Linear(self.num_observations + self.num_actions, 400)
-        self.linear_layer_2 = nn.Linear(400, 300)
-        self.linear_layer_3 = nn.Linear(300, 1)
+        self.linear_layer_1 = nn.Linear(self.num_observations + self.num_actions, 256)
+        self.linear_layer_2 = nn.Linear(256, 256)
+        self.linear_layer_3 = nn.Linear(256, 1)
 
     def compute(self, inputs, role):
         x = F.relu(self.linear_layer_1(torch.cat([inputs["states"], inputs["taken_actions"]], dim=1)))
@@ -119,25 +119,22 @@ models["critic_2"] = Critic(env.observation_space, env.action_space, device)
 models["target_critic_1"] = Critic(env.observation_space, env.action_space, device)
 models["target_critic_2"] = Critic(env.observation_space, env.action_space, device)
 
-for model in models.values():
-    model.init_parameters(method_name="normal_", mean=0.0, std=0.1)
-
 cfg = SAC_DEFAULT_CONFIG.copy()
 cfg["gradient_steps"] = 1
-cfg["batch_size"] = 4096
+cfg["batch_size"] = 256
 cfg["discount_factor"] = 0.99
 cfg["polyak"] = 0.005
-cfg["actor_learning_rate"] = 5e-4
-cfg["critic_learning_rate"] = 5e-4
-cfg["random_timesteps"] = 80
-cfg["learning_starts"] = 80
+cfg["actor_learning_rate"] = 3e-4
+cfg["critic_learning_rate"] = 3e-4
+cfg["random_timesteps"] = 0
+cfg["learning_starts"] = 0
 cfg["grad_norm_clip"] = 0
-cfg["learn_entropy"] = True
+cfg["learn_entropy"] = False
 cfg["entropy_learning_rate"] = 5e-3
 cfg["initial_entropy_value"] = 1.0
 cfg["state_preprocessor"] = RunningStandardScaler
 cfg["state_preprocessor_kwargs"] = {"size": env.observation_space, "device": device}
-# logging to TensorBoard and write checkpoints (in timesteps)
+cfg["experiment"]["directory"] = LOG_FOLDER
 
 # Configure and instantiate the RL trainer. 
 time_in_hours = 10 # 10 hours
