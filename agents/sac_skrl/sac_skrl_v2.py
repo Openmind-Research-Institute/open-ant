@@ -100,16 +100,16 @@ memory = RandomMemory(memory_size=1_000_000, device=device)
 
 # Config
 cfg = SAC_DEFAULT_CONFIG.copy()
-cfg["gradient_steps"] = 4
-cfg["batch_size"] = 4096
+cfg["gradient_steps"] = 1
+cfg["batch_size"] = 256
 cfg["discount_factor"] = 0.99
 cfg["polyak"] = 0.005
-cfg["actor_learning_rate"] = 5e-4
-cfg["critic_learning_rate"] = 5e-4
-cfg["random_timesteps"] = 80
-cfg["learning_starts"] = 80
+cfg["actor_learning_rate"] = 3e-4
+cfg["critic_learning_rate"] = 3e-4
+cfg["random_timesteps"] = 0
+cfg["learning_starts"] = 0
 cfg["grad_norm_clip"] = 0
-cfg["learn_entropy"] = True
+cfg["learn_entropy"] = False
 cfg["entropy_learning_rate"] = 5e-3
 cfg["initial_entropy_value"] = 1.0
 cfg["state_preprocessor"] = RunningStandardScaler
@@ -130,7 +130,7 @@ train = True
 if train:
     print("Training...")
 
-    time_in_hours = 6
+    time_in_hours = 10
     total_timesteps = int(time_in_hours * 3600 / DT)
     cfg["experiment"]["checkpoint_interval"] = int(30 * 60 / DT)
 
