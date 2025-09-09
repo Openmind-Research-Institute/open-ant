@@ -14,6 +14,7 @@ class EmbodiedAnt(gym.Env):
     observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(24,), dtype=np.float32)
 
     def __init__(self, motor_controller, imu, tracker, dt=0.02, render_mode=None, joint_config=None):
+        super().__init__()
         self.motor_controller = motor_controller
         self.motor_controller.enable()
         self.dt = dt
