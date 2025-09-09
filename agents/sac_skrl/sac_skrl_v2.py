@@ -71,7 +71,7 @@ if hw_config is None:
     #     reward_upside_down_weight=0.0
     # )
     import gymnasium as gym
-    env = gym.make('Ant-v5', render_mode=render)
+    env = gym.make('Ant-v5')
 
 else:
     env_id = 'ant_hw'

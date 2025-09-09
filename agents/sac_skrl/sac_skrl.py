@@ -119,7 +119,7 @@ else:
     #     ctrl_cost_weight=0.0,
     #     reward_upside_down_weight=0.0
     # )
-    env = gym.make('Ant-v5', render_mode=render)
+    env = gym.make('Ant-v5')
 
 env = wrap_env(env, "gymnasium")
 device = env.device
@@ -151,7 +151,7 @@ cfg["state_preprocessor_kwargs"] = {"size": env.observation_space, "device": dev
 cfg["experiment"]["directory"] = LOG_FOLDER
 
 # Configure and instantiate the RL trainer. 
-time_in_hours = 10 # 10 hours
+time_in_hours = 2 # 10 hours
 total_timesteps = int(time_in_hours * 3600 / DT)
 # Record every 30 minutes.
 cfg["experiment"]["checkpoint_interval"] = int(30 * 60 / DT)
