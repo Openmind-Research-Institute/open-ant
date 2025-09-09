@@ -67,7 +67,7 @@ if hw_config is None:
         # render_mode=render,
         dt=DT,
         forward_reward_weight=1.0,
-        ctrl_cost_weight=0.0005,
+        ctrl_cost_weight=0.0,
         reward_upside_down_weight=0.0
     )
 else:

@@ -110,8 +110,12 @@ if len(sys.argv) > 1:
     env = make_ant_env(cfg, render_mode='human', dt=DT)
 else:
     env = AntEnv(
-        # render_mode="human",
-                 dt=DT)
+        # render_mode=render,
+        dt=DT,
+        forward_reward_weight=1.0,
+        ctrl_cost_weight=0.0,
+        reward_upside_down_weight=0.0
+    )
 
 env = wrap_env(env, "gymnasium")
 device = env.device
