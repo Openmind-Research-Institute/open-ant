@@ -152,7 +152,7 @@ total_timesteps = int(time_in_hours * 3600 / DT)
 # Record every 30 minutes.
 cfg["experiment"]["checkpoint_interval"] = int(30 * 60 / DT)
 
-memory = RandomMemory(memory_size=20000, device=device, replacement=False)
+memory = RandomMemory(memory_size=1_000_000, device=device, replacement=False)
 
 agent = SAC(models=models,
             memory=memory,  # only required during training
