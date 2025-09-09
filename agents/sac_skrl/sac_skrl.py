@@ -21,6 +21,8 @@ import pandas as pd
 from datetime import datetime
 import matplotlib.pyplot as plt
 
+import gymnasium as gym
+
 set_seed(42)
 
 class Actor(GaussianMixin, Model):
@@ -109,13 +111,15 @@ if len(sys.argv) > 1:
         cfg = json.load(f)
     env = make_ant_env(cfg, render_mode='human', dt=DT)
 else:
-    env = AntEnv(
-        # render_mode=render,
-        dt=DT,
-        forward_reward_weight=1.0,
-        ctrl_cost_weight=0.0,
-        reward_upside_down_weight=0.0
-    )
+    render = "human"
+    # env = AntEnv(
+    #     render_mode=render,
+    #     dt=DT,
+    #     forward_reward_weight=1.0,
+    #     ctrl_cost_weight=0.0,
+    #     reward_upside_down_weight=0.0
+    # )
+    env = gym.make('Ant-v5', render_mode=render)
 
 env = wrap_env(env, "gymnasium")
 device = env.device

@@ -63,13 +63,16 @@ hw_config = sys.argv[1] if len(sys.argv) > 1 else None
 
 if hw_config is None:
     env_id = 'ant_mujoco'
-    env = AntEnv(
-        # render_mode=render,
-        dt=DT,
-        forward_reward_weight=1.0,
-        ctrl_cost_weight=0.0,
-        reward_upside_down_weight=0.0
-    )
+    # env = AntEnv(
+    #     render_mode=render,
+    #     dt=DT,
+    #     forward_reward_weight=1.0,
+    #     ctrl_cost_weight=0.0,
+    #     reward_upside_down_weight=0.0
+    # )
+    import gymnasium as gym
+    env = gym.make('Ant-v5', render_mode=render)
+
 else:
     env_id = 'ant_hw'
     with open(hw_config, 'r') as f:
@@ -132,7 +135,7 @@ train = True
 if train:
     print("Training...")
 
-    time_in_hours = 10
+    time_in_hours = 2
     total_timesteps = int(time_in_hours * 3600 / DT)
     cfg["experiment"]["checkpoint_interval"] = int(30 * 60 / DT)
 
