@@ -18,6 +18,7 @@ from embodied_ant_env import make_ant_env
 from collections import deque
 import pandas as pd
 from datetime import datetime
+import matplotlib.pyplot as plt
 
 class Actor(GaussianMixin, Model):
     def __init__(self, observation_space, action_space, device, clip_actions=False,
@@ -82,10 +83,14 @@ def run(agent, env):
             moving_reward_queue.popleft()
 
         average_reward_per_second = sum(moving_reward_queue) / len(moving_reward_queue)
-        if i % 5000 == 0:
+        if i % 1000 == 0:
             print(f"Step {i}, time [s] {i * env.dt:.2f}, time [min] {i * env.dt / 60:.2f}, moving average reward {average_reward_per_second:.4f}")
             df = pd.concat([df, pd.DataFrame({'step': [i], 'reward': [average_reward_per_second]})], ignore_index=True)
             df.to_csv(os.path.join(LOG_FOLDER, f'rewards_{DATE_NOW}.csv'), index=False)
+            # Plot the reward curve.
+            plt.plot(df['step'], df['reward'])
+            plt.savefig(os.path.join(LOG_FOLDER, f'reward_curve.png'))
+            plt.close()
 
 DATE_NOW = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 LOG_FOLDER = 'logs_sac_skrl'
