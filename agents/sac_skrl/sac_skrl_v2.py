@@ -64,7 +64,7 @@ hw_config = sys.argv[1] if len(sys.argv) > 1 else None
 if hw_config is None:
     env_id = 'ant_mujoco'
     env = AntEnv(
-        render_mode=render,
+        # render_mode=render,
         dt=DT,
         forward_reward_weight=1.0,
         ctrl_cost_weight=0.005,
