@@ -91,9 +91,9 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         if joint_config is None:
             joint_config = {
                 'hip_zero': 0,
-                'knee_zero': -np.radians(50),
+                'knee_zero': -np.radians(0),
                 'hip_range': np.radians(45),
-                'knee_range': np.radians(30),
+                'knee_range': np.radians(60),
             }
 
         self._joint_config = joint_config
