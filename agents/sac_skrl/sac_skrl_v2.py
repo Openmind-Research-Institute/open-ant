@@ -67,7 +67,7 @@ if hw_config is None:
         # render_mode=render,
         dt=DT,
         forward_reward_weight=1.0,
-        ctrl_cost_weight=0.005,
+        ctrl_cost_weight=0.0005,
         reward_upside_down_weight=0.0
     )
 else:
@@ -101,7 +101,7 @@ memory = RandomMemory(memory_size=1_000_000, device=device)
 # Config
 cfg = SAC_DEFAULT_CONFIG.copy()
 cfg["gradient_steps"] = 4
-cfg["batch_size"] = 256
+cfg["batch_size"] = 4096
 cfg["discount_factor"] = 0.99
 cfg["polyak"] = 0.005
 cfg["actor_learning_rate"] = 5e-4
@@ -130,7 +130,7 @@ train = True
 if train:
     print("Training...")
 
-    time_in_hours = 2
+    time_in_hours = 6
     total_timesteps = int(time_in_hours * 3600 / DT)
     cfg["experiment"]["checkpoint_interval"] = int(30 * 60 / DT)
 
