@@ -10,7 +10,7 @@ from skrl.models.torch import DeterministicMixin, GaussianMixin, Model
 from skrl.resources.preprocessors.torch import RunningStandardScaler
 from skrl.trainers.torch import SequentialTrainer
 from skrl.utils import set_seed
-
+import os
 
 # seed for reproducibility
 set_seed()  # e.g. `set_seed(42)` for fixed seed
