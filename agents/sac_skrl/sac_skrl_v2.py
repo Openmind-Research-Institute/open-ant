@@ -25,36 +25,38 @@ from embodied_ant_env import make_ant_env
 # Set seed for reproducibility
 set_seed(42)
 
-# Actor
-class Actor(GaussianMixin, Model):
-    def __init__(self, observation_space, action_space, device, **kwargs):
+# define models (stochastic and deterministic models) using mixins
+class StochasticActor(GaussianMixin, Model):
+    def __init__(self, observation_space, action_space, device, clip_actions=False,
+                 clip_log_std=True, min_log_std=-5, max_log_std=2):
         Model.__init__(self, observation_space, action_space, device)
-        GaussianMixin.__init__(self, **kwargs)
+        GaussianMixin.__init__(self, clip_actions, clip_log_std, min_log_std, max_log_std)
 
-        self.linear1 = nn.Linear(self.num_observations, 400)
-        self.linear2 = nn.Linear(400, 300)
-        self.linear3 = nn.Linear(300, self.num_actions)
+        self.net = nn.Sequential(nn.Linear(self.num_observations, 512),
+                                 nn.ReLU(),
+                                 nn.Linear(512, 256),
+                                 nn.ReLU(),
+                                 nn.Linear(256, self.num_actions),
+                                 nn.Tanh())
         self.log_std_parameter = nn.Parameter(torch.zeros(self.num_actions))
 
     def compute(self, inputs, role):
-        x = F.relu(self.linear1(inputs["states"]))
-        x = F.relu(self.linear2(x))
-        return torch.tanh(self.linear3(x)), self.log_std_parameter, {}
+        return self.net(inputs["states"]), self.log_std_parameter, {}
 
-# Critic
 class Critic(DeterministicMixin, Model):
-    def __init__(self, observation_space, action_space, device, **kwargs):
+    def __init__(self, observation_space, action_space, device, clip_actions=False):
         Model.__init__(self, observation_space, action_space, device)
-        DeterministicMixin.__init__(self, **kwargs)
+        DeterministicMixin.__init__(self, clip_actions)
 
-        self.linear1 = nn.Linear(self.num_observations + self.num_actions, 400)
-        self.linear2 = nn.Linear(400, 300)
-        self.linear3 = nn.Linear(300, 1)
+        self.net = nn.Sequential(nn.Linear(self.num_observations + self.num_actions, 512),
+                                 nn.ReLU(),
+                                 nn.Linear(512, 256),
+                                 nn.ReLU(),
+                                 nn.Linear(256, 1))
 
     def compute(self, inputs, role):
-        x = F.relu(self.linear1(torch.cat([inputs["states"], inputs["taken_actions"]], dim=1)))
-        x = F.relu(self.linear2(x))
-        return self.linear3(x), {}
+        return self.net(torch.cat([inputs["states"], inputs["taken_actions"]], dim=1)), {}
+
 
 # Env setup
 render = "human"
@@ -88,20 +90,15 @@ LOG_FOLDER = 'logs_sac_skrl'
 os.makedirs(LOG_FOLDER, exist_ok=True)
 
 # Models
-models = {
-    "policy": Actor(env.observation_space, env.action_space, device),
-    "critic_1": Critic(env.observation_space, env.action_space, device),
-    "critic_2": Critic(env.observation_space, env.action_space, device),
-    "target_critic_1": Critic(env.observation_space, env.action_space, device),
-    "target_critic_2": Critic(env.observation_space, env.action_space, device)
-}
-
-
-for model in models.values():
-    model.init_parameters(method_name="normal_", mean=0.0, std=0.1)
+models = {}
+models["policy"] = StochasticActor(env.observation_space, env.action_space, device, clip_actions=True)
+models["critic_1"] = Critic(env.observation_space, env.action_space, device)
+models["critic_2"] = Critic(env.observation_space, env.action_space, device)
+models["target_critic_1"] = Critic(env.observation_space, env.action_space, device)
+models["target_critic_2"] = Critic(env.observation_space, env.action_space, device)
 
 # Memory
-memory = RandomMemory(memory_size=1_000_000, device=device)
+memory = RandomMemory(memory_size=15625, device=device)
 
 # Config
 cfg = SAC_DEFAULT_CONFIG.copy()
@@ -109,12 +106,12 @@ cfg["gradient_steps"] = 1
 cfg["batch_size"] = 256
 cfg["discount_factor"] = 0.99
 cfg["polyak"] = 0.005
-cfg["actor_learning_rate"] = 3e-4
-cfg["critic_learning_rate"] = 3e-4
-cfg["random_timesteps"] = 0
-cfg["learning_starts"] = 0
+cfg["actor_learning_rate"] = 5e-4
+cfg["critic_learning_rate"] = 5e-4
+cfg["random_timesteps"] = 80
+cfg["learning_starts"] = 80
 cfg["grad_norm_clip"] = 0
-cfg["learn_entropy"] = False
+cfg["learn_entropy"] = True
 cfg["entropy_learning_rate"] = 5e-3
 cfg["initial_entropy_value"] = 1.0
 cfg["state_preprocessor"] = RunningStandardScaler
@@ -137,6 +134,7 @@ if train:
 
     time_in_hours = 2
     total_timesteps = int(time_in_hours * 3600 / DT)
+    total_timesteps = 160000
     cfg["experiment"]["checkpoint_interval"] = int(30 * 60 / DT)
 
     trainer = SequentialTrainer(cfg={"timesteps": total_timesteps, "headless": True}, env=env, agents=agent)
