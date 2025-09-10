@@ -55,11 +55,10 @@ def default_config() -> config_dict.ConfigDict:
       ctrl_dt=0.05,
       sim_dt=0.001,
       reward_config=config_dict.create(
-        ctrl_cost_weight=0.005,
-        distance_to_origin_weight=1.0,
+        cost_ctrl_weight=0.0,
+        cost_distance_to_origin=0.1,
         reward_upside_down_weight=0.0,
         reward_forward_progress_weight=0.0,
-        terminate_when_unhealthy=True,
         reset_noise_scale=0.1,
       ),
   )
@@ -80,13 +79,13 @@ class Ant(mjx_env.MjxEnv):
     # Initialize the model and the mjx model.
     self._mj_model = mujoco.MjModel.from_xml_path(xml_path)
     self._mjx_model = mjx.put_model(self._mj_model)
-    self._torso_body_id = self._mj_model.body(ROOT_BODY).id
 
     # Set the timesteps.
     self._mj_model.opt.timestep = config.sim_dt
     self.ctrl_dt = config.ctrl_dt
     self._sim_dt = config.sim_dt
 
+    # Initialize the joint configuration.
     self._joint_config = {
                 'hip_zero': 0,
                 'knee_zero': -np.radians(50),
@@ -94,13 +93,12 @@ class Ant(mjx_env.MjxEnv):
                 'knee_range': np.radians(20),
             }
 
-    # Initialize the reward weights.
-    self._ctrl_cost_weight = config.reward_config.ctrl_cost_weight
-    self._distance_to_origin_weight = config.reward_config.distance_to_origin_weight
+    # Initialize the reward/cost weights.
+    self._cost_ctrl_weight = config.reward_config.cost_ctrl_weight
+    self._cost_distance_to_origin = config.reward_config.cost_distance_to_origin
     self._reward_upside_down_weight = config.reward_config.reward_upside_down_weight
     self._reward_forward_progress_weight = config.reward_config.reward_forward_progress_weight
 
-    self._terminate_when_unhealthy = config.reward_config.terminate_when_unhealthy
     self._reset_noise_scale = config.reward_config.reset_noise_scale
 
     # Initialize the action space.
@@ -109,10 +107,8 @@ class Ant(mjx_env.MjxEnv):
 
     # Initialize the initial state.
     self._init_q = jp.array(self._mj_model.keyframe("home").qpos)
-    self._default_q_joints = jp.array(self._mj_model.keyframe("home").qpos[7:])
-    print(f'default_q_joints: {self._default_q_joints}')
 
-    # For debugging and testing.
+    # For debugging.
     if save_config_folder is not None:
       # Copy over the ant.xml file.
       shutil.copy(XML_PATH, os.path.join(save_config_folder, 'ant.xml'))
@@ -144,8 +140,7 @@ class Ant(mjx_env.MjxEnv):
       qpos[7:] * jax.random.uniform(key, (self.mj_model.nu, ), minval=low, maxval=hi))
 
     rng, key = jax.random.split(rng)
-    qvel = qvel.at[0:6].set(
-      jax.random.uniform(key, (6,), minval=-0.1, maxval=0.1))
+    qvel = qvel.at[0:6].set(jax.random.uniform(key, (6,), minval=-0.1, maxval=0.1))
 
     # Initialize the data.
     data = mjx.make_data(self.mjx_model)
@@ -180,7 +175,6 @@ class Ant(mjx_env.MjxEnv):
         "qpos": data.qpos,
         "qvel": data.qvel,
         "xfrc_applied": data.xfrc_applied,
-        "previous_pos_x": jp.array(0.0),
         "truncation": jp.array(0.0, dtype=jp.float32),
     }
 
@@ -226,10 +220,10 @@ class Ant(mjx_env.MjxEnv):
     upside_down = jp.dot(up_vector_ant_in_world, z_world)
     reward_upside_down = jp.where(upside_down < 0, -10.0, 0.0)
 
-    reward = self._reward_forward_progress_weight * forward_progress_x - \
-              self._ctrl_cost_weight * ctrl_cost + \
-              self._reward_upside_down_weight * reward_upside_down + \
-              self._distance_to_origin_weight * distance_to_origin
+    reward = self._reward_forward_progress_weight * forward_progress_x + \
+              self._reward_upside_down_weight * reward_upside_down - \
+              self._cost_ctrl_weight * ctrl_cost - \
+              self._cost_distance_to_origin * distance_to_origin
 
     done = upside_down < 0
     done = done.astype(reward.dtype)
@@ -295,7 +289,7 @@ class Ant(mjx_env.MjxEnv):
 
     return {
       "state": obs,
-      "privileged_state": obs,
+      "privileged_state": obs, # Give the option to use privileged state for the value function training.
     }
 
    # Accessors.
