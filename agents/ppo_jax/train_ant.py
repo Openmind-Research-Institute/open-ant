@@ -1,3 +1,20 @@
+# Copyright 2025 DeepMind Technologies Limited
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+
+# Modifications Copyright 2025 Elena-Sorina Lupu
+
 import os
 import numpy as np
 np.set_printoptions(precision=3, suppress=True, linewidth=100)
@@ -47,16 +64,19 @@ def test_ant(env, rng):
 
   state = jit_reset(rng)
 
-  reward_tracker = RewardTracker(env_dt=env.dt, time_window=10.0, log_folder=epath.Path(RESULTS_FOLDER_PATH) / latest_folder)
+  reward_tracker = RewardTracker(env_dt=env.dt,
+                                 env_id='ant_sim',
+                                 time_window=50.0,
+                                 log_folder=epath.Path(RESULTS_FOLDER_PATH) / latest_folder)
 
   metrics_list = []
   ctrl_list = []
   state_list = []
   for i in tqdm(range(1000)):
     act_rng, rng = jax.random.split(rng)
-    delta_ctrl, _ = jit_policy(state.obs, act_rng)
-    ctrl_list.append(delta_ctrl)
-    state = jit_step(state, delta_ctrl)
+    ctrl, _ = jit_policy(state.obs, act_rng)
+    ctrl_list.append(ctrl)
+    state = jit_step(state, ctrl)
     state_list.append(state.obs["state"])
     metrics_list.append(state.metrics)
 
@@ -88,7 +108,7 @@ def test_ant(env, rng):
   )
 
   media.write_video(f'{epath.Path(RESULTS_FOLDER_PATH) / latest_folder}/ant_{latest_weights_folder}.mp4', frames, fps=fps)
-  print('Video saved')
+  print('Video saved.')
 
 
 parser = argparse.ArgumentParser()
@@ -166,7 +186,6 @@ if args.train == True:
     ax.set_title(f"y={y_data[-1]:.3f}")
     ax.plot(x_data, y_data)
     ax.fill_between(x_data, np.array(y_data) - np.array(y_dataerr), np.array(y_data) + np.array(y_dataerr), alpha=0.2)
-    plt.savefig(f'{ABS_FOLDER_RESUlTS}/reward.pdf')
     plt.savefig(f'{ABS_FOLDER_RESUlTS}/reward.png')
     print("Reward for {} steps: {:.3f}".format(num_steps, y_data[-1]))
 
