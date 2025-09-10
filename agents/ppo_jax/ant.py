@@ -56,6 +56,9 @@ def default_config() -> config_dict.ConfigDict:
       sim_dt=0.001,
       reward_config=config_dict.create(
         ctrl_cost_weight=0.0,
+        distance_to_origin_weight=1.0,
+        reward_upside_down_weight=0.0,
+        reward_forward_progress_weight=0.0,
         terminate_when_unhealthy=True,
         reset_noise_scale=0.1,
       ),
@@ -91,7 +94,12 @@ class Ant(mjx_env.MjxEnv):
                 'knee_range': np.radians(20),
             }
 
+    # Initialize the reward weights.
     self._ctrl_cost_weight = config.reward_config.ctrl_cost_weight
+    self._distance_to_origin_weight = config.reward_config.distance_to_origin_weight
+    self._reward_upside_down_weight = config.reward_config.reward_upside_down_weight
+    self._reward_forward_progress_weight = config.reward_config.reward_forward_progress_weight
+
     self._terminate_when_unhealthy = config.reward_config.terminate_when_unhealthy
     self._reset_noise_scale = config.reward_config.reset_noise_scale
 
@@ -117,6 +125,12 @@ class Ant(mjx_env.MjxEnv):
   def reset(self, rng: jax.Array) -> mjx_env.State:
     """Resets the environment to an initial state."""
     qpos = self._init_q
+    # Random location in the workspace.
+    rng, key = jax.random.split(rng)
+    qpos[0] = jax.random.uniform(key, (1,), minval=-WORKSPACE_LENGTH / 2.0, maxval=WORKSPACE_LENGTH / 2.0)
+    rng, key = jax.random.split(rng)
+    qpos[1] = jax.random.uniform(key, (1,), minval=-WORKSPACE_WIDTH / 2.0, maxval=WORKSPACE_WIDTH / 2.0)
+
     qvel = jp.zeros(self.mjx_model.nv)
     
     # Randomize the initial state.
@@ -205,17 +219,23 @@ class Ant(mjx_env.MjxEnv):
     state.info["truncation"] = truncation
 
     # Compute the reward.
+    ## Forward progress.
     forward_progress = data.qpos[0:2] - state.data.qpos[0:2]
     forward_progress_x = forward_progress[0]
-
-    ctrl_cost = self._ctrl_cost_weight * jp.sum(jp.square(state.info["last_last_action"] - state.info["last_action"]))
-
+    ## Distance to origin.
+    distance_to_origin = jp.linalg.norm(data.qpos[0:2], ord=2)
+    ## Control cost.
+    ctrl_cost = jp.sum(jp.square(state.info["last_last_action"] - state.info["last_action"]))
+    ## Upside down.
     up_vector_ant_in_world = math.quat_to_mat(data.qpos[3:7])[:, 2]
     z_world = jp.array([0, 0, 1])
     upside_down = jp.dot(up_vector_ant_in_world, z_world)
     reward_upside_down = jp.where(upside_down < 0, -10.0, 0.0)
 
-    reward = forward_progress_x - ctrl_cost + reward_upside_down
+    reward = self._reward_forward_progress_weight * forward_progress_x - \
+              self._ctrl_cost_weight * ctrl_cost + \
+              self._reward_upside_down_weight * reward_upside_down + \
+              self._distance_to_origin_weight * distance_to_origin
 
     done = upside_down < 0
     done = done.astype(reward.dtype)
