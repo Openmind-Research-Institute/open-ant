@@ -55,7 +55,7 @@ def default_config() -> config_dict.ConfigDict:
       ctrl_dt=0.05,
       sim_dt=0.001,
       reward_config=config_dict.create(
-        ctrl_cost_weight=0.0,
+        ctrl_cost_weight=0.005,
         distance_to_origin_weight=1.0,
         reward_upside_down_weight=0.0,
         reward_forward_progress_weight=0.0,
