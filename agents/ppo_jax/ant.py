@@ -125,18 +125,12 @@ class Ant(mjx_env.MjxEnv):
   def reset(self, rng: jax.Array) -> mjx_env.State:
     """Resets the environment to an initial state."""
     qpos = self._init_q
-    # Random location in the workspace.
-    rng, key = jax.random.split(rng)
-    qpos[0] = jax.random.uniform(key, (1,), minval=-WORKSPACE_LENGTH / 2.0, maxval=WORKSPACE_LENGTH / 2.0)
-    rng, key = jax.random.split(rng)
-    qpos[1] = jax.random.uniform(key, (1,), minval=-WORKSPACE_WIDTH / 2.0, maxval=WORKSPACE_WIDTH / 2.0)
-
     qvel = jp.zeros(self.mjx_model.nv)
     
     # Randomize the initial state.
     # x=+U(-0.5, 0.5), y=+U(-0.5, 0.5), yaw=U(-3.14, 3.14).
     rng, key = jax.random.split(rng)
-    dxy = jax.random.uniform(key, (2,), minval=-0.5, maxval=0.5)
+    dxy = jax.random.uniform(key, (2,), minval=-WORKSPACE_LENGTH / 2.0, maxval=WORKSPACE_LENGTH / 2.0)
     qpos = qpos.at[0:2].set(qpos[0:2] + dxy)
     rng, key = jax.random.split(rng)
     yaw = jax.random.uniform(key, (1,), minval=-3.14, maxval=3.14)
