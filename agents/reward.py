@@ -10,6 +10,8 @@ class RewardTracker:
         self.queue = deque(maxlen=self.window_size)
         self.df = pd.DataFrame(columns=["step", "reward"])
         self.log_folder = log_folder
+        if not os.path.exists(log_folder):
+            os.makedirs(log_folder)
         self.date_now = date_now
         self.env_id = env_id
 
@@ -20,7 +22,7 @@ class RewardTracker:
         average_reward_per_second = sum(self.queue) / len(self.queue)
         return average_reward_per_second
 
-    def log(self, step, average_reward_per_second):
+    def log(self, step, average_reward_per_second, plot=True):
         print(f"Step {step}, time [s] {step * self.env_dt:.2f}, "
                 f"time [min] {step * self.env_dt / 60:.2f}, "
                 f"moving average reward {average_reward_per_second:.4f}")
@@ -29,6 +31,8 @@ class RewardTracker:
             ignore_index=True
         )
         self.df.to_csv(os.path.join(self.log_folder, f"eval_{self.env_id}_rewards_{self.date_now}.csv"), index=False)
+        if plot:
+            self.plot(os.path.join(self.log_folder, f"eval_{self.env_id}_rewards_{self.date_now}.png"))
 
     def plot(self, save_path=None):
         plt.plot(self.df["step"], self.df["reward"])
