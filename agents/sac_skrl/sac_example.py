@@ -13,8 +13,7 @@ from skrl.utils import set_seed
 import os
 
 # seed for reproducibility
-set_seed()  # e.g. `set_seed(42)` for fixed seed
-
+set_seed(42)  # e.g. `set_seed(42)` for fixed seed
 
 # define models (stochastic and deterministic models) using mixins
 class StochasticActor(GaussianMixin, Model):
@@ -51,14 +50,13 @@ class Critic(DeterministicMixin, Model):
 
 # load and wrap the Isaac Gym environment
 import gymnasium as gym
-env = gym.make('Ant-v5')
-env = wrap_env(env)
+env = gym.make_vec("Ant-v5", num_envs=1)
 
+env = wrap_env(env)
 device = env.device
 
-
 # instantiate a memory as experience replay
-memory = RandomMemory(memory_size=15625, num_envs=env.num_envs, device=device)
+memory = RandomMemory(memory_size=1_000_000, num_envs=env.num_envs, device=device)
 
 
 # instantiate the agent's models (function approximators).
@@ -79,16 +77,17 @@ os.makedirs(LOG_FOLDER, exist_ok=True)
 # https://skrl.readthedocs.io/en/latest/api/agents/sac.html#configuration-and-hyperparameters
 cfg = SAC_DEFAULT_CONFIG.copy()
 cfg["gradient_steps"] = 1
-cfg["batch_size"] = 4096
+cfg["batch_size"] = 4096//64
+print(f"batch_size: {cfg['batch_size']}")
 cfg["discount_factor"] = 0.99
 cfg["polyak"] = 0.005
 cfg["actor_learning_rate"] = 5e-4
 cfg["critic_learning_rate"] = 5e-4
-cfg["random_timesteps"] = 80
-cfg["learning_starts"] = 80
+cfg["random_timesteps"] = 5000
+cfg["learning_starts"] = 5000
 cfg["grad_norm_clip"] = 0
 cfg["learn_entropy"] = True
-cfg["entropy_learning_rate"] = 5e-3
+cfg["entropy_learning_rate"] = 1e-3
 cfg["initial_entropy_value"] = 1.0
 cfg["state_preprocessor"] = RunningStandardScaler
 cfg["state_preprocessor_kwargs"] = {"size": env.observation_space, "device": device}
@@ -110,4 +109,10 @@ cfg_trainer = {"timesteps": 160000, "headless": True}
 trainer = SequentialTrainer(cfg=cfg_trainer, env=env, agents=agent)
 
 # start training
-trainer.train()
+train = True
+if train:
+    trainer.train()
+else:
+    path = '.'
+    agent.load(path)
+    trainer.eval()
