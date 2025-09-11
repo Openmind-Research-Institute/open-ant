@@ -77,14 +77,13 @@ os.makedirs(LOG_FOLDER, exist_ok=True)
 # https://skrl.readthedocs.io/en/latest/api/agents/sac.html#configuration-and-hyperparameters
 cfg = SAC_DEFAULT_CONFIG.copy()
 cfg["gradient_steps"] = 1
-cfg["batch_size"] = 4096//64
-print(f"batch_size: {cfg['batch_size']}")
+cfg["batch_size"] = 64
 cfg["discount_factor"] = 0.99
 cfg["polyak"] = 0.005
 cfg["actor_learning_rate"] = 5e-4
 cfg["critic_learning_rate"] = 5e-4
-cfg["random_timesteps"] = 5000
-cfg["learning_starts"] = 5000
+cfg["random_timesteps"] = 80
+cfg["learning_starts"] = 80
 cfg["grad_norm_clip"] = 0
 cfg["learn_entropy"] = True
 cfg["entropy_learning_rate"] = 1e-3
@@ -105,7 +104,7 @@ agent = SAC(models=models,
 
 
 # configure and instantiate the RL trainer
-cfg_trainer = {"timesteps": 160000, "headless": True}
+cfg_trainer = {"timesteps": 1_000_000, "headless": True}
 trainer = SequentialTrainer(cfg=cfg_trainer, env=env, agents=agent)
 
 # start training
