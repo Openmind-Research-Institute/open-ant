@@ -11,6 +11,10 @@ from skrl.resources.preprocessors.torch import RunningStandardScaler
 from skrl.trainers.torch import SequentialTrainer
 from skrl.utils import set_seed
 import os
+import sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+# from ant_mujoco import AntEnv
+from sim import ant_mujoco  # this will execute the register() if it's in ant_mujoco.py
 
 # seed for reproducibility
 set_seed(42)  # e.g. `set_seed(42)` for fixed seed
@@ -50,7 +54,9 @@ class Critic(DeterministicMixin, Model):
 
 # load and wrap the Isaac Gym environment
 import gymnasium as gym
-env = gym.make_vec("Ant-v5", num_envs=1)
+# env = gym.make_vec("Ant-v5", num_envs=1)
+NB_ENVS = 64
+env = gym.make_vec("CustomAnt-v0", num_envs=NB_ENVS)
 
 env = wrap_env(env)
 device = env.device
@@ -77,7 +83,7 @@ os.makedirs(LOG_FOLDER, exist_ok=True)
 # https://skrl.readthedocs.io/en/latest/api/agents/sac.html#configuration-and-hyperparameters
 cfg = SAC_DEFAULT_CONFIG.copy()
 cfg["gradient_steps"] = 1
-cfg["batch_size"] = 64
+cfg["batch_size"] = 64 * NB_ENVS
 cfg["discount_factor"] = 0.99
 cfg["polyak"] = 0.005
 cfg["actor_learning_rate"] = 5e-4
@@ -104,7 +110,7 @@ agent = SAC(models=models,
 
 
 # configure and instantiate the RL trainer
-cfg_trainer = {"timesteps": 1_000_000, "headless": True}
+cfg_trainer = {"timesteps": int(1_000_000/NB_ENVS), "headless": True}
 trainer = SequentialTrainer(cfg=cfg_trainer, env=env, agents=agent)
 
 # start training
