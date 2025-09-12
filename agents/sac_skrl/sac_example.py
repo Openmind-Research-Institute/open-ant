@@ -55,8 +55,9 @@ class Critic(DeterministicMixin, Model):
 # load and wrap the Isaac Gym environment
 import gymnasium as gym
 NB_ENVS = 64
-env = gym.make_vec("Ant-v5", num_envs=NB_ENVS)
-# env = gym.make_vec("CustomAnt-v0", num_envs=NB_ENVS)
+# env = gym.make_vec("Ant-v5", num_envs=NB_ENVS)
+DT = 0.05
+env = gym.make_vec("CustomAnt-v0", num_envs=NB_ENVS, dt=DT)
 
 env = wrap_env(env)
 device = env.device
