@@ -54,15 +54,16 @@ class Critic(DeterministicMixin, Model):
 
 # load and wrap the Isaac Gym environment
 import gymnasium as gym
-# env = gym.make_vec("Ant-v5", num_envs=1)
 NB_ENVS = 64
-env = gym.make_vec("CustomAnt-v0", num_envs=NB_ENVS)
+env = gym.make_vec("Ant-v5", num_envs=NB_ENVS)
+# env = gym.make_vec("CustomAnt-v0", num_envs=NB_ENVS)
 
 env = wrap_env(env)
 device = env.device
 
 # instantiate a memory as experience replay
-memory = RandomMemory(memory_size=1_000_000, num_envs=env.num_envs, device=device)
+buffer_size = int(1_000_000/NB_ENVS)
+memory = RandomMemory(memory_size=buffer_size, num_envs=env.num_envs, device=device)
 
 
 # instantiate the agent's models (function approximators).
@@ -92,13 +93,13 @@ cfg["random_timesteps"] = 80
 cfg["learning_starts"] = 80
 cfg["grad_norm_clip"] = 0
 cfg["learn_entropy"] = True
-cfg["entropy_learning_rate"] = 1e-3
+cfg["entropy_learning_rate"] = 5e-3
 cfg["initial_entropy_value"] = 1.0
 cfg["state_preprocessor"] = RunningStandardScaler
 cfg["state_preprocessor_kwargs"] = {"size": env.observation_space, "device": device}
 # logging to TensorBoard and write checkpoints (in timesteps)
 cfg["experiment"]["write_interval"] = 800
-cfg["experiment"]["checkpoint_interval"] = 8000
+cfg["experiment"]["checkpoint_interval"] = 4000
 cfg["experiment"]["directory"] = LOG_FOLDER
 
 agent = SAC(models=models,
@@ -110,7 +111,7 @@ agent = SAC(models=models,
 
 
 # configure and instantiate the RL trainer
-cfg_trainer = {"timesteps": int(1_000_000/NB_ENVS), "headless": True}
+cfg_trainer = {"timesteps": 160_000, "headless": True}
 trainer = SequentialTrainer(cfg=cfg_trainer, env=env, agents=agent)
 
 # start training
