@@ -33,7 +33,7 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         default_camera_config: dict[str, float | int] = DEFAULT_CAMERA_CONFIG,
         forward_reward_weight: float = 1,
         ctrl_cost_weight: float = 0.0,
-        reward_upside_down_weight: float = -10.0,
+        cost_upside_down_weight: float = 10.0,
         main_body: int | str = 1,
         reset_noise_scale: float = 0.1,
         joint_config: dict[str, float] | None = None,
@@ -48,7 +48,7 @@ class AntEnv(MujocoEnv, utils.EzPickle):
             frame_skip,
             default_camera_config,
             forward_reward_weight,
-            reward_upside_down_weight,
+            cost_upside_down_weight,
             main_body,
             reset_noise_scale,
             **kwargs,
@@ -56,7 +56,7 @@ class AntEnv(MujocoEnv, utils.EzPickle):
 
         self._forward_reward_weight = forward_reward_weight
         self._ctrl_cost_weight = ctrl_cost_weight
-        self._reward_upside_down_weight = reward_upside_down_weight
+        self._cost_upside_down_weight = cost_upside_down_weight
 
         self._reset_noise_scale = reset_noise_scale
 
@@ -149,12 +149,12 @@ class AntEnv(MujocoEnv, utils.EzPickle):
 
         upside_down = np.dot(up_vector_ant_in_world, z_world)
 
-        reward_upside_down = 0.0
+        cost_upside_down = 0.0
         if upside_down < 0:
-            reward_upside_down = self._reward_upside_down_weight
+            cost_upside_down = self._cost_upside_down_weight
             print("Upside down")
 
-        reward = forward_progress_reward + reward_upside_down - ctrl_cost
+        reward = forward_progress_reward - cost_upside_down - ctrl_cost
         reward_info = {"reward": reward,
                        "forward_progress_reward": forward_progress_reward,
                        "ctrl_cost": ctrl_cost,
