@@ -1,6 +1,6 @@
 <mujoco model="ant">
   <compiler angle="radian" coordinate="local" inertiafromgeom="true"/>
-
+  <option integrator="RK4"/>
   <!-- <option iterations="3" ls_iterations="5" timestep="0.001" integrator="Euler">
     <flag eulerdamp="disable"/>
   </option> -->
