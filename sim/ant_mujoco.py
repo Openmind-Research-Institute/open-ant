@@ -134,10 +134,7 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         self.previous_x_position = self.data.qpos[0]
 
         truncated = self._get_truncated()
-        if reward_info["upside_down"] < 0:
-            terminated = True
-        else:
-            terminated = False
+        terminated = False
         return observation, reward, terminated, truncated, self.info
 
     def _get_rew(self):
@@ -157,8 +154,9 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         reward = forward_progress_reward - cost_upside_down - ctrl_cost
         reward_info = {"reward": reward,
                        "forward_progress_reward": forward_progress_reward,
-                       "ctrl_cost": ctrl_cost,
-                       "upside_down": upside_down}
+                       "ctrl_cost": ctrl_cost}
+
+        self.info.update({'upside_down': upside_down})
 
         return reward, reward_info
 
@@ -170,8 +168,11 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         truncation_condition = (
             np.isnan(self.data.qpos).any() | np.isnan(self.data.qvel).any() |
             (x_pos < -WORKSPACE_LENGTH / 2.0) | (x_pos > WORKSPACE_LENGTH / 2.0) |
-            (y_pos < -WORKSPACE_WIDTH / 2.0) | (y_pos > WORKSPACE_WIDTH / 2.0)
+            (y_pos < -WORKSPACE_WIDTH / 2.0) | (y_pos > WORKSPACE_WIDTH / 2.0) |
+            (self.info["upside_down"] < 0)
         )
+        if truncation_condition:
+            print("Truncated")
 
         return bool(truncation_condition)
 
