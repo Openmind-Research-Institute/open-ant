@@ -110,30 +110,42 @@ def test_ant(env, rng):
   media.write_video(f'{epath.Path(RESULTS_FOLDER_PATH) / latest_folder}/ant_{latest_weights_folder}.mp4', frames, fps=fps)
   print('Video saved.')
 
-
 parser = argparse.ArgumentParser()
 parser.add_argument('--train', type=bool, default=False)
 parser.add_argument('--seed', type=int, default=0)
+parser.add_argument('--terminate_when_upside_down', type=bool, default=False)
+parser.add_argument('--upside_down_cost_weight', type=float, default=0.0)
+parser.add_argument('--ctrl_cost_weight', type=float, default=0.0)
 args = parser.parse_args()
+print(args)
 print('Training: ', args.train)
+
 rng = jax.random.PRNGKey(args.seed)
+config_overrides = {
+  "reward_config": {
+    "terminate_when_upside_down": args.terminate_when_upside_down,
+    "upside_down_cost_weight": args.upside_down_cost_weight,
+    "ctrl_cost_weight": args.ctrl_cost_weight,
+    "reset_noise_scale": 0.1,
+  }
+}
+
+# Folders.
+RESULTS = 'results'
+if not os.path.exists(RESULTS):
+    os.makedirs(RESULTS)
+time_now = datetime.now().strftime('%Y%m%d-%H%M%S')
+if not os.path.exists(os.path.join(RESULTS, time_now)):
+    os.makedirs(os.path.join(RESULTS, time_now))
+FOLDER_RESULTS = os.path.join(RESULTS, time_now)
+ABS_FOLDER_RESUlTS = os.path.abspath(FOLDER_RESULTS)
+print(f"Saving results to {ABS_FOLDER_RESUlTS}")
+print("Available devices:", jax.devices())
 
 if args.train == True:
-  # Folders.
-  RESULTS = 'results'
-  if not os.path.exists(RESULTS):
-      os.makedirs(RESULTS)
-  time_now = datetime.now().strftime('%Y%m%d-%H%M%S')
-  if not os.path.exists(os.path.join(RESULTS, time_now)):
-      os.makedirs(os.path.join(RESULTS, time_now))
-  FOLDER_RESULTS = os.path.join(RESULTS, time_now)
-  ABS_FOLDER_RESUlTS = os.path.abspath(FOLDER_RESULTS)
-  print(f"Saving results to {ABS_FOLDER_RESUlTS}")
-  print("Available devices:", jax.devices())
-
   # Brax PPO config.
   brax_ppo_config = config_dict.create(
-        num_timesteps=100_000_000,
+        num_timesteps=20_000_000,
         num_evals=15,
         reward_scaling=1.0,
         clipping_epsilon=0.2,
@@ -160,8 +172,8 @@ if args.train == True:
   ppo_params = brax_ppo_config
 
   # Environment.
-  env = Ant(save_config_folder=ABS_FOLDER_RESUlTS)
-  eval_env = Ant(save_config_folder=ABS_FOLDER_RESUlTS)
+  env = Ant(save_config_folder=ABS_FOLDER_RESUlTS, config_overrides=config_overrides)
+  eval_env = Ant(save_config_folder=ABS_FOLDER_RESUlTS, config_overrides=config_overrides)
 
   x_data, y_data, y_dataerr = [], [], []
   times = [datetime.now()]
@@ -214,5 +226,5 @@ if args.train == True:
   print(f"time to jit: {times[1] - times[0]}")
   print(f"time to train: {times[-1] - times[1]}")
 else:
-  eval_env = Ant()
+  eval_env = Ant(save_config_folder=ABS_FOLDER_RESUlTS, config_overrides=config_overrides)
   test_ant(eval_env, rng)
