@@ -7,78 +7,56 @@ import scipy.spatial.transform as transform
 import os
 import time
 import matplotlib.pyplot as plt
+import mujoco
+import imageio
+from typing import Sequence, Callable
+import mediapy as media
+import tqdm
 
-DEFAULT_CAMERA_CONFIG = {
-    "distance": 4.0,
-}
 
 WORKSPACE_LENGTH = 10.0 # m
-WORKSPACE_WIDTH = 10.0 # m
 
 class AntEnv(MujocoEnv, utils.EzPickle):
-
-    metadata = {
-        "render_modes": [
-            "human",
-            "rgb_array",
-            "depth_array",
-            "rgbd_tuple",
-        ],
-    }
 
     def __init__(
         self,
         xml_file: str = os.path.join(os.path.dirname(__file__), "assets/ant_position.xml"),
         dt: float = 0.02,
-        default_camera_config: dict[str, float | int] = DEFAULT_CAMERA_CONFIG,
         forward_reward_weight: float = 1,
         ctrl_cost_weight: float = 0.0,
-        cost_upside_down_weight: float = 10.0,
+        cost_upside_down_weight: float = 0.0,
+        terminate_on_upside_down: bool = False,
         main_body: int | str = 1,
-        reset_noise_scale: float = 0.1,
         joint_config: dict[str, float] | None = None,
         **kwargs,
     ):
         sim_dt = 0.001
         frame_skip = int(dt / sim_dt)
 
-        utils.EzPickle.__init__(
+        utils.EzPickle.__init__( # Needed for calling gym.register()
             self,
             xml_file,
             frame_skip,
-            default_camera_config,
             forward_reward_weight,
             cost_upside_down_weight,
             main_body,
-            reset_noise_scale,
             **kwargs,
         )
-
-        self._forward_reward_weight = forward_reward_weight
-        self._ctrl_cost_weight = ctrl_cost_weight
-        self._cost_upside_down_weight = cost_upside_down_weight
-
-        self._reset_noise_scale = reset_noise_scale
 
         MujocoEnv.__init__(
             self,
             xml_file,
             frame_skip,
             observation_space=None,  # needs to be defined after
-            default_camera_config=default_camera_config,
             **kwargs,
         )
+
         self.model.opt.timestep = sim_dt
 
-        self.metadata = {
-            "render_modes": [
-                "human",
-                "rgb_array",
-                "depth_array",
-                "rgbd_tuple",
-            ],
-            "render_fps": int(np.round(1.0 / self.dt)),
-        }
+        self._forward_reward_weight = forward_reward_weight
+        self._ctrl_cost_weight = ctrl_cost_weight
+        self._cost_upside_down_weight = cost_upside_down_weight
+        self._terminate_on_upside_down = terminate_on_upside_down
 
         obs_size = 8 + 8 + 2 + 3 + 3
         self.observation_space = Box(
@@ -88,6 +66,7 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         self.action_space = Box(
             low=-1, high=1, shape=(8,), dtype=np.float64
         )
+
         if joint_config is None:
             joint_config = {
                 'hip_zero': 0,
@@ -96,7 +75,7 @@ class AntEnv(MujocoEnv, utils.EzPickle):
                 'knee_range': np.radians(20),
             }
 
-        self._joint_config = joint_config
+        self.joint_config = joint_config
         self.init_qpos = [0] * self.model.nq
         self.init_qpos[2] = 0.2
         self.init_qpos[3] = 1.0
@@ -110,11 +89,11 @@ class AntEnv(MujocoEnv, utils.EzPickle):
             "heading_vector": np.zeros(2),
         }
 
-    def step(self, action):
+    def step(self, action: np.ndarray):
         action = action.copy()
         for i in range(4):
-            action[2*i] = np.clip(action[2*i], -1, 1) * self._joint_config['hip_range'] + self._joint_config['hip_zero']
-            action[2*i + 1] = np.clip(action[2*i + 1], -1, 1) * self._joint_config['knee_range'] + self._joint_config['knee_zero']
+            action[2*i] = np.clip(action[2*i], -1, 1) * self.joint_config['hip_range'] + self.joint_config['hip_zero']
+            action[2*i + 1] = np.clip(action[2*i + 1], -1, 1) * self.joint_config['knee_range'] + self.joint_config['knee_zero']
         self.do_simulation(action, self.frame_skip)
 
         observation = self._get_obs()
@@ -127,64 +106,62 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         self.info.update({
             "current_x_position": self.data.qpos[0],
             "previous_x_position": self.previous_x_position,
-            "distance_from_origin": np.linalg.norm(self.data.qpos[0:2], ord=2),
             "last_last_action": self.info["last_action"],
             "last_action": action,
         })
         self.previous_x_position = self.data.qpos[0]
 
         truncated = self._get_truncated()
-        terminated = False
+        if self._terminate_on_upside_down == True:
+            terminated = self.info["upside_down"] < 0
+        else:
+            terminated = False
+
         return observation, reward, terminated, truncated, self.info
 
     def _get_rew(self):
+        # Control cost.
         ctrl_cost = self._ctrl_cost_weight * np.sum(np.square(self.info["last_last_action"] - self.info["last_action"]))
+
+        # Forward progress reward.
         forward_progress_reward = (self.data.qpos[0] - self.previous_x_position) * self._forward_reward_weight
+
+        # Upside down cost.
         quaternion_wxyz = self.data.qpos[3:7]
         up_vector_ant_in_world = transform.Rotation.from_quat(quaternion_wxyz, scalar_first=True).as_matrix()[:, 2]
         z_world = np.array([0, 0, 1])
-
         upside_down = np.dot(up_vector_ant_in_world, z_world)
-
         cost_upside_down = 0.0
         if upside_down < 0:
             cost_upside_down = self._cost_upside_down_weight
             print("Upside down")
 
+        # Total reward.
         reward = forward_progress_reward - cost_upside_down - ctrl_cost
         reward_info = {"reward": reward,
                        "forward_progress_reward": forward_progress_reward,
-                       "ctrl_cost": ctrl_cost}
-
+                       "ctrl_cost": ctrl_cost,
+                       "cost_upside_down": cost_upside_down}
         self.info.update({'upside_down': upside_down})
 
         return reward, reward_info
 
     def _get_truncated(self):
-
-        x_pos = self.data.qpos[0]
-        y_pos = self.data.qpos[1]
-
         truncation_condition = (
             np.isnan(self.data.qpos).any() | np.isnan(self.data.qvel).any() |
-            (x_pos < -WORKSPACE_LENGTH / 2.0) | (x_pos > WORKSPACE_LENGTH / 2.0) |
-            (y_pos < -WORKSPACE_WIDTH / 2.0) | (y_pos > WORKSPACE_WIDTH / 2.0) |
-            (self.info["upside_down"] < 0)
+            (self.data.qpos[0] < -WORKSPACE_LENGTH / 2.0) | (self.data.qpos[0] > WORKSPACE_LENGTH / 2.0) |
+            (self.data.qpos[1] < -WORKSPACE_LENGTH / 2.0) | (self.data.qpos[1] > WORKSPACE_LENGTH / 2.0)
         )
-        if truncation_condition:
-            print("Truncated")
 
         return bool(truncation_condition)
 
     def _get_sensor_data(self, sensor_name: str) -> np.ndarray:
-        """Gets sensor data given sensor name."""
         sensor_id = self.model.sensor(sensor_name).id
         sensor_adr = self.model.sensor_adr[sensor_id]
         sensor_dim = self.model.sensor_dim[sensor_id]
         return self.data.sensordata[sensor_adr : sensor_adr + sensor_dim]
 
     def _get_obs(self):
-        """Observe ant body position and velocities."""
         qpos = self.data.qpos.copy()
         qvel = self.data.qvel.copy()
 
@@ -211,15 +188,12 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         return obs
 
     def reset_model(self):
-        noise_low = -self._reset_noise_scale
-        noise_high = self._reset_noise_scale
-
         qpos = self.init_qpos + self.np_random.uniform(
-            low=noise_low, high=noise_high, size=self.model.nq
+            low=-0.1, high=0.1, size=self.model.nq
         )
         qvel = (
             self.init_qvel
-            + self._reset_noise_scale * self.np_random.standard_normal(self.model.nv)
+            + 0.1 * self.np_random.standard_normal(self.model.nv)
         )
         self.set_state(qpos, qvel)
         self.previous_x_position = self.data.qpos[0]
@@ -227,6 +201,45 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         observation = self._get_obs()
 
         return observation
+
+    def render_array(
+        self,
+        trajectory: list[dict],
+        height: int = 480,
+        width: int = 640,
+        camera: str | None = None,
+        scene_option: mujoco.MjvOption | None = None,
+        modify_scene_fns: Sequence[Callable[[mujoco.MjvScene], None]] | None = None,
+    ):
+        renderer = mujoco.Renderer(self.model, height=height, width=width)
+
+        def get_image(state: dict, modify_scn_fn: Callable[[mujoco.MjvScene], None] | None = None) -> np.ndarray:
+            d = mujoco.MjData(self.model)
+            if isinstance(state, dict):
+                d.qpos[:] = state['qpos']
+                d.qvel[:] = state['qvel']
+            else:
+                d.qpos[:] = state.data.qpos
+                d.qvel[:] = state.data.qvel
+                d.xfrc_applied[:] = state.data.xfrc_applied
+            mujoco.mj_forward(self.model, d)
+
+            renderer.update_scene(d, camera=camera, scene_option=scene_option)
+            mujoco.mjr_text(mujoco.mjtFont.mjFONT_BIG, 'Average reward', renderer._mjr_context, 250.0, 250.0, 1.0, 1.0, 1.0)
+            if modify_scn_fn is not None:
+                modify_scn_fn(renderer.scene)
+            return renderer.render()
+
+        if isinstance(trajectory, list):
+            out = []
+            for i, state in enumerate(tqdm.tqdm(trajectory)):
+                modify_scn_fn = modify_scene_fns[i] if modify_scene_fns else None
+                out.append(get_image(state, modify_scn_fn))
+        else:
+            out = get_image(trajectory)
+
+        renderer.close()
+        return out
 
 def main():
     current_path = os.path.dirname(os.path.abspath(__file__))
@@ -253,17 +266,44 @@ def main():
             {'desired': [], 'actual': []},
     }
 
+    trajectory = []
     counter = 0
-    while counter < 500:
+    while counter < 100:
         delta_actions = [2*np.sin(time.time())*0.8]*8
-        env.step(delta_actions)
+        env.step(np.array(delta_actions))
+
+        trajectory.append({
+            'qpos': env.data.qpos.copy(),
+            'qvel': env.data.qvel.copy()
+        })
 
         for idx, (joint_name, joint_data) in enumerate(joints_dict.items()):
             joint_data['desired'].append(delta_actions[idx])
             joint_data['actual'].append(env.data.qpos[idx+7])
 
         time.sleep(0.001)
+        print(f"Counter: {counter}")
         counter += 1
+
+    render_every = 1
+    fps = 1.0 / env.dt / render_every
+    traj = trajectory[::render_every]
+
+    scene_option = mujoco.MjvOption()
+    scene_option.geomgroup[2] = True
+    scene_option.geomgroup[3] = False
+    scene_option.flags[mujoco.mjtVisFlag.mjVIS_CONTACTPOINT] = True
+    scene_option.flags[mujoco.mjtVisFlag.mjVIS_TRANSPARENT] = False
+    scene_option.flags[mujoco.mjtVisFlag.mjVIS_PERTFORCE] = False
+
+    frames = env.render_array(
+        traj,
+        camera="track",
+        scene_option=scene_option,
+        width=360,
+        height=360,
+    )
+    media.write_video(f'ant_trajectory.mp4', frames, fps=fps)
 
     _, axs = plt.subplots(2, 4)
     for idx, (joint_name, joint_data) in enumerate(joints_dict.items()):
