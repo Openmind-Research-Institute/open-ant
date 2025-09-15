@@ -55,11 +55,10 @@ def default_config() -> config_dict.ConfigDict:
       ctrl_dt=0.05,
       sim_dt=0.001,
       reward_config=config_dict.create(
-        cost_ctrl_weight=0.0,
-        cost_distance_to_origin=0.1,
-        reward_upside_down_weight=0.0,
-        reward_forward_progress_weight=0.0,
+        ctrl_cost_weight=0.0,
         reset_noise_scale=0.1,
+        upside_down_cost_weight=0.0,
+        terminate_when_upside_down=False,
       ),
   )
 
@@ -79,13 +78,13 @@ class Ant(mjx_env.MjxEnv):
     # Initialize the model and the mjx model.
     self._mj_model = mujoco.MjModel.from_xml_path(xml_path)
     self._mjx_model = mjx.put_model(self._mj_model)
+    self._torso_body_id = self._mj_model.body(ROOT_BODY).id
 
     # Set the timesteps.
     self._mj_model.opt.timestep = config.sim_dt
     self.ctrl_dt = config.ctrl_dt
     self._sim_dt = config.sim_dt
 
-    # Initialize the joint configuration.
     self._joint_config = {
                 'hip_zero': 0,
                 'knee_zero': -np.radians(50),
@@ -93,13 +92,10 @@ class Ant(mjx_env.MjxEnv):
                 'knee_range': np.radians(20),
             }
 
-    # Initialize the reward/cost weights.
-    self._cost_ctrl_weight = config.reward_config.cost_ctrl_weight
-    self._cost_distance_to_origin = config.reward_config.cost_distance_to_origin
-    self._reward_upside_down_weight = config.reward_config.reward_upside_down_weight
-    self._reward_forward_progress_weight = config.reward_config.reward_forward_progress_weight
-
+    self._ctrl_cost_weight = config.reward_config.ctrl_cost_weight
     self._reset_noise_scale = config.reward_config.reset_noise_scale
+    self._terminate_when_upside_down = config.reward_config.terminate_when_upside_down
+    self._upside_down_cost_weight = config.reward_config.upside_down_cost_weight
 
     # Initialize the action space.
     self.nb_joints = self.mj_model.njnt - 1 # First joint is freejoint.
@@ -107,8 +103,10 @@ class Ant(mjx_env.MjxEnv):
 
     # Initialize the initial state.
     self._init_q = jp.array(self._mj_model.keyframe("home").qpos)
+    self._default_q_joints = jp.array(self._mj_model.keyframe("home").qpos[7:])
+    print(f'default_q_joints: {self._default_q_joints}')
 
-    # For debugging.
+    # For debugging and testing.
     if save_config_folder is not None:
       # Copy over the ant.xml file.
       shutil.copy(XML_PATH, os.path.join(save_config_folder, 'ant.xml'))
@@ -126,7 +124,7 @@ class Ant(mjx_env.MjxEnv):
     # Randomize the initial state.
     # x=+U(-0.5, 0.5), y=+U(-0.5, 0.5), yaw=U(-3.14, 3.14).
     rng, key = jax.random.split(rng)
-    dxy = jax.random.uniform(key, (2,), minval=-WORKSPACE_LENGTH / 2.0, maxval=WORKSPACE_LENGTH / 2.0)
+    dxy = jax.random.uniform(key, (2,), minval=-0.5, maxval=0.5)
     qpos = qpos.at[0:2].set(qpos[0:2] + dxy)
     rng, key = jax.random.split(rng)
     yaw = jax.random.uniform(key, (1,), minval=-3.14, maxval=3.14)
@@ -140,7 +138,8 @@ class Ant(mjx_env.MjxEnv):
       qpos[7:] * jax.random.uniform(key, (self.mj_model.nu, ), minval=low, maxval=hi))
 
     rng, key = jax.random.split(rng)
-    qvel = qvel.at[0:6].set(jax.random.uniform(key, (6,), minval=-0.1, maxval=0.1))
+    qvel = qvel.at[0:6].set(
+      jax.random.uniform(key, (6,), minval=-0.1, maxval=0.1))
 
     # Initialize the data.
     data = mjx.make_data(self.mjx_model)
@@ -175,6 +174,7 @@ class Ant(mjx_env.MjxEnv):
         "qpos": data.qpos,
         "qvel": data.qvel,
         "xfrc_applied": data.xfrc_applied,
+        "previous_pos_x": jp.array(0.0),
         "truncation": jp.array(0.0, dtype=jp.float32),
     }
 
@@ -207,26 +207,23 @@ class Ant(mjx_env.MjxEnv):
     state.info["truncation"] = truncation
 
     # Compute the reward.
-    ## Forward progress.
     forward_progress = data.qpos[0:2] - state.data.qpos[0:2]
     forward_progress_x = forward_progress[0]
-    ## Distance to origin.
-    distance_to_origin = jp.linalg.norm(data.qpos[0:2], ord=2)
-    ## Control cost.
-    ctrl_cost = jp.sum(jp.square(state.info["last_last_action"] - state.info["last_action"]))
-    ## Upside down.
+
+    ctrl_cost = self._ctrl_cost_weight * jp.sum(jp.square(state.info["last_last_action"] - state.info["last_action"]))
+
     up_vector_ant_in_world = math.quat_to_mat(data.qpos[3:7])[:, 2]
     z_world = jp.array([0, 0, 1])
     upside_down = jp.dot(up_vector_ant_in_world, z_world)
-    reward_upside_down = jp.where(upside_down < 0, -10.0, 0.0)
+    reward_upside_down = jp.where(upside_down < 0, -self._upside_down_cost_weight, 0.0)
 
-    reward = self._reward_forward_progress_weight * forward_progress_x + \
-              self._reward_upside_down_weight * reward_upside_down - \
-              self._cost_ctrl_weight * ctrl_cost - \
-              self._cost_distance_to_origin * distance_to_origin
+    reward = forward_progress_x - ctrl_cost + reward_upside_down
 
-    done = upside_down < 0
-    done = done.astype(reward.dtype)
+    if self._terminate_when_upside_down:
+      done = upside_down < 0
+      done = done.astype(reward.dtype)
+    else:
+      done = jax.numpy.array(False, dtype=reward.dtype)
     
     # Get the observation.
     obs = self._get_obs(data)
@@ -289,7 +286,7 @@ class Ant(mjx_env.MjxEnv):
 
     return {
       "state": obs,
-      "privileged_state": obs, # Give the option to use privileged state for the value function training.
+      "privileged_state": obs,
     }
 
    # Accessors.
