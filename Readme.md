@@ -37,6 +37,7 @@ The hardware is designed to be easy to build and use:
 | 3D Printed Parts         | -       | STL files in `hardware/`      | -                                         |
 
 
+Note: The 3D print attachment with the expensive motors (XM430-W350) need M2 x 3mm not M2 x 5mm.
 
 ### Dynamixel Setup (before assembling the robot!)
 
