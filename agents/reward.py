@@ -22,8 +22,8 @@ class RewardTracker:
         average_reward_per_second = sum(self.queue) / len(self.queue)
         return average_reward_per_second
 
-    def log(self, step, average_reward_per_second, plot=True, print=False):
-        if print:
+    def log(self, step, average_reward_per_second, plot=True, print_reward=False):
+        if print_reward:
             print(f"Step {step}, time [s] {step * self.env_dt:.2f}, "
                     f"time [min] {step * self.env_dt / 60:.2f}, "
                     f"moving average reward {average_reward_per_second:.4f}")

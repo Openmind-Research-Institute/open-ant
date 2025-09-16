@@ -93,7 +93,7 @@ def run(agent, env, total_timesteps):
         average_reward_per_second = reward_tracker.update(reward.item())
         agent.track_data("average_reward_per_second", average_reward_per_second)
         if i % 1000 == 0:
-            reward_tracker.log(i, average_reward_per_second)
+            reward_tracker.log(i, average_reward_per_second, print_reward=True)
 
 
 parser = argparse.ArgumentParser()
