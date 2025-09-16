@@ -70,6 +70,8 @@ parser.add_argument('--total_timesteps_eval', type=int, default=100_000)
 parser.add_argument('--weight_folder', type=str, default='sac_skrl_ant_mujoco_2025-09-15_23-31-02')
 args = parser.parse_args()
 
+set_seed(args.seed)
+
 DT = 0.05
 if args.nb_envs == 1:
     env = gym.make("CustomAnt-v0",
@@ -100,8 +102,6 @@ if args.train:
     # Save the config.
     with open(os.path.join(LOG_FOLDER, experiment_name, 'config.json'), 'w') as f:
         json.dump(vars(args), f)
-
-set_seed(args.seed)
 
 if args.nb_envs == 1 and args.render_mode == 'rgb_array':
     print(f"Recording video in {os.path.join(LOG_FOLDER, experiment_name)}")
