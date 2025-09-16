@@ -160,10 +160,11 @@ cfg["discount_factor"] = 0.99
 cfg["polyak"] = 0.005
 cfg["actor_learning_rate"] = 5e-4
 cfg["critic_learning_rate"] = 5e-4
-cfg["random_timesteps"] = 80
 if args.train == True:
+    cfg["random_timesteps"] = 80
     cfg["learning_starts"] = 80
 else:
+    cfg["random_timesteps"] = 0
     cfg["learning_starts"] = args.total_timesteps_eval
 cfg["grad_norm_clip"] = 0
 cfg["learn_entropy"] = True
