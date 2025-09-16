@@ -74,15 +74,17 @@ set_seed(args.seed)
 
 DT = 0.05
 if args.nb_envs == 1:
+    env_id = 'ant_mujoco_1'
     env = gym.make("CustomAnt-v0",
                    dt=DT,
-                #    render_mode=args.render_mode,
+                   render_mode=args.render_mode,
                    cost_upside_down_weight=args.upside_down_cost_weight,
                    terminate_on_upside_down=args.terminate_when_upside_down,
                    ctrl_cost_weight=args.ctrl_cost_weight,
                    )
     env = NormalizeObservation(env)
 else:
+    env_id = f'ant_mujoco_nb_envs_{args.nb_envs}'
     env = gym.make_vec("CustomAnt-v0",
                     num_envs=args.nb_envs,
                     dt=DT,
@@ -145,8 +147,13 @@ cfg["state_preprocessor_kwargs"] = {"size": env.observation_space, "device": dev
 # logging to TensorBoard and write checkpoints (in timesteps)
 cfg["experiment"]["write_interval"] = 10
 cfg["experiment"]["checkpoint_interval"] = 4000
+if args.train:
+    cfg["experiment"]["experiment_name"] = f"train_{env_id}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+    print(f"Training {env_id}...")
+else:
+    cfg["experiment"]["experiment_name"] = f"eval_{env_id}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+    print(f"Evaluating {env_id}...")
 cfg["experiment"]["directory"] = LOG_FOLDER
-cfg["experiment"]["experiment_name"] = experiment_name
 
 agent = SAC(models=models,
             memory=memory,

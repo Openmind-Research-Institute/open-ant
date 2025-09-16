@@ -173,7 +173,12 @@ cfg["state_preprocessor"] = RunningStandardScaler
 cfg["state_preprocessor_kwargs"] = {"size": env.observation_space, "device": device}
 cfg["experiment"]["write_interval"] = 10
 cfg["experiment"]["directory"] = LOG_FOLDER
-cfg["experiment"]["experiment_name"] = f"sac_skrl_{env_id}_{DATE_NOW}"
+if args.train:
+    cfg["experiment"]["experiment_name"] = f"train_{env_id}_{DATE_NOW}"
+    print(f"Training {env_id}...")
+else:
+    cfg["experiment"]["experiment_name"] = f"eval_{env_id}_{DATE_NOW}"
+    print(f"Evaluating {env_id}...")
 cfg["experiment"]["checkpoint_interval"] = 4000
 
 # Agent.
