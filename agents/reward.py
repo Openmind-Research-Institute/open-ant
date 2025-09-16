@@ -22,10 +22,11 @@ class RewardTracker:
         average_reward_per_second = sum(self.queue) / len(self.queue)
         return average_reward_per_second
 
-    def log(self, step, average_reward_per_second, plot=True):
-        print(f"Step {step}, time [s] {step * self.env_dt:.2f}, "
-                f"time [min] {step * self.env_dt / 60:.2f}, "
-                f"moving average reward {average_reward_per_second:.4f}")
+    def log(self, step, average_reward_per_second, plot=True, print=False):
+        if print:
+            print(f"Step {step}, time [s] {step * self.env_dt:.2f}, "
+                    f"time [min] {step * self.env_dt / 60:.2f}, "
+                    f"moving average reward {average_reward_per_second:.4f}")
         self.df = pd.concat(
             [self.df, pd.DataFrame({"step": [step], "reward": [average_reward_per_second]})],
             ignore_index=True
