@@ -16,6 +16,9 @@ import os
 import sys
 import argparse
 import numpy as np
+from gymnasium.wrappers import NormalizeObservation
+from gymnasium.wrappers.vector import NormalizeObservation as VectorNormalizeObservation
+
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 from sim import ant_mujoco  # this will execute the register() if it's in ant_mujoco.py
@@ -70,11 +73,12 @@ DT = 0.05
 if args.nb_envs == 1:
     env = gym.make("CustomAnt-v0",
                    dt=DT,
-                   render_mode=args.render_mode,
+                #    render_mode=args.render_mode,
                    cost_upside_down_weight=args.upside_down_cost_weight,
                    terminate_on_upside_down=args.terminate_when_upside_down,
                    ctrl_cost_weight=args.ctrl_cost_weight,
                    )
+    env = NormalizeObservation(env)
 else:
     env = gym.make_vec("CustomAnt-v0",
                     num_envs=args.nb_envs,
@@ -84,6 +88,7 @@ else:
                     terminate_on_upside_down=args.terminate_when_upside_down,
                     ctrl_cost_weight=args.ctrl_cost_weight,
                     )
+    env = VectorNormalizeObservation(env)
 
 # Logging
 LOG_FOLDER = 'logs_sac_skrl'
@@ -98,7 +103,7 @@ with open(os.path.join(LOG_FOLDER, experiment_name, 'config.json'), 'w') as f:
 
 set_seed(args.seed)
 
-if args.nb_envs == 1 and args.render_mode != 'human':
+if args.nb_envs == 1 and args.render_mode == 'rgb_array':
     print(f"Recording video in {os.path.join(LOG_FOLDER, experiment_name)}")
     trigger = lambda t: t % 100 == 0
     env = RecordVideo(env, video_folder=os.path.join(LOG_FOLDER, experiment_name), episode_trigger=trigger, disable_logger=True, video_length=500)
@@ -124,7 +129,10 @@ models["target_critic_2"] = Critic(env.observation_space, env.action_space, devi
 # https://skrl.readthedocs.io/en/latest/api/agents/sac.html#configuration-and-hyperparameters
 cfg = SAC_DEFAULT_CONFIG.copy()
 cfg["gradient_steps"] = 1
-cfg["batch_size"] = 64 * args.nb_envs
+if args.nb_envs == 1:
+    cfg["batch_size"] = 256
+else:
+    cfg["batch_size"] = 64 * args.nb_envs
 cfg["discount_factor"] = 0.99
 cfg["polyak"] = 0.005
 cfg["actor_learning_rate"] = 5e-4
@@ -152,7 +160,7 @@ agent = SAC(models=models,
 
 
 # configure and instantiate the RL trainer
-cfg_trainer = {"timesteps": 100_000, "headless": True}
+cfg_trainer = {"timesteps": 200_000, "headless": True}
 trainer = SequentialTrainer(cfg=cfg_trainer, env=env, agents=agent)
 
 # start training
