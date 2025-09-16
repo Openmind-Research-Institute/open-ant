@@ -17,7 +17,8 @@ from skrl.utils import set_seed
 
 import gymnasium as gym
 from gymnasium.wrappers import NormalizeObservation
-
+from tqdm import tqdm
+import argparse
 
 # Path setup
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../sim')))
@@ -28,7 +29,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../'
 from reward import RewardTracker
 
 
-# define models (stochastic and deterministic models) using mixins
+# Define models.
 class StochasticActor(GaussianMixin, Model):
     def __init__(self, observation_space, action_space, device, clip_actions=False,
                  clip_log_std=True, min_log_std=-20, max_log_std=2):
@@ -60,17 +61,16 @@ class Critic(DeterministicMixin, Model):
     def compute(self, inputs, role):
         return self.net(torch.cat([inputs["states"], inputs["taken_actions"]], dim=1)), {}
 
-def run(agent, env, total_timesteps, train=True):
+
+# Main training loop.
+def run(agent, env, total_timesteps):
     obs, info = env.reset()
     i = 0
-    action_list = []
-    while i < total_timesteps:
+    for i in tqdm(range(total_timesteps)):
         agent.pre_interaction(i, -1)
         with torch.no_grad():
             action = agent.act(obs, i, -1)[0]
-            action_list.append(action.cpu().numpy().flatten())
             next_obs, reward, terminated, truncated, info = env.step(action)
-            # env.render()
             agent.record_transition(states=obs,
                                     actions=action,
                                     rewards=reward,
@@ -82,7 +82,6 @@ def run(agent, env, total_timesteps, train=True):
                                     timesteps=total_timesteps)
 
         agent.post_interaction(timestep=i, timesteps=total_timesteps)
-        i += 1
 
         if terminated or truncated:
             print(f"Terminated or truncated at timestep {i}")
@@ -96,7 +95,7 @@ def run(agent, env, total_timesteps, train=True):
         if i % 1000 == 0:
             reward_tracker.log(i, average_reward_per_second)
 
-import argparse
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--train', type=bool, default=False)
 parser.add_argument('--seed', type=int, default=0)
@@ -106,7 +105,8 @@ parser.add_argument('--ctrl_cost_weight', type=float, default=0.0)
 parser.add_argument('--render_mode', type=str, default=None)
 parser.add_argument('--nb_envs', type=int, default=1)
 parser.add_argument('--hw_config', type=str, default=None)
-parser.add_argument('--total_timesteps', type=int, default=100_000)
+parser.add_argument('--total_timesteps_train', type=int, default=100_000)
+parser.add_argument('--total_timesteps_eval', type=int, default=100_000)
 args = parser.parse_args()
 
 set_seed(args.seed)
@@ -114,7 +114,6 @@ set_seed(args.seed)
 # Env setup.
 render = "human"
 DT = 0.05
-# hw_config = sys.argv[1] if len(sys.argv) > 1 else None
 
 if args.hw_config is None:
     env_id = 'ant_mujoco'
@@ -126,8 +125,6 @@ if args.hw_config is None:
         ctrl_cost_weight=args.ctrl_cost_weight,
     )
     env = NormalizeObservation(env)
-    # env = gym.make('Ant-v5')
-
 else:
     env_id = 'ant_hw'
     with open(hw_config, 'r') as f:
@@ -135,8 +132,6 @@ else:
     env = make_ant_env(cfg, render_mode=render, dt=DT)
     env = NormalizeObservation(env)
 
-
-# Wrap and prepare.
 env = wrap_env(env)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -159,26 +154,26 @@ memory = RandomMemory(memory_size=1_000_000, device=device)
 # Config.
 cfg = SAC_DEFAULT_CONFIG.copy()
 cfg["gradient_steps"] = 1
-cfg["batch_size"] = 265
+cfg["batch_size"] = 256
 cfg["discount_factor"] = 0.99
 cfg["polyak"] = 0.005
 cfg["actor_learning_rate"] = 5e-4
 cfg["critic_learning_rate"] = 5e-4
-cfg["random_timesteps"] = 0
+cfg["random_timesteps"] = 80
 if args.train == True:
     cfg["learning_starts"] = 80
 else:
-    cfg["learning_starts"] = args.total_timesteps
+    cfg["learning_starts"] = args.total_timesteps_eval
 cfg["grad_norm_clip"] = 0
 cfg["learn_entropy"] = True
 cfg["entropy_learning_rate"] = 5e-3
 cfg["initial_entropy_value"] = 1.0
 cfg["state_preprocessor"] = RunningStandardScaler
 cfg["state_preprocessor_kwargs"] = {"size": env.observation_space, "device": device}
-cfg["experiment"]["write_interval"] = 800
+cfg["experiment"]["write_interval"] = 10
 cfg["experiment"]["directory"] = LOG_FOLDER
 cfg["experiment"]["experiment_name"] = f"sac_skrl_{env_id}_{DATE_NOW}"
-cfg["experiment"]["checkpoint_interval"] = int(1 * 60 / DT)
+cfg["experiment"]["checkpoint_interval"] = 4000
 
 # Agent.
 agent = SAC(models=models,
@@ -191,27 +186,15 @@ agent = SAC(models=models,
 reward_tracker = RewardTracker(env_dt=env.dt, env_id=env_id,
                                log_folder=os.path.join(cfg["experiment"]["directory"],
                                                        cfg["experiment"]["experiment_name"]))
-
-train = args.train
-train_step_by_step = True
-total_timesteps = 1_000_000
-
-if train:
+# Training or evaluation.
+if args.train:
     print("Training...")
-    if train_step_by_step:
-        print("Training step by step...")
-        agent.init()
-        run(agent, env, total_timesteps, train=train)
-
-    if train_step_by_step == False:
-        trainer = SequentialTrainer(cfg={"timesteps": total_timesteps, "headless": True},
-                                    env=env,
-                                    agents=agent)
-        trainer.train()
-
+    agent.init()
+    run(agent, env, args.total_timesteps_train)
 else:
     print("Evaluating...")
-    folder_path = ''
-    agent.load(folder_path)
+    agent.init()
+    path = '/Users/sorinalupu/OpenmindResearch/workshops/EmbodiedAnt/agents/sac_skrl/logs_sac_skrl/2025-09-15_21-16-18_SAC/checkpoints/best_agent.pt'
+    agent.load(path)
     agent.set_mode("eval")
-    run(agent, env)
+    run(agent, env, args.total_timesteps_eval)
