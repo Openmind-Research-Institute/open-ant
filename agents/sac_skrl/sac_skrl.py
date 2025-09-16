@@ -27,8 +27,6 @@ from embodied_ant_env import make_ant_env
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from reward import RewardTracker
 
-# Set seed for reproducibility
-set_seed(42)
 
 # define models (stochastic and deterministic models) using mixins
 class StochasticActor(GaussianMixin, Model):
@@ -62,7 +60,7 @@ class Critic(DeterministicMixin, Model):
     def compute(self, inputs, role):
         return self.net(torch.cat([inputs["states"], inputs["taken_actions"]], dim=1)), {}
 
-def run(agent, env):
+def run(agent, env, total_timesteps, train=True):
     obs, info = env.reset()
     i = 0
     action_list = []
@@ -87,12 +85,14 @@ def run(agent, env):
         i += 1
 
         if terminated or truncated:
+            print(f"Terminated or truncated at timestep {i}")
             with torch.no_grad():
                 obs, info = env.reset()
         else:
             obs = next_obs
 
         average_reward_per_second = reward_tracker.update(reward.item())
+        agent.track_data("average_reward_per_second", average_reward_per_second)
         if i % 1000 == 0:
             reward_tracker.log(i, average_reward_per_second)
 
@@ -105,23 +105,27 @@ parser.add_argument('--upside_down_cost_weight', type=float, default=0.0)
 parser.add_argument('--ctrl_cost_weight', type=float, default=0.0)
 parser.add_argument('--render_mode', type=str, default=None)
 parser.add_argument('--nb_envs', type=int, default=1)
+parser.add_argument('--hw_config', type=str, default=None)
+parser.add_argument('--total_timesteps', type=int, default=100_000)
 args = parser.parse_args()
+
+set_seed(args.seed)
 
 # Env setup.
 render = "human"
 DT = 0.05
-hw_config = sys.argv[1] if len(sys.argv) > 1 else None
+# hw_config = sys.argv[1] if len(sys.argv) > 1 else None
 
-if hw_config is None:
+if args.hw_config is None:
     env_id = 'ant_mujoco'
     env = AntEnv(
         dt=DT,
+        # render_mode=args.render_mode,
         cost_upside_down_weight=args.upside_down_cost_weight,
         terminate_on_upside_down=args.terminate_when_upside_down,
         ctrl_cost_weight=args.ctrl_cost_weight,
     )
     env = NormalizeObservation(env)
-
     # env = gym.make('Ant-v5')
 
 else:
@@ -160,8 +164,11 @@ cfg["discount_factor"] = 0.99
 cfg["polyak"] = 0.005
 cfg["actor_learning_rate"] = 5e-4
 cfg["critic_learning_rate"] = 5e-4
-cfg["random_timesteps"] = 80
-cfg["learning_starts"] = 80
+cfg["random_timesteps"] = 0
+if args.train == True:
+    cfg["learning_starts"] = 80
+else:
+    cfg["learning_starts"] = args.total_timesteps
 cfg["grad_norm_clip"] = 0
 cfg["learn_entropy"] = True
 cfg["entropy_learning_rate"] = 5e-3
@@ -182,7 +189,8 @@ agent = SAC(models=models,
             device=device)
 
 reward_tracker = RewardTracker(env_dt=env.dt, env_id=env_id,
-                               log_folder=os.path.join(cfg["experiment"]["directory"], cfg["experiment"]["experiment_name"]))
+                               log_folder=os.path.join(cfg["experiment"]["directory"],
+                                                       cfg["experiment"]["experiment_name"]))
 
 train = args.train
 train_step_by_step = True
@@ -193,10 +201,12 @@ if train:
     if train_step_by_step:
         print("Training step by step...")
         agent.init()
-        run(agent, env)
+        run(agent, env, total_timesteps, train=train)
 
     if train_step_by_step == False:
-        trainer = SequentialTrainer(cfg={"timesteps": total_timesteps, "headless": True}, env=env, agents=agent)
+        trainer = SequentialTrainer(cfg={"timesteps": total_timesteps, "headless": True},
+                                    env=env,
+                                    agents=agent)
         trainer.train()
 
 else:
