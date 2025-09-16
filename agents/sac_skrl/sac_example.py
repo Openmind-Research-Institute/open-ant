@@ -95,7 +95,7 @@ else:
                     )
     env = VectorNormalizeObservation(env)
 
-# Logging
+# Logging.
 LOG_FOLDER = 'logs_sac_skrl'
 experiment_name = f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_SAC"
 os.makedirs(os.path.join(LOG_FOLDER, experiment_name), exist_ok=True)
@@ -145,7 +145,6 @@ cfg["entropy_learning_rate"] = 5e-3
 cfg["initial_entropy_value"] = 1.0
 cfg["state_preprocessor"] = RunningStandardScaler
 cfg["state_preprocessor_kwargs"] = {"size": env.observation_space, "device": device}
-# logging to TensorBoard and write checkpoints (in timesteps)
 cfg["experiment"]["write_interval"] = 10
 cfg["experiment"]["checkpoint_interval"] = 4000
 if args.train:
