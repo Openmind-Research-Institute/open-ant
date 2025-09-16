@@ -27,7 +27,7 @@ from sim import ant_mujoco  # this will execute the register() if it's in ant_mu
 # Models.
 class StochasticActor(GaussianMixin, Model):
     def __init__(self, observation_space, action_space, device, clip_actions=False,
-                 clip_log_std=True, min_log_std=-5, max_log_std=2):
+                 clip_log_std=True, min_log_std=-20, max_log_std=2):
         Model.__init__(self, observation_space, action_space, device)
         GaussianMixin.__init__(self, clip_actions, clip_log_std, min_log_std, max_log_std)
 
