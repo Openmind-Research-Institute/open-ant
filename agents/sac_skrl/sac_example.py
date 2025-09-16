@@ -10,14 +10,18 @@ from skrl.models.torch import DeterministicMixin, GaussianMixin, Model
 from skrl.resources.preprocessors.torch import RunningStandardScaler
 from skrl.trainers.torch import SequentialTrainer
 from skrl.utils import set_seed
+import gymnasium as gym
+from gymnasium.wrappers import RecordVideo
 import os
 import sys
+import argparse
+import numpy as np
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
-# from ant_mujoco import AntEnv
 from sim import ant_mujoco  # this will execute the register() if it's in ant_mujoco.py
 
-# seed for reproducibility
-set_seed(42)  # e.g. `set_seed(42)` for fixed seed
+# sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../sim')))
+# from ant_mujoco import AntEnv
 
 # define models (stochastic and deterministic models) using mixins
 class StochasticActor(GaussianMixin, Model):
@@ -51,21 +55,60 @@ class Critic(DeterministicMixin, Model):
     def compute(self, inputs, role):
         return self.net(torch.cat([inputs["states"], inputs["taken_actions"]], dim=1)), {}
 
+parser = argparse.ArgumentParser()
+parser.add_argument('--train', type=bool, default=False)
+parser.add_argument('--seed', type=int, default=0)
+parser.add_argument('--terminate_when_upside_down', type=bool, default=False)
+parser.add_argument('--upside_down_cost_weight', type=float, default=0.0)
+parser.add_argument('--ctrl_cost_weight', type=float, default=0.0)
+parser.add_argument('--render_mode', type=str, default=None)
+parser.add_argument('--nb_envs', type=int, default=1)
+args = parser.parse_args()
 
-# load and wrap the Isaac Gym environment
-import gymnasium as gym
-NB_ENVS = 64
 # env = gym.make_vec("Ant-v5", num_envs=NB_ENVS)
 DT = 0.05
-env = gym.make_vec("CustomAnt-v0", num_envs=NB_ENVS, dt=DT)
+if args.nb_envs == 1:
+    env = gym.make("CustomAnt-v0",
+                   dt=DT,
+                   render_mode=args.render_mode,
+                   cost_upside_down_weight=args.upside_down_cost_weight,
+                   terminate_on_upside_down=args.terminate_when_upside_down,
+                   ctrl_cost_weight=args.ctrl_cost_weight,
+                   )
+else:
+    env = gym.make_vec("CustomAnt-v0",
+                    num_envs=args.nb_envs,
+                    dt=DT,
+                    render_mode=args.render_mode,
+                    cost_upside_down_weight=args.upside_down_cost_weight,
+                    terminate_on_upside_down=args.terminate_when_upside_down,
+                    ctrl_cost_weight=args.ctrl_cost_weight,
+                    )
+
+# Logging
+LOG_FOLDER = 'logs_sac_skrl'
+from datetime import datetime
+import json
+experiment_name = f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_SAC"
+os.makedirs(os.path.join(LOG_FOLDER, experiment_name), exist_ok=True)
+
+# Save the config.
+with open(os.path.join(LOG_FOLDER, experiment_name, 'config.json'), 'w') as f:
+    json.dump(vars(args), f)
+
+set_seed(args.seed)
+
+if args.nb_envs == 1 and args.render_mode != 'human':
+    print(f"Recording video in {os.path.join(LOG_FOLDER, experiment_name)}")
+    trigger = lambda t: t % 100 == 0
+    env = RecordVideo(env, video_folder=os.path.join(LOG_FOLDER, experiment_name), episode_trigger=trigger, disable_logger=True, video_length=500)
 
 env = wrap_env(env)
 device = env.device
 
 # instantiate a memory as experience replay
-buffer_size = int(1_000_000/NB_ENVS)
+buffer_size = int(1_000_000/args.nb_envs)
 memory = RandomMemory(memory_size=buffer_size, num_envs=env.num_envs, device=device)
-
 
 # instantiate the agent's models (function approximators).
 # SAC requires 5 models, visit its documentation for more details
@@ -77,21 +120,17 @@ models["critic_2"] = Critic(env.observation_space, env.action_space, device)
 models["target_critic_1"] = Critic(env.observation_space, env.action_space, device)
 models["target_critic_2"] = Critic(env.observation_space, env.action_space, device)
 
-# Logging
-LOG_FOLDER = 'logs_sac_skrl'
-os.makedirs(LOG_FOLDER, exist_ok=True)
-
 # configure and instantiate the agent (visit its documentation to see all the options)
 # https://skrl.readthedocs.io/en/latest/api/agents/sac.html#configuration-and-hyperparameters
 cfg = SAC_DEFAULT_CONFIG.copy()
 cfg["gradient_steps"] = 1
-cfg["batch_size"] = 64 * NB_ENVS
+cfg["batch_size"] = 64 * args.nb_envs
 cfg["discount_factor"] = 0.99
 cfg["polyak"] = 0.005
 cfg["actor_learning_rate"] = 5e-4
 cfg["critic_learning_rate"] = 5e-4
-cfg["random_timesteps"] = 80
-cfg["learning_starts"] = 80
+cfg["random_timesteps"] = 80*args.nb_envs
+cfg["learning_starts"] = 80*args.nb_envs
 cfg["grad_norm_clip"] = 0
 cfg["learn_entropy"] = True
 cfg["entropy_learning_rate"] = 5e-3
@@ -99,9 +138,10 @@ cfg["initial_entropy_value"] = 1.0
 cfg["state_preprocessor"] = RunningStandardScaler
 cfg["state_preprocessor_kwargs"] = {"size": env.observation_space, "device": device}
 # logging to TensorBoard and write checkpoints (in timesteps)
-cfg["experiment"]["write_interval"] = 800
+cfg["experiment"]["write_interval"] = 10
 cfg["experiment"]["checkpoint_interval"] = 4000
 cfg["experiment"]["directory"] = LOG_FOLDER
+cfg["experiment"]["experiment_name"] = experiment_name
 
 agent = SAC(models=models,
             memory=memory,
@@ -112,11 +152,11 @@ agent = SAC(models=models,
 
 
 # configure and instantiate the RL trainer
-cfg_trainer = {"timesteps": 160_000, "headless": True}
+cfg_trainer = {"timesteps": 100_000, "headless": True}
 trainer = SequentialTrainer(cfg=cfg_trainer, env=env, agents=agent)
 
 # start training
-train = True
+train = args.train
 if train:
     trainer.train()
 else:
