@@ -17,7 +17,9 @@ import tqdm
 WORKSPACE_LENGTH = 10.0 # m
 
 class AntEnv(MujocoEnv, utils.EzPickle):
-
+    metadata = {
+        "render_modes": ["human", "rgb_array"],
+    }
     def __init__(
         self,
         xml_file: str = os.path.join(os.path.dirname(__file__), "assets/ant_position.xml"),
@@ -50,7 +52,6 @@ class AntEnv(MujocoEnv, utils.EzPickle):
             observation_space=None,  # needs to be defined after
             **kwargs,
         )
-
         self.model.opt.timestep = sim_dt
 
         self._forward_reward_weight = forward_reward_weight
@@ -202,44 +203,6 @@ class AntEnv(MujocoEnv, utils.EzPickle):
 
         return observation
 
-    def render_array(
-        self,
-        trajectory: list[dict],
-        height: int = 480,
-        width: int = 640,
-        camera: str | None = None,
-        scene_option: mujoco.MjvOption | None = None,
-        modify_scene_fns: Sequence[Callable[[mujoco.MjvScene], None]] | None = None,
-    ):
-        renderer = mujoco.Renderer(self.model, height=height, width=width)
-
-        def get_image(state: dict, modify_scn_fn: Callable[[mujoco.MjvScene], None] | None = None) -> np.ndarray:
-            d = mujoco.MjData(self.model)
-            if isinstance(state, dict):
-                d.qpos[:] = state['qpos']
-                d.qvel[:] = state['qvel']
-            else:
-                d.qpos[:] = state.data.qpos
-                d.qvel[:] = state.data.qvel
-                d.xfrc_applied[:] = state.data.xfrc_applied
-            mujoco.mj_forward(self.model, d)
-
-            renderer.update_scene(d, camera=camera, scene_option=scene_option)
-            mujoco.mjr_text(mujoco.mjtFont.mjFONT_BIG, 'Average reward', renderer._mjr_context, 250.0, 250.0, 1.0, 1.0, 1.0)
-            if modify_scn_fn is not None:
-                modify_scn_fn(renderer.scene)
-            return renderer.render()
-
-        if isinstance(trajectory, list):
-            out = []
-            for i, state in enumerate(tqdm.tqdm(trajectory)):
-                modify_scn_fn = modify_scene_fns[i] if modify_scene_fns else None
-                out.append(get_image(state, modify_scn_fn))
-        else:
-            out = get_image(trajectory)
-
-        renderer.close()
-        return out
 
 def main():
     current_path = os.path.dirname(os.path.abspath(__file__))
@@ -272,11 +235,6 @@ def main():
         delta_actions = [2*np.sin(time.time())*0.8]*8
         env.step(np.array(delta_actions))
 
-        trajectory.append({
-            'qpos': env.data.qpos.copy(),
-            'qvel': env.data.qvel.copy()
-        })
-
         for idx, (joint_name, joint_data) in enumerate(joints_dict.items()):
             joint_data['desired'].append(delta_actions[idx])
             joint_data['actual'].append(env.data.qpos[idx+7])
@@ -284,26 +242,6 @@ def main():
         time.sleep(0.001)
         print(f"Counter: {counter}")
         counter += 1
-
-    render_every = 1
-    fps = 1.0 / env.dt / render_every
-    traj = trajectory[::render_every]
-
-    scene_option = mujoco.MjvOption()
-    scene_option.geomgroup[2] = True
-    scene_option.geomgroup[3] = False
-    scene_option.flags[mujoco.mjtVisFlag.mjVIS_CONTACTPOINT] = True
-    scene_option.flags[mujoco.mjtVisFlag.mjVIS_TRANSPARENT] = False
-    scene_option.flags[mujoco.mjtVisFlag.mjVIS_PERTFORCE] = False
-
-    frames = env.render_array(
-        traj,
-        camera="track",
-        scene_option=scene_option,
-        width=360,
-        height=360,
-    )
-    media.write_video(f'ant_trajectory.mp4', frames, fps=fps)
 
     _, axs = plt.subplots(2, 4)
     for idx, (joint_name, joint_data) in enumerate(joints_dict.items()):
