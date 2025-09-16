@@ -2,7 +2,6 @@
 import torch
 import torch.nn as nn
 
-# import the skrl components to build the RL system
 from skrl.agents.torch.sac import SAC, SAC_DEFAULT_CONFIG
 from skrl.envs.wrappers.torch import wrap_env
 from skrl.memories.torch import RandomMemory
@@ -10,23 +9,22 @@ from skrl.models.torch import DeterministicMixin, GaussianMixin, Model
 from skrl.resources.preprocessors.torch import RunningStandardScaler
 from skrl.trainers.torch import SequentialTrainer
 from skrl.utils import set_seed
+
 import gymnasium as gym
 from gymnasium.wrappers import RecordVideo
+from gymnasium.wrappers import NormalizeObservation
+from gymnasium.wrappers.vector import NormalizeObservation as VectorNormalizeObservation
 import os
 import sys
 import argparse
 import numpy as np
-from gymnasium.wrappers import NormalizeObservation
-from gymnasium.wrappers.vector import NormalizeObservation as VectorNormalizeObservation
-
+from datetime import datetime
+import json
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 from sim import ant_mujoco  # this will execute the register() if it's in ant_mujoco.py
 
-# sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../sim')))
-# from ant_mujoco import AntEnv
-
-# define models (stochastic and deterministic models) using mixins
+# Models.
 class StochasticActor(GaussianMixin, Model):
     def __init__(self, observation_space, action_space, device, clip_actions=False,
                  clip_log_std=True, min_log_std=-5, max_log_std=2):
@@ -58,6 +56,7 @@ class Critic(DeterministicMixin, Model):
     def compute(self, inputs, role):
         return self.net(torch.cat([inputs["states"], inputs["taken_actions"]], dim=1)), {}
 
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--train', type=bool, default=False)
 parser.add_argument('--seed', type=int, default=0)
@@ -66,9 +65,10 @@ parser.add_argument('--upside_down_cost_weight', type=float, default=0.0)
 parser.add_argument('--ctrl_cost_weight', type=float, default=0.0)
 parser.add_argument('--render_mode', type=str, default=None)
 parser.add_argument('--nb_envs', type=int, default=1)
+parser.add_argument('--total_timesteps_train', type=int, default=100_000)
+parser.add_argument('--total_timesteps_eval', type=int, default=100_000)
 args = parser.parse_args()
 
-# env = gym.make_vec("Ant-v5", num_envs=NB_ENVS)
 DT = 0.05
 if args.nb_envs == 1:
     env = gym.make("CustomAnt-v0",
@@ -92,14 +92,13 @@ else:
 
 # Logging
 LOG_FOLDER = 'logs_sac_skrl'
-from datetime import datetime
-import json
 experiment_name = f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_SAC"
 os.makedirs(os.path.join(LOG_FOLDER, experiment_name), exist_ok=True)
 
-# Save the config.
-with open(os.path.join(LOG_FOLDER, experiment_name, 'config.json'), 'w') as f:
-    json.dump(vars(args), f)
+if args.train:
+    # Save the config.
+    with open(os.path.join(LOG_FOLDER, experiment_name, 'config.json'), 'w') as f:
+        json.dump(vars(args), f)
 
 set_seed(args.seed)
 
@@ -111,13 +110,9 @@ if args.nb_envs == 1 and args.render_mode == 'rgb_array':
 env = wrap_env(env)
 device = env.device
 
-# instantiate a memory as experience replay
 buffer_size = int(1_000_000/args.nb_envs)
 memory = RandomMemory(memory_size=buffer_size, num_envs=env.num_envs, device=device)
 
-# instantiate the agent's models (function approximators).
-# SAC requires 5 models, visit its documentation for more details
-# https://skrl.readthedocs.io/en/latest/api/agents/sac.html#models
 models = {}
 models["policy"] = StochasticActor(env.observation_space, env.action_space, device, clip_actions=True)
 models["critic_1"] = Critic(env.observation_space, env.action_space, device)
@@ -125,8 +120,6 @@ models["critic_2"] = Critic(env.observation_space, env.action_space, device)
 models["target_critic_1"] = Critic(env.observation_space, env.action_space, device)
 models["target_critic_2"] = Critic(env.observation_space, env.action_space, device)
 
-# configure and instantiate the agent (visit its documentation to see all the options)
-# https://skrl.readthedocs.io/en/latest/api/agents/sac.html#configuration-and-hyperparameters
 cfg = SAC_DEFAULT_CONFIG.copy()
 cfg["gradient_steps"] = 1
 if args.nb_envs == 1:
@@ -138,7 +131,10 @@ cfg["polyak"] = 0.005
 cfg["actor_learning_rate"] = 5e-4
 cfg["critic_learning_rate"] = 5e-4
 cfg["random_timesteps"] = 80*args.nb_envs
-cfg["learning_starts"] = 80*args.nb_envs
+if args.train:
+    cfg["learning_starts"] = 80*args.nb_envs
+else:
+    cfg["learning_starts"] = args.total_timesteps_eval
 cfg["grad_norm_clip"] = 0
 cfg["learn_entropy"] = True
 cfg["entropy_learning_rate"] = 5e-3
@@ -158,16 +154,26 @@ agent = SAC(models=models,
             action_space=env.action_space,
             device=device)
 
-
-# configure and instantiate the RL trainer
-cfg_trainer = {"timesteps": 200_000, "headless": True}
-trainer = SequentialTrainer(cfg=cfg_trainer, env=env, agents=agent)
-
-# start training
-train = args.train
-if train:
+# Training or evaluation.
+if args.train:
+    cfg_trainer = {"timesteps": args.total_timesteps_train, "headless": True}
+    trainer = SequentialTrainer(cfg=cfg_trainer, env=env, agents=agent)
     trainer.train()
 else:
-    path = '.'
+    cfg_trainer = {"timesteps": args.total_timesteps_eval, "headless": True}
+    trainer = SequentialTrainer(cfg=cfg_trainer, env=env, agents=agent)
+    path = f'/Users/sorinalupu/OpenmindResearch/workshops/EmbodiedAnt/agents/sac_skrl/logs_sac_skrl/2025-09-15_21-16-18_SAC/checkpoints'
+    # Sorted by the number in the file name.
+    files = sorted(
+        [f for f in os.listdir(path) if f != "best_agent.pt"],
+        key=lambda x: int(x.split('_')[1].split('.')[0])
+    )
+    # for file in files:
+    #     print(f"Loading checkpoint {file}")
+    #     path = f'/Users/sorinalupu/OpenmindResearch/workshops/EmbodiedAnt/agents/sac_skrl/logs_sac_skrl/2025-09-15_21-16-18_SAC/checkpoints/{file}'
+    #     agent.load(path)
+    #     trainer.eval()
+    # Load the best checkpoint.
+    path = f'/Users/sorinalupu/OpenmindResearch/workshops/EmbodiedAnt/agents/sac_skrl/logs_sac_skrl/2025-09-15_21-16-18_SAC/checkpoints/best_agent.pt'
     agent.load(path)
     trainer.eval()
