@@ -16,6 +16,8 @@ from skrl.trainers.torch import SequentialTrainer
 from skrl.utils import set_seed
 
 import gymnasium as gym
+from gymnasium.wrappers import NormalizeObservation
+
 
 # Path setup
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../sim')))
@@ -94,6 +96,16 @@ def run(agent, env):
         if i % 1000 == 0:
             reward_tracker.log(i, average_reward_per_second)
 
+import argparse
+parser = argparse.ArgumentParser()
+parser.add_argument('--train', type=bool, default=False)
+parser.add_argument('--seed', type=int, default=0)
+parser.add_argument('--terminate_when_upside_down', type=bool, default=False)
+parser.add_argument('--upside_down_cost_weight', type=float, default=0.0)
+parser.add_argument('--ctrl_cost_weight', type=float, default=0.0)
+parser.add_argument('--render_mode', type=str, default=None)
+parser.add_argument('--nb_envs', type=int, default=1)
+args = parser.parse_args()
 
 # Env setup.
 render = "human"
@@ -102,20 +114,23 @@ hw_config = sys.argv[1] if len(sys.argv) > 1 else None
 
 if hw_config is None:
     env_id = 'ant_mujoco'
-    # env = AntEnv(
-    #     # render_mode=render,
-    #     dt=DT,
-    #     forward_reward_weight=1.0,
-    #     ctrl_cost_weight=0.0,
-    #     reward_upside_down_weight=0.0
-    # )
-    env = gym.make('Ant-v5')
+    env = AntEnv(
+        dt=DT,
+        cost_upside_down_weight=args.upside_down_cost_weight,
+        terminate_on_upside_down=args.terminate_when_upside_down,
+        ctrl_cost_weight=args.ctrl_cost_weight,
+    )
+    env = NormalizeObservation(env)
+
+    # env = gym.make('Ant-v5')
 
 else:
     env_id = 'ant_hw'
     with open(hw_config, 'r') as f:
         cfg = json.load(f)
     env = make_ant_env(cfg, render_mode=render, dt=DT)
+    env = NormalizeObservation(env)
+
 
 # Wrap and prepare.
 env = wrap_env(env)
@@ -140,7 +155,7 @@ memory = RandomMemory(memory_size=1_000_000, device=device)
 # Config.
 cfg = SAC_DEFAULT_CONFIG.copy()
 cfg["gradient_steps"] = 1
-cfg["batch_size"] = 64
+cfg["batch_size"] = 265
 cfg["discount_factor"] = 0.99
 cfg["polyak"] = 0.005
 cfg["actor_learning_rate"] = 5e-4
@@ -149,7 +164,7 @@ cfg["random_timesteps"] = 80
 cfg["learning_starts"] = 80
 cfg["grad_norm_clip"] = 0
 cfg["learn_entropy"] = True
-cfg["entropy_learning_rate"] = 1e-3
+cfg["entropy_learning_rate"] = 5e-3
 cfg["initial_entropy_value"] = 1.0
 cfg["state_preprocessor"] = RunningStandardScaler
 cfg["state_preprocessor_kwargs"] = {"size": env.observation_space, "device": device}
@@ -169,7 +184,7 @@ agent = SAC(models=models,
 reward_tracker = RewardTracker(env_dt=env.dt, env_id=env_id,
                                log_folder=os.path.join(cfg["experiment"]["directory"], cfg["experiment"]["experiment_name"]))
 
-train = True
+train = args.train
 train_step_by_step = True
 total_timesteps = 1_000_000
 
