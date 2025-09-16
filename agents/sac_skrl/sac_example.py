@@ -67,6 +67,7 @@ parser.add_argument('--render_mode', type=str, default=None)
 parser.add_argument('--nb_envs', type=int, default=1)
 parser.add_argument('--total_timesteps_train', type=int, default=100_000)
 parser.add_argument('--total_timesteps_eval', type=int, default=100_000)
+parser.add_argument('--weight_folder', type=str, default='sac_skrl_ant_mujoco_2025-09-15_23-31-02')
 args = parser.parse_args()
 
 DT = 0.05
@@ -162,18 +163,15 @@ if args.train:
 else:
     cfg_trainer = {"timesteps": args.total_timesteps_eval, "headless": True}
     trainer = SequentialTrainer(cfg=cfg_trainer, env=env, agents=agent)
-    path = f'/Users/sorinalupu/OpenmindResearch/workshops/EmbodiedAnt/agents/sac_skrl/logs_sac_skrl/2025-09-15_21-16-18_SAC/checkpoints'
+    path = f'logs_sac_skrl/{args.weight_folder}/checkpoints'
     # Sorted by the number in the file name.
     files = sorted(
         [f for f in os.listdir(path) if f != "best_agent.pt"],
         key=lambda x: int(x.split('_')[1].split('.')[0])
     )
-    # for file in files:
-    #     print(f"Loading checkpoint {file}")
-    #     path = f'/Users/sorinalupu/OpenmindResearch/workshops/EmbodiedAnt/agents/sac_skrl/logs_sac_skrl/2025-09-15_21-16-18_SAC/checkpoints/{file}'
-    #     agent.load(path)
-    #     trainer.eval()
-    # Load the best checkpoint.
-    path = f'/Users/sorinalupu/OpenmindResearch/workshops/EmbodiedAnt/agents/sac_skrl/logs_sac_skrl/2025-09-15_21-16-18_SAC/checkpoints/best_agent.pt'
-    agent.load(path)
+    for file in files:
+        print(f"Loading checkpoint {file}")
+        agent.load(f'{path}/{file}')
+        trainer.eval()
+    agent.load(f'{path}/best_agent.pt')
     trainer.eval()

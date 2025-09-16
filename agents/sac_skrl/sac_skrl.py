@@ -107,6 +107,7 @@ parser.add_argument('--nb_envs', type=int, default=1)
 parser.add_argument('--hw_config', type=str, default=None)
 parser.add_argument('--total_timesteps_train', type=int, default=100_000)
 parser.add_argument('--total_timesteps_eval', type=int, default=100_000)
+parser.add_argument('--weight_folder', type=str, default='sac_skrl_ant_mujoco_2025-09-15_23-31-02')
 args = parser.parse_args()
 
 set_seed(args.seed)
@@ -194,7 +195,17 @@ if args.train:
 else:
     print("Evaluating...")
     agent.init()
-    path = '/Users/sorinalupu/OpenmindResearch/workshops/EmbodiedAnt/agents/sac_skrl/logs_sac_skrl/2025-09-15_21-16-18_SAC/checkpoints/best_agent.pt'
-    agent.load(path)
+    path = f'logs_sac_skrl/{args.weight_folder}/checkpoints'
+    files = sorted(
+        [f for f in os.listdir(path) if f != "best_agent.pt"],
+        key=lambda x: int(x.split('_')[1].split('.')[0])
+    )
+    for file in files:
+        print(f"Loading checkpoint {file}")
+        path_policy = f'{path}/{file}'
+        agent.load(path_policy)
+        agent.set_mode("eval")
+        run(agent, env, args.total_timesteps_eval)
+    agent.load(f'{path}/best_agent.pt')
     agent.set_mode("eval")
     run(agent, env, args.total_timesteps_eval)
