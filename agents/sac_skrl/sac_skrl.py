@@ -128,7 +128,7 @@ if args.hw_config is None:
     env = NormalizeObservation(env)
 else:
     env_id = 'ant_hw'
-    with open(hw_config, 'r') as f:
+    with open(args.hw_config, 'r') as f:
         cfg = json.load(f)
     env = make_ant_env(cfg, render_mode=render, dt=DT)
     env = NormalizeObservation(env)
