@@ -77,15 +77,15 @@ for i in range(4):  # 4 legs
         "hip_target": np.radians(40),
         "knee_joint": 2*i + 1,
         "knee_amplitude": np.radians(45),
-        "duration": 0.5
+        "duration": 0.2
     })
     # Option 2: negative hip movement
     options.append({
         "hip_joint": 2*i,
         "hip_target": -np.radians(40),
         "knee_joint": 2*i + 1,
-        "knee_amplitude": -np.radians(45),
-        "duration": 0.5
+        "knee_amplitude": np.radians(45),
+        "duration": 0.2
     })
 print(len(options), "options defined.")  # should print 8
 
@@ -108,7 +108,7 @@ if hw_config is None:
     print(current_path)
     render_mode = "human" if render else "rgb_array"
     env = AntEnv(xml_file=os.path.join(current_path, "../sim/assets/ant_position.xml"),
-                 render_mode="human",
+                #  render_mode="human",
                  dt=DT,
                  joint_config=joint_config)
 else:
