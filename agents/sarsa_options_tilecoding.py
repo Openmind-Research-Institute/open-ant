@@ -37,11 +37,21 @@ class OptionEnv:
 
     def step(self, option: int):
         opt = self.options[option]
-        traj = ramp(self.joint_pos[opt['joint']], opt['target'], opt['duration'])
+        hip_joint = opt['hip_joint']
+        hip_traj = ramp(self.joint_pos[hip_joint], opt['hip_target'], opt['duration'])
+
+        # Create synchronized sinusoidal trajectory for the knee.
+        num_steps = len(hip_traj)
+        time = np.linspace(0, opt['duration'], num_steps)
+        knee_joint = opt['knee_joint']
+        knee_start = self.joint_pos[knee_joint]
+        knee_traj = knee_start + opt['knee_amplitude'] * np.sin(np.pi * time / opt['duration'])
+
         total_reward = 0.0
         gamma_i = 1.0
         for i in range(self.duration_steps(option)):
-            self.joint_pos[opt['joint']] = traj[i]
+            self.joint_pos[hip_joint] = hip_traj[i]
+            self.joint_pos[knee_joint] = knee_traj[i]
             obs, reward, terminated, truncated, info = self.env.step(self.joint_pos)
             total_reward += gamma_i * reward
             gamma_i *= self.discount
@@ -60,14 +70,24 @@ class OptionEnv:
         return int(self.options[option]['duration'] / DT)
 
 options = []
-for i in range(4):
-    # hip
-    options.append({"joint": 2*i, "target": np.radians(40),  "duration": 0.5})
-    options.append({"joint": 2*i, "target": -np.radians(40), "duration": 0.5})
-    # knee
-    options.append({"joint": 2*i + 1, "target": np.radians(45),  "duration": 0.5})
-    options.append({"joint": 2*i + 1, "target": -np.radians(45), "duration": 0.5})
-
+for i in range(4):  # 4 legs
+    # Option 1: positive hip movement
+    options.append({
+        "hip_joint": 2*i,
+        "hip_target": np.radians(40),
+        "knee_joint": 2*i + 1,
+        "knee_amplitude": np.radians(45),
+        "duration": 0.5
+    })
+    # Option 2: negative hip movement
+    options.append({
+        "hip_joint": 2*i,
+        "hip_target": -np.radians(40),
+        "knee_joint": 2*i + 1,
+        "knee_amplitude": -np.radians(45),
+        "duration": 0.5
+    })
+print(len(options), "options defined.")  # should print 8
 
 # Constants.
 render = "human"
@@ -177,7 +197,7 @@ state_limits = np.array([env.observation_space.low, env.observation_space.high])
 num_options = len(options)
 
 # Load previous weights.
-load_previous_weights = True
+load_previous_weights = False
 if load_previous_weights == False:
     iht = IHT(IHT_SIZE)
     w = np.zeros((num_options, iht.size), dtype=np.float32)
