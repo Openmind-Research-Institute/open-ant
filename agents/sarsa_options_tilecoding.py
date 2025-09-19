@@ -16,7 +16,6 @@ import pickle
 
 np.set_printoptions(precision=4, suppress=True, linewidth=120, threshold=1000)
 
-RED = "\033[91m"
 YELLOW = "\033[93m"
 RESET = "\033[0m"
 
