@@ -4,6 +4,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../s
 from ant_mujoco import AntEnv
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../embodied_ant_env')))
 from embodied_ant_env import make_ant_env
+from gymnasium.wrappers import NormalizeObservation
 
 import numpy as np
 import json
@@ -33,7 +34,8 @@ class OptionEnv:
         self.env = env
         self.options = options
         self.discount = discount
-        self.joint_pos = np.zeros(len(env.q_joints))
+        self.joint_pos = np.zeros(env.action_space.shape[0])
+        print(f"joint_pos.shape: {self.joint_pos.shape}")
 
     def step(self, option: int):
         opt = self.options[option]
@@ -45,7 +47,10 @@ class OptionEnv:
         time = np.linspace(0, opt['duration'], num_steps)
         knee_joint = opt['knee_joint']
         knee_start = self.joint_pos[knee_joint]
-        knee_traj = knee_start + opt['knee_amplitude'] * np.sin(np.pi * time / opt['duration'])
+        if opt['hip_target'] != self.joint_pos[hip_joint]:
+            knee_traj = knee_start + opt['knee_amplitude'] * np.sin(np.pi * time / opt['duration'])
+        else:
+            knee_traj = np.full(num_steps, knee_start)
 
         total_reward = 0.0
         gamma_i = 1.0
@@ -87,7 +92,23 @@ for i in range(4):  # 4 legs
         "knee_amplitude": np.radians(45),
         "duration": 0.2
     })
+    options.append({
+        "hip_joint": 2*i,
+        "hip_target": np.radians(40),
+        "knee_joint": 2*i + 1,
+        "knee_amplitude": np.radians(0),
+        "duration": 0.2
+    })
+    options.append({
+        "hip_joint": 2*i,
+        "hip_target": -np.radians(40),
+        "knee_joint": 2*i + 1,
+        "knee_amplitude": np.radians(0),
+        "duration": 0.2
+    })
+
 print(len(options), "options defined.")  # should print 8
+assert len(options) == 16
 
 # Constants.
 render = "human"
@@ -120,6 +141,8 @@ else:
                        dt=DT,
                        joint_config=joint_config)
 
+env = NormalizeObservation(env)
+
 
 # Tile coding.
 from tilecoding import IHT, tiles
@@ -134,9 +157,9 @@ class SuttonTileCoderWrapper:
 
     def __getitem__(self, x):
         x = np.asarray(x, dtype=np.float64)
-        floats_scaled = (x - self.limits[:, 0]) * self.norm_dims  # in tile units
+        # floats_scaled = (x - self.limits[:, 0]) * self.norm_dims  # in tile units
         # No extra ints; one index per tiling:
-        idxs = tiles(self.iht, self.tilings, floats_scaled)
+        idxs = tiles(self.iht, self.tilings, x)
         return np.asarray(idxs, dtype=np.int64)
 
     @property
@@ -184,7 +207,7 @@ DISCOUNTING = 0.99
 
 DIM_TILING = 10 # Number of tiles per dimension.
 TILINGS = 8 # Number of offset tilings.
-IHT_SIZE = 2**18
+IHT_SIZE = 2**20
 
 USE_DECAYING_EPSILON = False
 
@@ -197,13 +220,14 @@ state_limits = np.array([env.observation_space.low, env.observation_space.high])
 num_options = len(options)
 
 # Load previous weights.
+train = True
 load_previous_weights = False
 if load_previous_weights == False:
     iht = IHT(IHT_SIZE)
     w = np.zeros((num_options, iht.size), dtype=np.float32)
     print(f"w.shape: {w.shape}")
 else:
-    log_dir_to_load = 'logs/20250826_224149'
+    log_dir_to_load = 'logs/20250918_185518'
     # find the latest weights file.
     # print(f"Latest weights file: {latest_weights_file}")
     print(os.path.join(log_dir_to_load, 'weights.npy'))
@@ -213,6 +237,8 @@ else:
         iht = pickle.load(f)
     print('Loaded weights from previous run.')
     print(f"w.shape: {w.shape}")
+    if train == False:
+        EPSILON = 0.0
     
 # IHT table size.
 tiles_per_dim = [DIM_TILING] * state_limits.shape[0]
@@ -245,15 +271,15 @@ idx_episode = 0
 real_time_seconds = 0.0
 
 
-# # Go through each option and run the option on the env.
-# env.reset()
+# Go through each option and run the option on the env.
+env.reset()
 # import time
-# for i in range(len(options)):
-#     option = options[i]
-#     print(f"Option {i} | joint: {option['joint']} | target: {option['target']} | duration: {option['duration']}")
-#     S, reward, terminated, truncated, info = options_env.step(i)
-#     print(f"Option {i} | reward: {reward:.4f}")
-    
+# while True:
+#     for i in range(len(options)):
+#         option = options[i]
+#         S, reward, terminated, truncated, info = options_env.step(i)
+#         print(f"Option {i} | reward: {reward:.4f}")
+#         input("Press Enter to continue...")
 # import sys
 # sys.exit()
 
@@ -297,7 +323,8 @@ while True:
         delta = target - pred
 
         # Update weights.
-        w[O, idx_S] += step_size * delta
+        if train == True:
+            w[O, idx_S] += step_size * delta
 
         S = S_prime
         O = O_prime
@@ -320,7 +347,7 @@ while True:
     # Save logs and weights.
     df.to_csv(os.path.join(log_dir, "rewards.csv"), index=False)
 
-    if idx_episode % 100 == 0:
+    if idx_episode % 50 == 0:
         # Reward plot.
         fig, ax1 = plt.subplots()
         ax1.plot(df['episode'], df['reward'], color="blue", label='rewards')
@@ -334,15 +361,16 @@ while True:
         ax2.xaxis.set_ticks_position("bottom")
         ax2.xaxis.set_label_position("bottom")
         ax2.spines["bottom"].set_position(("outward", 40))  # shift it down
-        max_time = df['real_time_seconds'].max()
+        hours = df['real_time_seconds'].max() / 3600
+        max_time = hours
         max_episode = df['episode'].max()
         time_ticks = np.linspace(0, max_time, 10)  # 10 evenly spaced time points
         episode_ticks = np.linspace(0, max_episode, 10)  # 10 evenly spaced episode points
         ax1.set_xticks(episode_ticks)
         ax1.set_xticklabels([f"{int(e)}" for e in episode_ticks])
         ax2.set_xticks(episode_ticks)
-        ax2.set_xticklabels([f"{t:.0f}s" for t in time_ticks])
-        ax2.set_xlabel("Real Time (seconds)")
+        ax2.set_xticklabels([f"{t:.2f}h" for t in time_ticks])
+        ax2.set_xlabel("Real Time (hours)")
         plt.tight_layout()
         plt.savefig(os.path.join(log_dir, f"rewards.png"))
         plt.close()
