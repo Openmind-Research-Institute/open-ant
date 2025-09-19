@@ -28,39 +28,68 @@ def ramp(start_pos: float, end_pos: float, duration: float):
     input_pos_list = np.linspace(start_pos, end_pos, num)
     return input_pos_list
 
+# plt.figure()
 class OptionEnv:
     def __init__(self, env, options, discount=0.99):
         self.env = env
         self.options = options
         self.discount = discount
-        self.joint_pos = np.zeros(env.action_space.shape[0])
-        print(f"joint_pos.shape: {self.joint_pos.shape}")
+        self.joint_action = np.zeros(env.action_space.shape[0])
 
-    def step(self, option: int):
-        opt = self.options[option]
+    def step(self, option_idx: int):
+        opt = self.options[option_idx]
+
+        # Populate the joint action trajectory.
         hip_joint = opt['hip_joint']
-        hip_traj = ramp(self.joint_pos[hip_joint], opt['hip_target'], opt['duration'])
+        hip_traj = ramp(self.joint_action[hip_joint], opt['hip_target'], opt['duration'])
 
-        # Create synchronized sinusoidal trajectory for the knee.
-        num_steps = len(hip_traj)
-        time = np.linspace(0, opt['duration'], num_steps)
         knee_joint = opt['knee_joint']
-        knee_start = self.joint_pos[knee_joint]
-        if opt['hip_target'] != self.joint_pos[hip_joint]:
-            knee_traj = knee_start + opt['knee_amplitude'] * np.sin(np.pi * time / opt['duration'])
+        num_steps = len(hip_traj)
+        if opt['hip_target'] != self.joint_action[hip_joint]:
+            time = np.linspace(0, opt['duration'], num_steps)
+            knee_traj = opt['knee_amplitude'] * np.sin(np.pi * time / opt['duration'])
         else:
-            knee_traj = np.full(num_steps, knee_start)
+            # NOTE: This is done to avoid the knee from flopping when the hip is not moving.
+            # NOTE: Otherwise, the ant will take advantage of the knee flopping to move forward.
+            knee_traj = np.full(num_steps, self.joint_action[knee_joint])
 
         total_reward = 0.0
         gamma_i = 1.0
-        for i in range(self.duration_steps(option)):
-            self.joint_pos[hip_joint] = hip_traj[i]
-            self.joint_pos[knee_joint] = knee_traj[i]
-            obs, reward, terminated, truncated, info = self.env.step(self.joint_pos)
+
+        # For plotting.
+        joint_pos_true_traj = np.zeros((self.duration_steps(option_idx), self.env.action_space.shape[0]))
+        action_traj = np.zeros((self.duration_steps(option_idx), self.env.action_space.shape[0]))
+        time_ = []
+
+        for i in range(self.duration_steps(option_idx)):
+            self.joint_action[hip_joint] = hip_traj[i]
+            self.joint_action[knee_joint] = knee_traj[i]
+            obs, reward, terminated, truncated, info = self.env.step(self.joint_action)
+
+            # For plotting.
+            obs = self.unnormalize_obs(obs)
+            joint_pos_true_traj[i] = obs[0:self.env.action_space.shape[0]]
+            for idx_joint in range(4):
+                action_traj[i, 2*idx_joint] = np.clip(self.joint_action[2*idx_joint], -1, 1) * joint_config['hip_range'] + joint_config['hip_zero']
+                action_traj[i, 2*idx_joint + 1] = np.clip(self.joint_action[2*idx_joint + 1], -1, 1) * joint_config['knee_range'] + joint_config['knee_zero']
+            time_.append(i * DT)
+
             total_reward += gamma_i * reward
             gamma_i *= self.discount
             if terminated or truncated:
                 return obs, total_reward, terminated, truncated, info
+
+        # plt.clf()
+        # plt.plot(time_, joint_pos_true_traj[:, hip_joint], label=f'meas hip nb {hip_joint}', color='blue')
+        # plt.plot(time_, action_traj[:, hip_joint], label=f'hip action nb {hip_joint}', color='blue', linestyle='--')
+        # plt.plot(time_, joint_pos_true_traj[:, knee_joint], label=f'meas knee nb {knee_joint}', color='red')
+        # plt.plot(time_, action_traj[:, knee_joint], label=f'knee action nb {knee_joint}', color='red', linestyle='--')
+        # plt.legend()
+        # plt.xlabel('Time (s)')
+        # plt.ylabel('Joints (rad)')
+        # plt.title(f'Option {option}')
+        # plt.show(block=False)
+
         return obs, total_reward, terminated, truncated, info
 
     def reset(self):
@@ -70,8 +99,13 @@ class OptionEnv:
     def render(self):
         return self.env.render()
     
-    def duration_steps(self, option: int):
-        return int(self.options[option]['duration'] / DT)
+    def duration_steps(self, option_idx: int):
+        return int(self.options[option_idx]['duration'] / DT)
+
+    def unnormalize_obs(self, normalized_obs): # Used for plotting.
+        return normalized_obs * np.sqrt(self.env.obs_rms.var + self.env.epsilon) + self.env.obs_rms.mean
+
+
 
 options = []
 for i in range(4):  # 4 legs
