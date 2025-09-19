@@ -75,35 +75,33 @@ class OptionEnv:
 
 options = []
 for i in range(4):  # 4 legs
-    # Option 1: positive hip movement
     options.append({
         "hip_joint": 2*i,
         "hip_target": np.radians(40),
         "knee_joint": 2*i + 1,
         "knee_amplitude": np.radians(45),
-        "duration": 0.2
+        "duration": 0.5
     })
-    # Option 2: negative hip movement
     options.append({
         "hip_joint": 2*i,
         "hip_target": -np.radians(40),
         "knee_joint": 2*i + 1,
         "knee_amplitude": np.radians(45),
-        "duration": 0.2
+        "duration": 0.5
     })
     options.append({
         "hip_joint": 2*i,
         "hip_target": np.radians(40),
         "knee_joint": 2*i + 1,
         "knee_amplitude": np.radians(0),
-        "duration": 0.2
+        "duration": 0.5
     })
     options.append({
         "hip_joint": 2*i,
         "hip_target": -np.radians(40),
         "knee_joint": 2*i + 1,
         "knee_amplitude": np.radians(0),
-        "duration": 0.2
+        "duration": 0.5
     })
 
 print(len(options), "options defined.")  # should print 8
@@ -224,18 +222,14 @@ load_previous_weights = False
 if load_previous_weights == False:
     iht = IHT(IHT_SIZE)
     w = np.zeros((num_options, iht.size), dtype=np.float32)
-    print(f"w.shape: {w.shape}")
 else:
     log_dir_to_load = 'logs/20250918_185518'
-    # find the latest weights file.
-    # print(f"Latest weights file: {latest_weights_file}")
     print(os.path.join(log_dir_to_load, 'weights.npy'))
     w = np.load(os.path.join(log_dir_to_load, 'weights.npy'))
     # Load iht.
     with open(os.path.join(log_dir_to_load, "iht.pkl"), "rb") as f:
         iht = pickle.load(f)
     print('Loaded weights from previous run.')
-    print(f"w.shape: {w.shape}")
     if train == False:
         EPSILON = 0.0
     
@@ -346,7 +340,7 @@ while True:
     # Save logs and weights.
     df.to_csv(os.path.join(log_dir, "rewards.csv"), index=False)
 
-    if idx_episode % 50 == 0:
+    if idx_episode % 10 == 0:
         # Reward plot.
         fig, ax1 = plt.subplots()
         ax1.plot(df['episode'], df['reward'], color="blue", label='rewards')
