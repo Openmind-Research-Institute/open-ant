@@ -166,8 +166,8 @@ if hw_config is None:
     current_path = os.path.dirname(os.path.abspath(__file__))
     print(current_path)
     render_mode = "human" if render else "rgb_array"
-    env = AntEnv(xml_file=os.path.join(current_path, "../sim/assets/ant_position.xml"),
-                #  render_mode="human",
+    env = AntEnv(
+                # render_mode="human",
                  dt=DT,
                  joint_config=joint_config)
 else:
