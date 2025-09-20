@@ -374,7 +374,7 @@ while True:
         duration_option = options_env.duration_steps(O)
         real_time_seconds += duration_option * DT
 
-        # true_pos_xy.append([info["current_x_position"], info["current_y_position"]])
+        true_pos_xy.append([info["current_x_position"], info["current_y_position"]])
         if terminated or truncated:
             break
 
@@ -418,24 +418,25 @@ while True:
         plt.close()
 
         # Save and plot the trajectory.
-        # df_true_pos_xy = pd.DataFrame(true_pos_xy, columns=["x", "y"])
-        # df_true_pos_xy.to_csv(os.path.join(log_dir, f"true_pos_xy_{idx_episode}.csv"), index=False)
-        # # Generate a plot.
-        # true_pos_xy_df = pd.read_csv(os.path.join(log_dir, f'true_pos_xy_{idx_episode}.csv'))
-        # x0 = true_pos_xy_df['x'][0]
-        # y0 = true_pos_xy_df['y'][0]
-        # xf = true_pos_xy_df['x'].iloc[-1]
-        # yf = true_pos_xy_df['y'].iloc[-1]
-        # distance = np.linalg.norm([xf - x0, yf - y0])
-        # print(f"distance: {distance/30}")
-        # plt.figure()
-        # plt.plot(true_pos_xy_df['x'], true_pos_xy_df['y'], label=f'traj {idx_episode}', alpha=0.5)
-        # plt.scatter(true_pos_xy_df['x'][0], true_pos_xy_df['y'][0], color='red', label='start')
-        # plt.scatter(true_pos_xy_df['x'].iloc[-1], true_pos_xy_df['y'].iloc[-1], color='green', label='end')
-        # plt.xlabel('x')
-        # plt.ylabel('y')
-        # plt.title('Trajectory')
-        # plt.ylim(-1, 1)
-        # plt.legend()
-        # plt.savefig(os.path.join(log_dir, f"trajectory_{idx_episode}.png"))
-        # plt.close()
+        df_true_pos_xy = pd.DataFrame(true_pos_xy, columns=["x", "y"])
+        df_true_pos_xy.to_csv(os.path.join(log_dir, f"true_pos_xy.csv"), index=False)
+        # Generate a plot.
+        true_pos_xy_df = pd.read_csv(os.path.join(log_dir, f'true_pos_xy.csv'))
+        x0 = true_pos_xy_df['x'][0]
+        y0 = true_pos_xy_df['y'][0]
+        xf = true_pos_xy_df['x'].iloc[-1]
+        yf = true_pos_xy_df['y'].iloc[-1]
+        distance = np.linalg.norm([xf - x0, yf - y0])
+        print(f"distance: {distance/30}")
+        plt.figure()
+        plt.plot(true_pos_xy_df['x'], true_pos_xy_df['y'], label=f'traj {idx_episode}', alpha=0.5)
+        plt.scatter(true_pos_xy_df['x'][0], true_pos_xy_df['y'][0], color='red', label='start')
+        plt.scatter(true_pos_xy_df['x'].iloc[-1], true_pos_xy_df['y'].iloc[-1], color='green', label='end')
+        plt.xlabel('x')
+        plt.ylabel('y')
+        plt.xlim(-12, 12)
+        plt.ylim(-12, 12)
+        plt.title(f'Trajectory')
+        plt.legend()
+        plt.savefig(os.path.join(log_dir, f"trajectory.png"))
+        plt.close()
