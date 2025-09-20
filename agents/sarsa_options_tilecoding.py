@@ -306,16 +306,22 @@ with open(os.path.join(log_dir, "tile_config.json"), "w") as f:
 idx_episode = 0
 real_time_seconds = 0.0
 
-
 # Go through each option and run the option on the env.
-env.reset()
-# import time
+# For debugging.
+# env.reset()
+# xy_pos = []
 # while True:
-#     for i in range(len(options)):
+#     # sinusoid forward, sinusoid backward, stance forward, stance backward
+#     list_options = [2, 3]
+#     for i in list_options:
 #         option = options[i]
-#         S, reward, terminated, truncated, info = options_env.step(i)
+#         print('option', option)
+#         obs, reward, terminated, truncated, info = options_env.step(i)
+#         obs_for_plotting = options_env.unnormalize_obs(obs)
+#         print('angular_velocities', obs_for_plotting[-1])
 #         print(f"Option {i} | reward: {reward:.4f}")
-#         input("Press Enter to continue...")
+#         # time.sleep(1)
+#         # input("Press Enter to continue...")
 # import sys
 # sys.exit()
 
