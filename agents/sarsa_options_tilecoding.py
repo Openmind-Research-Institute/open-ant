@@ -13,6 +13,8 @@ import pandas as pd
 import datetime
 import cv2
 import pickle
+from tqdm import tqdm
+import time
 
 np.set_printoptions(precision=4, suppress=True, linewidth=120, threshold=1000)
 
@@ -67,8 +69,8 @@ class OptionEnv:
             obs, reward, terminated, truncated, info = self.env.step(self.joint_action)
 
             # For plotting.
-            obs = self.unnormalize_obs(obs)
-            joint_pos_true_traj[i] = obs[0:self.env.action_space.shape[0]]
+            obs_for_plotting = self.unnormalize_obs(obs)
+            joint_pos_true_traj[i] = obs_for_plotting[0:self.env.action_space.shape[0]]
             for idx_joint in range(4):
                 action_traj[i, 2*idx_joint] = np.clip(self.joint_action[2*idx_joint], -1, 1) * joint_config['hip_range'] + joint_config['hip_zero']
                 action_traj[i, 2*idx_joint + 1] = np.clip(self.joint_action[2*idx_joint + 1], -1, 1) * joint_config['knee_range'] + joint_config['knee_zero']
@@ -87,8 +89,8 @@ class OptionEnv:
         # plt.legend()
         # plt.xlabel('Time (s)')
         # plt.ylabel('Joints (rad)')
-        # plt.title(f'Option {option}')
-        # plt.show(block=False)
+        # plt.title(f'Option {opt['name']} idx {option_idx}')
+        # plt.show(block=True)
 
         return obs, total_reward, terminated, truncated, info
 
@@ -106,36 +108,39 @@ class OptionEnv:
         return normalized_obs * np.sqrt(self.env.obs_rms.var + self.env.epsilon) + self.env.obs_rms.mean
 
 
-
 options = []
 for i in range(4):  # 4 legs
     options.append({
+        "name": "sinusoid_forward",
         "hip_joint": 2*i,
-        "hip_target": np.radians(40),
+        "hip_target": np.radians(45),
         "knee_joint": 2*i + 1,
         "knee_amplitude": np.radians(45),
-        "duration": 0.5
+        "duration": 0.3
     })
     options.append({
+        "name": "sinusoid_backward",
         "hip_joint": 2*i,
-        "hip_target": -np.radians(40),
+        "hip_target": -np.radians(45),
         "knee_joint": 2*i + 1,
         "knee_amplitude": np.radians(45),
-        "duration": 0.5
+        "duration": 0.3
     })
     options.append({
+        "name": "stance_forward",
         "hip_joint": 2*i,
-        "hip_target": np.radians(40),
+        "hip_target": np.radians(45),
         "knee_joint": 2*i + 1,
-        "knee_amplitude": np.radians(0),
-        "duration": 0.5
+        "knee_amplitude": np.radians(-20),
+        "duration": 0.3
     })
     options.append({
+        "name": "stance_backward",
         "hip_joint": 2*i,
-        "hip_target": -np.radians(40),
+        "hip_target": -np.radians(45),
         "knee_joint": 2*i + 1,
-        "knee_amplitude": np.radians(0),
-        "duration": 0.5
+        "knee_amplitude": np.radians(-20),
+        "duration": 0.3
     })
 
 print(len(options), "options defined.")  # should print 8
@@ -234,6 +239,7 @@ def clip_state_to_limits(S, limits):
 # Constants.
 MAX_OPTIONS_PER_EPISODE = 300
 EPSILON = 0.05
+EPSILON_START = EPSILON
 DISCOUNTING = 0.99
 
 DIM_TILING = 10 # Number of tiles per dimension.
@@ -286,6 +292,7 @@ with open(os.path.join(log_dir, "tile_config.json"), "w") as f:
         "step_size": step_size,
         "discount": DISCOUNTING,
         "epsilon": EPSILON,
+        "epsilon_start": EPSILON_START,
         "max_options_per_episode": MAX_OPTIONS_PER_EPISODE,
         "use_decaying_epsilon": USE_DECAYING_EPSILON,
         "log_dir": log_dir,
@@ -312,7 +319,8 @@ env.reset()
 
 while True:
     if USE_DECAYING_EPSILON:
-        EPSILON = max(0.05, 0.2 - idx_episode * 0.00015)
+        EPSILON = max(0.05, EPSILON_START - idx_episode * 0.015)
+        print(f"Decaying epsilon to {EPSILON}")
 
     true_pos_xy = []
     reward_per_episode = 0.0
@@ -325,8 +333,7 @@ while True:
     O = select_option_epsilon_greedy(S, EPSILON, w, T)
 
     # Run episode.
-    for t in range(MAX_OPTIONS_PER_EPISODE):
-        # print(f"Episode {idx_episode} | step {t} | option {O}")
+    for t in tqdm(range(MAX_OPTIONS_PER_EPISODE), desc=f"Episode {idx_episode}"):
 
         # Run option O.
         S_prime, R, terminated, truncated, info = options_env.step(O)
