@@ -50,6 +50,8 @@ class OptionEnv:
         if opt['hip_target'] != self.joint_action[hip_joint]:
             time = np.linspace(0, opt['duration'], num_steps)
             knee_traj = opt['knee_amplitude'] * np.sin(np.pi * time / opt['duration'])
+            # if opt['name'].startswith('stance'):
+            #     knee_traj = opt['knee_amplitude'] * np.ones(num_steps)
         else:
             # NOTE: This is done to avoid the knee from flopping when the hip is not moving.
             # NOTE: Otherwise, the ant will take advantage of the knee flopping to move forward.
