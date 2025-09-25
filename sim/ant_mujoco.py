@@ -175,14 +175,16 @@ class AntEnv(MujocoEnv, utils.EzPickle):
 
         imu_data = self._get_sensor_data("accelerometer")
         accelerations = imu_data[:3]
+        noisy_accelerations = accelerations + self.np_random.normal(0, 0.1, 3)
         angular_vel = self._get_sensor_data("gyro")
+        noisy_angular_vel = angular_vel + self.np_random.normal(0, 0.1, 3)
 
         obs = np.concatenate([
                 joint_angles, # 8
                 joint_velocities, # 8
                 heading_vector, # 2
-                accelerations, # 3
-                angular_vel, # 3
+                noisy_accelerations, # 3
+                noisy_angular_vel, # 3
                 ], axis=None)
 
         return obs
