@@ -15,6 +15,7 @@ import cv2
 import pickle
 from tqdm import tqdm
 import time
+import argparse
 
 np.set_printoptions(precision=4, suppress=True, linewidth=120, threshold=1000)
 
@@ -22,7 +23,12 @@ YELLOW = "\033[93m"
 RESET = "\033[0m"
 
 # Random seed.
-np.random.seed(42)
+parser = argparse.ArgumentParser()
+parser.add_argument('--seed', type=int, default=42)
+parser.add_argument('--hw_config', type=str, default=None)
+args = parser.parse_args()
+SEED = args.seed
+np.random.seed(SEED)
 
 # Options.
 def ramp(start_pos: float, end_pos: float, duration: float):
@@ -98,7 +104,7 @@ class OptionEnv:
 
     def reset(self):
         self.joint_pos = np.zeros(len(self.env.q_joints))
-        return self.env.reset()
+        return self.env.reset(seed=SEED)
 
     def render(self):
         return self.env.render()
@@ -160,7 +166,7 @@ joint_config = {
     'knee_range': np.radians(45),
 }
 
-hw_config = sys.argv[1] if len(sys.argv) > 1 else None
+hw_config = args.hw_config if args.hw_config is not None else None
 if hw_config is None:
     env_id = 'ant_mujoco'
     current_path = os.path.dirname(os.path.abspath(__file__))
