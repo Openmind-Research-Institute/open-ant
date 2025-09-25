@@ -2,6 +2,7 @@ import os
 import pandas as pd
 from collections import deque
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 class RewardTracker:
     def __init__(self, env_dt, env_id, time_window=10.0, log_folder=".", date_now="log"):
@@ -36,7 +37,18 @@ class RewardTracker:
             self.plot(os.path.join(self.log_folder, f"eval_{self.env_id}_rewards_{self.date_now}.png"))
 
     def plot(self, save_path=None):
-        plt.plot(self.df["step"], self.df["reward"])
+        sns.set_theme(style="whitegrid")
+        palette = sns.color_palette("husl", n_colors=1)
+        plt.plot(
+            self.df["step"] * self.env_dt,
+            self.df["reward"],
+            color=palette[0],
+            alpha=1.0,
+            linewidth=2.0,
+        )
+        plt.xlabel("Time [s]")
+        plt.ylabel("Reward per Second")
+        plt.grid(True)
         if save_path is not None:
             plt.savefig(save_path)
             plt.close()
