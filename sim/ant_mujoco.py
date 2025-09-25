@@ -106,6 +106,7 @@ class AntEnv(MujocoEnv, utils.EzPickle):
 
         self.info.update({
             "current_x_position": self.data.qpos[0],
+            "current_y_position": self.data.qpos[1],
             "previous_x_position": self.previous_x_position,
             "last_last_action": self.info["last_action"],
             "last_action": action,
@@ -174,14 +175,16 @@ class AntEnv(MujocoEnv, utils.EzPickle):
 
         imu_data = self._get_sensor_data("accelerometer")
         accelerations = imu_data[:3]
+        noisy_accelerations = accelerations + self.np_random.normal(0, 0.1, 3)
         angular_vel = self._get_sensor_data("gyro")
+        noisy_angular_vel = angular_vel + self.np_random.normal(0, 0.1, 3)
 
         obs = np.concatenate([
                 joint_angles, # 8
                 joint_velocities, # 8
                 heading_vector, # 2
-                accelerations, # 3
-                angular_vel, # 3
+                noisy_accelerations, # 3
+                noisy_angular_vel, # 3
                 ], axis=None)
 
         self.info["heading_vector"] = heading_vector
@@ -192,10 +195,8 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         qpos = self.init_qpos + self.np_random.uniform(
             low=-0.1, high=0.1, size=self.model.nq
         )
-        qvel = (
-            self.init_qvel
-            + 0.1 * self.np_random.standard_normal(self.model.nv)
-        )
+        qvel = np.array(self.init_qvel)
+
         self.set_state(qpos, qvel)
         self.previous_x_position = self.data.qpos[0]
 
