@@ -37,7 +37,7 @@ if __name__ == "__main__":
     config = make_ant_motor_config(port)
     config['imu_port'] = "/dev/ttyUSB1"
     config['camera_id'] = 0
-    config['camera_fov_diagonal_deg'] = 60
+    config['camera_fov_diagonal_deg'] = 58
     config['camera_tag_sizes'] = {'origin': 0.06, 'body': 0.045}
     config['camera_tag_ids'] = {'origin': 0, 'body': int(tag_id)}
     with open(file_name, "w") as f:
