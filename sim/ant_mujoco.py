@@ -197,10 +197,8 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         qpos = self.init_qpos + self.np_random.uniform(
             low=noise_low, high=noise_high, size=self.model.nq
         )
-        qvel = (
-            self.init_qvel
-            + self._reset_noise_scale * self.np_random.standard_normal(self.model.nv)
-        )
+        qvel = self.init_qvel
+
         self.set_state(qpos, qvel)
         self.previous_x_position = self.data.qpos[0]
 
