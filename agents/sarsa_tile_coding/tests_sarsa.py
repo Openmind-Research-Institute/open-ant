@@ -1,10 +1,9 @@
 import os
 import sys
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../sim')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../sim')))
 from ant_mujoco import AntEnv
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../embodied_ant_env')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../embodied_ant_env')))
 from embodied_ant_env import make_ant_env
-from gymnasium.wrappers import NormalizeObservation
 
 import numpy as np
 import json
@@ -37,6 +36,8 @@ class OptionEnv:
         self.options = options
         self.discount = discount
         self.joint_action = np.zeros(env.action_space.shape[0])
+        self.obs_list = []
+        self.time_list = []
 
     def step(self, option_idx: int):
         opt = self.options[option_idx]
@@ -50,8 +51,6 @@ class OptionEnv:
         if opt['hip_target'] != self.joint_action[hip_joint]:
             time = np.linspace(0, opt['duration'], num_steps)
             knee_traj = opt['knee_amplitude'] * np.sin(np.pi * time / opt['duration'])
-            # if opt['name'].startswith('stance'):
-            #     knee_traj = opt['knee_amplitude'] * np.ones(num_steps)
         else:
             # NOTE: This is done to avoid the knee from flopping when the hip is not moving.
             # NOTE: Otherwise, the ant will take advantage of the knee flopping to move forward.
@@ -63,27 +62,26 @@ class OptionEnv:
         # For plotting.
         joint_pos_true_traj = np.zeros((self.duration_steps(option_idx), self.env.action_space.shape[0]))
         action_traj = np.zeros((self.duration_steps(option_idx), self.env.action_space.shape[0]))
-        time_ = []
 
         for i in range(self.duration_steps(option_idx)):
             self.joint_action[hip_joint] = hip_traj[i]
             self.joint_action[knee_joint] = knee_traj[i]
             
-            if option_idx == 0 or option_idx == 1 or option_idx == 2 or option_idx == 3:
-                self.joint_action[hip_joint+2] = hip_traj[i]
-                self.joint_action[knee_joint+2] = knee_traj[i]
-            if option_idx == 12 or option_idx == 13 or option_idx == 14 or option_idx == 15:
-                self.joint_action[hip_joint-2] = hip_traj[i]
-                self.joint_action[knee_joint-2] = knee_traj[i]
+            # if option_idx == 3:
+            #     self.joint_action[hip_joint + 2] = hip_traj[i]
+            #     self.joint_action[knee_joint + 2] = knee_traj[i]
+            # if option_idx == 14:
+            #     self.joint_action[hip_joint - 2] = hip_traj[i]
+            #     self.joint_action[knee_joint - 2] = knee_traj[i]
             obs, reward, terminated, truncated, info = self.env.step(self.joint_action)
+            self.obs_list.append(obs)
 
             # For plotting.
-            obs_for_plotting = self.unnormalize_obs(obs)
-            joint_pos_true_traj[i] = obs_for_plotting[0:self.env.action_space.shape[0]]
+            joint_pos_true_traj[i] = obs[0:self.env.action_space.shape[0]]
             for idx_joint in range(4):
                 action_traj[i, 2*idx_joint] = np.clip(self.joint_action[2*idx_joint], -1, 1) * joint_config['hip_range'] + joint_config['hip_zero']
                 action_traj[i, 2*idx_joint + 1] = np.clip(self.joint_action[2*idx_joint + 1], -1, 1) * joint_config['knee_range'] + joint_config['knee_zero']
-            time_.append(i * DT)
+            self.time_list.append(i * DT)
 
             total_reward += gamma_i * reward
             gamma_i *= self.discount
@@ -123,9 +121,6 @@ class OptionEnv:
     def duration_steps(self, option_idx: int):
         return int(self.options[option_idx]['duration'] / DT)
 
-    def unnormalize_obs(self, normalized_obs): # Used for plotting.
-        return normalized_obs * np.sqrt(self.env.obs_rms.var + self.env.epsilon) + self.env.obs_rms.mean
-
 
 options = []
 for i in range(4):  # 4 legs
@@ -134,7 +129,7 @@ for i in range(4):  # 4 legs
         "hip_joint": 2*i,
         "hip_target": np.radians(45),
         "knee_joint": 2*i + 1,
-        "knee_amplitude": np.radians(80),
+        "knee_amplitude": np.radians(45),
         "duration": 0.3
     })
     options.append({
@@ -142,7 +137,7 @@ for i in range(4):  # 4 legs
         "hip_joint": 2*i,
         "hip_target": -np.radians(45),
         "knee_joint": 2*i + 1,
-        "knee_amplitude": np.radians(80),
+        "knee_amplitude": np.radians(45),
         "duration": 0.3
     })
     options.append({
@@ -150,16 +145,16 @@ for i in range(4):  # 4 legs
         "hip_joint": 2*i,
         "hip_target": np.radians(45),
         "knee_joint": 2*i + 1,
-        "knee_amplitude": np.radians(-15),
-        "duration": 0.5
+        "knee_amplitude": np.radians(-20),
+        "duration": 0.3
     })
     options.append({
         "name": "stance_backward",
         "hip_joint": 2*i,
         "hip_target": -np.radians(45),
         "knee_joint": 2*i + 1,
-        "knee_amplitude": np.radians(-10),
-        "duration": 0.5
+        "knee_amplitude": np.radians(-20),
+        "duration": 0.3
     })
 
 print(len(options), "options defined.")  # should print 8
@@ -183,7 +178,7 @@ if hw_config is None:
     current_path = os.path.dirname(os.path.abspath(__file__))
     print(current_path)
     render_mode = "human" if render else "rgb_array"
-    env = AntEnv(xml_file=os.path.join(current_path, "../sim/assets/ant_position.xml"),
+    env = AntEnv(
                  render_mode="human",
                  dt=DT,
                  joint_config=joint_config)
@@ -196,24 +191,80 @@ else:
                        dt=DT,
                        joint_config=joint_config)
 
-env = NormalizeObservation(env)
 options_env = OptionEnv(env, options)
 
 # Go through each option and run the option on the env.
 # For debugging.
 env.reset()
 xy_pos = []
-while True:
+date_now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+LOGS_COMPARISON = 'logs/sim_to_real_comparison_' + date_now
+if not os.path.exists(LOGS_COMPARISON):
+    os.makedirs(LOGS_COMPARISON)
+
+N = 20
+counter = 0
+while counter < N:
     # sinusoid forward, sinusoid backward, stance forward, stance backward
-    list_options = [0, 3, 13, 14]
+    # 0 1 2 3
+    # 4 5 6 7
+    # 8 9 10 11
+    # 12 13 14 15
+    # list_options = [0, 4, 3]
+    list_options = [0, 4, 3, \
+                    9, 13, 14]
     for i in list_options:
         option = options[i]
-        print('option', option)
+        print('option', option, 'name', option['name'])
         obs, reward, terminated, truncated, info = options_env.step(i)
-        obs_for_plotting = options_env.unnormalize_obs(obs)
-        print('angular_velocities', obs_for_plotting[-1])
+        xy_pos.append([info["current_x_position"], info["current_y_position"]])
+
         print(f"Option {i} | reward: {reward:.4f}")
-        # time.sleep(0.2)
-        # input("Press Enter to continue...")
-import sys
-sys.exit()
+    counter += 1
+
+list_obs_names = ['joint_pos_1', 'joint_pos_2', 'joint_pos_3', 'joint_pos_4', 'joint_pos_5', 'joint_pos_6', 'joint_pos_7', 'joint_pos_8',
+                  'joint_vel_1', 'joint_vel_2', 'joint_vel_3', 'joint_vel_4', 'joint_vel_5', 'joint_vel_6', 'joint_vel_7', 'joint_vel_8',
+                  'heading_x', 'heading_y',
+                  'acc_x', 'acc_y', 'acc_z',
+                  'angular_velocity_x', 'angular_velocity_y', 'angular_velocity_z']
+print(len(list_obs_names), "obs names")
+
+obs_list = np.array(options_env.obs_list)
+time_list = np.array(options_env.time_list).reshape(-1, 1)
+# Save the observations in a csv file
+df_obs = pd.DataFrame(np.concatenate((time_list, obs_list), axis=1), columns=['time'] + list_obs_names, index=None)
+df_obs.to_csv(os.path.join(LOGS_COMPARISON, f"{env_id}_obs.csv"))
+print(df_obs.shape)
+
+# Make a histogram of all the observations.
+fig, axs = plt.subplots(6, 4, sharex=True)
+axs = axs.flatten()
+for i in range(24):
+    axs[i].hist(obs_list[:, i], bins=100, label=f'obs {list_obs_names[i]} normalized')
+    axs[i].legend()
+    axs[i].set_ylabel('count')
+plt.tight_layout()
+plt.savefig(os.path.join(LOGS_COMPARISON, f"{env_id}_obs_histogram.png"))
+
+df_xy_pos = pd.DataFrame(xy_pos, columns=["x", "y"])
+df_xy_pos.to_csv(os.path.join(LOGS_COMPARISON, f"{env_id}_xy_pos.csv"), index=False)
+xy_pos_np = np.array(xy_pos)
+x0 = xy_pos_np[0, 0]
+y0 = xy_pos_np[0, 1]
+xf = xy_pos_np[-1, 0]
+yf = xy_pos_np[-1, 1]
+distance = np.linalg.norm([xf - x0, yf - y0])
+print(f"x0: {x0}, y0: {y0}, xf: {xf}, yf: {yf}")
+print('difference in x', xf - x0)
+print(f"Distance: {distance}")
+plt.figure()
+plt.plot(xy_pos_np[:, 0], xy_pos_np[:, 1], label=f'traj', alpha=0.5)
+plt.scatter(xy_pos_np[0, 0], xy_pos_np[0, 1], color='red', label='start')
+plt.scatter(xy_pos_np[-1, 0], xy_pos_np[-1, 1], color='green', label='end')
+plt.xlabel('x')
+plt.ylabel('y')
+plt.title(f'Trajectory')
+plt.legend()
+plt.savefig(os.path.join(LOGS_COMPARISON, f"{env_id}_trajectory.png"))
+# plt.close()
+plt.show()
