@@ -337,7 +337,7 @@ while True:
         print(f"Decaying epsilon to {EPSILON}")
 
     true_pos_xy = []
-    reward_per_episode = 0.0
+    return_per_episode = 0.0
 
     # Reset environment.
     S, _ = env.reset()
@@ -368,15 +368,15 @@ while True:
         # TODO: add the Delta Ts.
         target = R + (DISCOUNTING ** k) * q_of(w, idx_S_prime, O_prime)
         pred = q_of(w, idx_S,  O)
-        delta = target - pred
+        TD_error = target - pred
 
         # Update weights.
         if train == True:
-            w[O, idx_S] += step_size * delta
+            w[O, idx_S] += step_size * TD_error
 
         S = S_prime
         O = O_prime
-        reward_per_episode += R
+        return_per_episode += R
         duration_option = options_env.duration_steps(O)
         real_time_seconds += duration_option * DT
 
@@ -384,8 +384,8 @@ while True:
         if terminated or truncated:
             break
 
-    print(f"Episode {idx_episode} | reward: {YELLOW}{reward_per_episode:.4f}{RESET} | time in seconds: {(real_time_seconds):.4f} | time in hours: {(real_time_seconds) / 3600:.4f} | epsilon: {EPSILON:.4f}")
-    df.loc[idx_episode] = [idx_episode, reward_per_episode, real_time_seconds]
+    print(f"Episode {idx_episode} | reward: {YELLOW}{return_per_episode:.4f}{RESET} | time in seconds: {(real_time_seconds):.4f} | time in hours: {(real_time_seconds) / 3600:.4f} | epsilon: {EPSILON:.4f}")
+    df.loc[idx_episode] = [idx_episode, return_per_episode, real_time_seconds]
     idx_episode += 1
 
     # Save weights.
@@ -394,55 +394,77 @@ while True:
 
     # Save logs and weights.
     df.to_csv(os.path.join(log_dir, "rewards.csv"), index=False)
+    
+    # # Histogram of the observations.
+    # fig, axs = plt.subplots(6, 4, figsize=(20, 10))
+    # axs = axs.flatten()
+    # # clipped_obs_np = np.array(T.obs_list_clipped)
+    # true_obs_np = np.array(T.obs_list)
+    # for i in range(24):
+    #     # axs[i].hist(clipped_obs_np[:, i], bins=100, label=f'obs {list_obs_names[i]} clipped')
+    #     axs[i].hist(true_obs_np[:, i], bins=100, label=f'obs {list_obs_names[i]} true')
+    #     axs[i].legend()
+    #     axs[i].set_ylabel('count')
+    # plt.tight_layout()
+    # plt.savefig(os.path.join(log_dir, f"{env_id}_obs_histogram.png"))
+    
+    # fig, axs = plt.subplots(6, 4, sharex=True, figsize=(20, 10))
+    # axs = axs.flatten()
+    # obs_in_tile_units_np = np.array(T.obs_in_tile_units)
+    # for i in range(24):
+    #     axs[i].hist(obs_in_tile_units_np[:, i], bins=TILES_PER_DIM_LIST[i], label=f'obs {list_obs_names[i]} in tile units')
+    #     axs[i].legend()
+    #     axs[i].set_ylabel('count')
+    # plt.tight_layout()
+    # plt.savefig(os.path.join(log_dir, f"{env_id}_obs_histogram_tile_units.png"))
 
-    if idx_episode % 10 == 0:
-        # Reward plot.
-        fig, ax1 = plt.subplots()
-        ax1.plot(df['episode'], df['reward'], color="blue", label='rewards')
-        ax1.set_xlabel('Episode')
-        ax1.set_ylabel('Reward')
-        ax1.set_title('Rewards over Time')
-        ax1.axhline(y=0, color='black', linestyle='--', linewidth=0.5)
-        ax1.legend()
-        ax2 = ax1.twiny()
-        ax2.set_xlim(ax1.get_xlim())
-        ax2.xaxis.set_ticks_position("bottom")
-        ax2.xaxis.set_label_position("bottom")
-        ax2.spines["bottom"].set_position(("outward", 40))  # shift it down
-        hours = df['real_time_seconds'].max() / 3600
-        max_time = hours
-        max_episode = df['episode'].max()
-        time_ticks = np.linspace(0, max_time, 10)  # 10 evenly spaced time points
-        episode_ticks = np.linspace(0, max_episode, 10)  # 10 evenly spaced episode points
-        ax1.set_xticks(episode_ticks)
-        ax1.set_xticklabels([f"{int(e)}" for e in episode_ticks])
-        ax2.set_xticks(episode_ticks)
-        ax2.set_xticklabels([f"{t:.2f}h" for t in time_ticks])
-        ax2.set_xlabel("Real Time (hours)")
-        plt.tight_layout()
-        plt.savefig(os.path.join(log_dir, f"rewards.png"))
-        plt.close()
+    # if idx_episode % 10 == 0:
+    # Reward plot.
+    fig, ax1 = plt.subplots()
+    ax1.plot(df['episode'], df['reward'], color="blue", label='return')
+    ax1.set_xlabel('Episode')
+    ax1.set_ylabel('Return')
+    ax1.set_title('Return per Episode')
+    ax1.axhline(y=0, color='black', linestyle='--', linewidth=0.5)
+    ax1.legend()
+    ax2 = ax1.twiny()
+    ax2.set_xlim(ax1.get_xlim())
+    ax2.xaxis.set_ticks_position("bottom")
+    ax2.xaxis.set_label_position("bottom")
+    ax2.spines["bottom"].set_position(("outward", 40))  # shift it down
+    hours = df['real_time_seconds'].max() / 3600
+    max_time = hours
+    max_episode = df['episode'].max()
+    time_ticks = np.linspace(0, max_time, 10)  # 10 evenly spaced time points
+    episode_ticks = np.linspace(0, max_episode, 10)  # 10 evenly spaced episode points
+    ax1.set_xticks(episode_ticks)
+    ax1.set_xticklabels([f"{int(e)}" for e in episode_ticks])
+    ax2.set_xticks(episode_ticks)
+    ax2.set_xticklabels([f"{t:.2f}h" for t in time_ticks])
+    ax2.set_xlabel("Real Time (hours)")
+    plt.tight_layout()
+    plt.savefig(os.path.join(log_dir, f"rewards.png"))
+    plt.close()
 
-        # Save and plot the trajectory.
-        df_true_pos_xy = pd.DataFrame(true_pos_xy, columns=["x", "y"])
-        df_true_pos_xy.to_csv(os.path.join(log_dir, f"true_pos_xy.csv"), index=False)
-        # Generate a plot.
-        true_pos_xy_df = pd.read_csv(os.path.join(log_dir, f'true_pos_xy.csv'))
-        x0 = true_pos_xy_df['x'][0]
-        y0 = true_pos_xy_df['y'][0]
-        xf = true_pos_xy_df['x'].iloc[-1]
-        yf = true_pos_xy_df['y'].iloc[-1]
-        distance = np.linalg.norm([xf - x0, yf - y0])
-        print(f"distance: {distance/30}")
-        plt.figure()
-        plt.plot(true_pos_xy_df['x'], true_pos_xy_df['y'], label=f'traj {idx_episode}', alpha=0.5)
-        plt.scatter(true_pos_xy_df['x'][0], true_pos_xy_df['y'][0], color='red', label='start')
-        plt.scatter(true_pos_xy_df['x'].iloc[-1], true_pos_xy_df['y'].iloc[-1], color='green', label='end')
-        plt.xlabel('x')
-        plt.ylabel('y')
-        plt.xlim(-12, 12)
-        plt.ylim(-12, 12)
-        plt.title(f'Trajectory')
-        plt.legend()
-        plt.savefig(os.path.join(log_dir, f"trajectory.png"))
-        plt.close()
+    # Save and plot the trajectory.
+    df_true_pos_xy = pd.DataFrame(true_pos_xy, columns=["x", "y"])
+    df_true_pos_xy.to_csv(os.path.join(log_dir, f"true_pos_xy.csv"), index=False)
+    # Generate a plot.
+    true_pos_xy_df = pd.read_csv(os.path.join(log_dir, f'true_pos_xy.csv'))
+    x0 = true_pos_xy_df['x'][0]
+    y0 = true_pos_xy_df['y'][0]
+    xf = true_pos_xy_df['x'].iloc[-1]
+    yf = true_pos_xy_df['y'].iloc[-1]
+    distance = np.linalg.norm([xf - x0, yf - y0])
+    plt.figure()
+    plt.plot(true_pos_xy_df['x'], true_pos_xy_df['y'], label=f'traj {idx_episode}', alpha=0.5)
+    plt.scatter(true_pos_xy_df['x'][0], true_pos_xy_df['y'][0], color='red', label='start')
+    plt.scatter(true_pos_xy_df['x'].iloc[-1], true_pos_xy_df['y'].iloc[-1], color='green', label='end')
+    plt.xlabel('x')
+    plt.ylabel('y')
+    # plt.xlim(-12, 12)
+    # plt.ylim(-12, 12)
+    plt.title(f'Trajectory')
+    plt.legend()
+    plt.savefig(os.path.join(log_dir, f"trajectory_{idx_episode}.png"))
+    plt.close()
