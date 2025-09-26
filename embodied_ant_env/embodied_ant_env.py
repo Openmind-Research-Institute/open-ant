@@ -56,6 +56,7 @@ class EmbodiedAnt(gym.Env):
         self.last_pos = np.array([0, 0, 0])
         self.last_heading_vector = np.array([1, 0])
         self.last_seen = 0
+        # self.last_positions_for_filtering = {}
 
         self.q_joints = {'hip_1': 1,
                          'ankle_1': 2,
@@ -75,7 +76,7 @@ class EmbodiedAnt(gym.Env):
     def reset(self, seed=None, options=None):
         self.step(np.zeros(8))
         print('reset(): please move the ant back to the origin.')
-        input('press enter when ready')
+        user_input = input('press enter when ready')
         obs, info = self.get_observation()
         self.get_reward(info)
         return obs, info
@@ -140,9 +141,30 @@ class EmbodiedAnt(gym.Env):
         info['joint_velocities'] = joint_velocities
         info['joint_loads'] = joint_loads
         info['temperatures'] = temperatures
+        # Filter the positions of the bodies to remove outliers.
+        # filtered_bodies = {}
+        # for name, data in bodies.items():
+        #     pos = data['position']
+        #     if name in self.last_positions_for_filtering:
+        #         jump = np.linalg.norm(pos[:2] - self.last_positions_for_filtering[name][:2])
+        #         if jump > 0.16:
+        #             print(f"Rejecting jump for {name}: {jump:.3f} m, from {self.last_positions_for_filtering[name]} to {pos}")
+        #             continue
+
+        #     filtered_bodies[name] = data
+        #     self.last_positions_for_filtering[name] = pos
+        # This doesn't work properly yet, todo fix.
         info['bodies'] = bodies
+
         info['frame'] = frame
         info['vis_frame'] = vis_frame
+        if 'body' in bodies:
+            info['current_x_position'] = bodies['body']['position'][0]
+            info['current_y_position'] = bodies['body']['position'][1]
+        else:
+            info['current_x_position'] = self.last_pos[0]
+            info['current_y_position'] = self.last_pos[1]
+
         if 'body' in bodies:
             heading_vector = (bodies['body']['orientation'] @ np.array([1, 0, 0]))[:2]
             heading_vector /= np.linalg.norm(heading_vector)
