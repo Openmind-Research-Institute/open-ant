@@ -48,7 +48,7 @@ class EmbodiedAnt(gym.Env):
         self.last_action = np.zeros(self.action_space.shape[0])
         self.last_heading_vector = np.array([1, 0])
         self.last_seen = 0
-        self.last_positions = {}
+        # self.last_positions_for_filtering = {}
 
         self.ctrl_cost_weight = 0.0
 
@@ -63,7 +63,6 @@ class EmbodiedAnt(gym.Env):
         self.step(np.zeros(self.action_space.shape[0]))
         print('reset(): please move the ant back to the origin.')
         user_input = input('press enter when ready')
-        self.last_positions = {}
         obs, info = self.get_observation()
         self.get_reward(info, np.zeros(self.action_space.shape[0]))
         return obs, info
@@ -134,18 +133,19 @@ class EmbodiedAnt(gym.Env):
         info['joint_loads'] = joint_loads
         info['temperatures'] = temperatures
         # Filter the positions of the bodies to remove outliers.
-        filtered_bodies = {}
-        for name, data in bodies.items():
-            pos = data['position']
-            if name in self.last_positions:
-                jump = np.linalg.norm(pos[:2] - self.last_positions[name][:2])
-                if jump > 0.16:
-                    print(f"Rejecting jump for {name}: {jump:.3f} m, from {self.last_positions[name]} to {pos}")
-                    continue
+        # filtered_bodies = {}
+        # for name, data in bodies.items():
+        #     pos = data['position']
+        #     if name in self.last_positions_for_filtering:
+        #         jump = np.linalg.norm(pos[:2] - self.last_positions_for_filtering[name][:2])
+        #         if jump > 0.16:
+        #             print(f"Rejecting jump for {name}: {jump:.3f} m, from {self.last_positions_for_filtering[name]} to {pos}")
+        #             continue
 
-            filtered_bodies[name] = data
-            self.last_positions[name] = pos
-        info['bodies'] = filtered_bodies
+        #     filtered_bodies[name] = data
+        #     self.last_positions_for_filtering[name] = pos
+        # This doesn't work properly yet, todo fix.
+        info['bodies'] = bodies
 
         info['frame'] = frame
         info['vis_frame'] = vis_frame
