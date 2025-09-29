@@ -34,7 +34,7 @@ class EmbodiedAnt(gym.Env):
         self._threads_should_exit = False
 
         self.observation_space = Box(
-            low=-1, high=1, shape=(24,), dtype=np.float64
+            low=-2.0, high=2.0, shape=(24,), dtype=np.float64
         )
 
         self.action_space = Box(
