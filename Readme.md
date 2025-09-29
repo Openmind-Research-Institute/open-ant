@@ -1,6 +1,10 @@
 # Embodied Ant
 
-![image info](./imgs/ant_setup.png)
+<!-- ![image info](./imgs/traj_ppo.gif) -->
+
+<p align="center">
+  <img src="./imgs/traj_ppo.gif" alt="Ant walking demo" width="600"/>
+</p>
 
 ## Hardware
 
@@ -111,3 +115,11 @@ For reward: position of the body in x and y, and the angle of the body.
 cd sim
 python3 ant_mujoco.py
 ```
+
+
+## Frequently Asked Questions (FAQ)
+
+### Q: The position of the ant flickers. What should I do?
+
+The ArUco system is designed to be quite robust. If you encounter problems, make sure the markers are clearly visible and the camera exposure is configured properly (you can adjust exposure using LogiTune).
+Depending on your environment, you may need to disable auto-exposure for more consistent detection.
