@@ -191,7 +191,11 @@ class AntEnv(MujocoEnv, utils.EzPickle):
 
         return obs
 
-    def reset_model(self):
+    def reset_model(self, seed=None):
+        if seed is not None:
+            # Use the environment's seeding utility so it's consistent
+            self.np_random, _ = gymnasium.utils.seeding.np_random(seed)
+
         qpos = self.init_qpos + self.np_random.uniform(
             low=-0.1, high=0.1, size=self.model.nq
         )
