@@ -38,6 +38,7 @@ class OptionEnv:
         self.joint_action = np.zeros(env.action_space.shape[0])
         self.obs_list = []
         self.time_list = []
+        self.xy_pos_list = []
 
     def step(self, option_idx: int):
         opt = self.options[option_idx]
@@ -66,15 +67,16 @@ class OptionEnv:
         for i in range(self.duration_steps(option_idx)):
             self.joint_action[hip_joint] = hip_traj[i]
             self.joint_action[knee_joint] = knee_traj[i]
-            
-            # if option_idx == 3:
-            #     self.joint_action[hip_joint + 2] = hip_traj[i]
-            #     self.joint_action[knee_joint + 2] = knee_traj[i]
-            # if option_idx == 14:
-            #     self.joint_action[hip_joint - 2] = hip_traj[i]
-            #     self.joint_action[knee_joint - 2] = knee_traj[i]
+
+            if option_idx == 3:
+                self.joint_action[hip_joint + 2] = hip_traj[i]
+                self.joint_action[knee_joint + 2] = knee_traj[i]
+            if option_idx == 14:
+                self.joint_action[hip_joint - 2] = hip_traj[i]
+                self.joint_action[knee_joint - 2] = knee_traj[i]
             obs, reward, terminated, truncated, info = self.env.step(self.joint_action)
             self.obs_list.append(obs)
+            self.xy_pos_list.append([info["current_x_position"], info["current_y_position"]])
 
             # For plotting.
             joint_pos_true_traj[i] = obs[0:self.env.action_space.shape[0]]
@@ -86,6 +88,7 @@ class OptionEnv:
             total_reward += gamma_i * reward
             gamma_i *= self.discount
             if terminated or truncated:
+                self.xy_pos_list = []
                 return obs, total_reward, terminated, truncated, info
 
         # plt.clf()
@@ -204,7 +207,8 @@ if not os.path.exists(LOGS_COMPARISON):
 
 N = 20
 counter = 0
-while counter < N:
+plt.figure()
+while True:
     # sinusoid forward, sinusoid backward, stance forward, stance backward
     # 0 1 2 3
     # 4 5 6 7
@@ -213,58 +217,72 @@ while counter < N:
     # list_options = [0, 4, 3]
     list_options = [0, 4, 3, \
                     9, 13, 14]
-    for i in list_options:
-        option = options[i]
-        print('option', option, 'name', option['name'])
-        obs, reward, terminated, truncated, info = options_env.step(i)
-        xy_pos.append([info["current_x_position"], info["current_y_position"]])
+    i = np.random.randint(0, len(options))
+    option = options[i]
+    print('option', option, 'name', option['name'])
+    obs, reward, terminated, truncated, info = options_env.step(i)
+    xy_pos.append([info["current_x_position"], info["current_y_position"]])
+    xy_pos_np = np.array(xy_pos)
+    plt.plot(xy_pos_np[-4:, 0], xy_pos_np[-4:, 1], '-o', markersize=5, color='b')
+    # last point in red
+    plt.plot(xy_pos_np[-1, 0], xy_pos_np[-1, 1], 'o', markersize=10, color='r')
+    # Write the position (last one) to the point.
+    # plt.text(xy_pos_np[-1, 0], xy_pos_np[-1, 1], f'{xy_pos_np[-1, 0]:.2f}, {xy_pos_np[-1, 1]:.2f}')
+    plt.plot(0, 0, 'x')
+    # plt.axis('equal')
+    plt.pause(0.001)
 
-        print(f"Option {i} | reward: {reward:.4f}")
+    print(f"Option {i} | reward: {reward:.4f}")
+
     counter += 1
+    
+    if counter % 20 == 0:
+        # reset
+        env.reset()
 
-list_obs_names = ['joint_pos_1', 'joint_pos_2', 'joint_pos_3', 'joint_pos_4', 'joint_pos_5', 'joint_pos_6', 'joint_pos_7', 'joint_pos_8',
-                  'joint_vel_1', 'joint_vel_2', 'joint_vel_3', 'joint_vel_4', 'joint_vel_5', 'joint_vel_6', 'joint_vel_7', 'joint_vel_8',
-                  'heading_x', 'heading_y',
-                  'acc_x', 'acc_y', 'acc_z',
-                  'angular_velocity_x', 'angular_velocity_y', 'angular_velocity_z']
-print(len(list_obs_names), "obs names")
+# list_obs_names = ['joint_pos_1', 'joint_pos_2', 'joint_pos_3', 'joint_pos_4', 'joint_pos_5', 'joint_pos_6', 'joint_pos_7', 'joint_pos_8',
+#                   'joint_vel_1', 'joint_vel_2', 'joint_vel_3', 'joint_vel_4', 'joint_vel_5', 'joint_vel_6', 'joint_vel_7', 'joint_vel_8',
+#                   'heading_x', 'heading_y',
+#                   'acc_x', 'acc_y', 'acc_z',
+#                   'angular_velocity_x', 'angular_velocity_y', 'angular_velocity_z']
+# print(len(list_obs_names), "obs names")
 
-obs_list = np.array(options_env.obs_list)
-time_list = np.array(options_env.time_list).reshape(-1, 1)
-# Save the observations in a csv file
-df_obs = pd.DataFrame(np.concatenate((time_list, obs_list), axis=1), columns=['time'] + list_obs_names, index=None)
-df_obs.to_csv(os.path.join(LOGS_COMPARISON, f"{env_id}_obs.csv"))
-print(df_obs.shape)
+# obs_list = np.array(options_env.obs_list)
+# time_list = np.array(options_env.time_list).reshape(-1, 1)
+# # Save the observations in a csv file
+# df_obs = pd.DataFrame(np.concatenate((time_list, obs_list), axis=1), columns=['time'] + list_obs_names, index=None)
+# df_obs.to_csv(os.path.join(LOGS_COMPARISON, f"{env_id}_obs.csv"))
+# print(df_obs.shape)
 
-# Make a histogram of all the observations.
-fig, axs = plt.subplots(6, 4, sharex=True)
-axs = axs.flatten()
-for i in range(24):
-    axs[i].hist(obs_list[:, i], bins=100, label=f'obs {list_obs_names[i]} normalized')
-    axs[i].legend()
-    axs[i].set_ylabel('count')
-plt.tight_layout()
-plt.savefig(os.path.join(LOGS_COMPARISON, f"{env_id}_obs_histogram.png"))
+# # Make a histogram of all the observations.
+# fig, axs = plt.subplots(6, 4, sharex=True)
+# axs = axs.flatten()
+# for i in range(24):
+#     axs[i].hist(obs_list[:, i], bins=100, label=f'obs {list_obs_names[i]} normalized')
+#     axs[i].legend()
+#     axs[i].set_ylabel('count')
+# plt.tight_layout()
+# plt.savefig(os.path.join(LOGS_COMPARISON, f"{env_id}_obs_histogram.png"))
 
-df_xy_pos = pd.DataFrame(xy_pos, columns=["x", "y"])
-df_xy_pos.to_csv(os.path.join(LOGS_COMPARISON, f"{env_id}_xy_pos.csv"), index=False)
-xy_pos_np = np.array(xy_pos)
-x0 = xy_pos_np[0, 0]
-y0 = xy_pos_np[0, 1]
-xf = xy_pos_np[-1, 0]
-yf = xy_pos_np[-1, 1]
-distance = np.linalg.norm([xf - x0, yf - y0])
-print(f"x0: {x0}, y0: {y0}, xf: {xf}, yf: {yf}")
-print('difference in x', xf - x0)
-print(f"Distance: {distance}")
-plt.figure()
-plt.plot(xy_pos_np[:, 0], xy_pos_np[:, 1], label=f'traj', alpha=0.5)
-plt.scatter(xy_pos_np[0, 0], xy_pos_np[0, 1], color='red', label='start')
-plt.scatter(xy_pos_np[-1, 0], xy_pos_np[-1, 1], color='green', label='end')
-plt.xlabel('x')
-plt.ylabel('y')
-plt.title(f'Trajectory')
-plt.legend()
-plt.savefig(os.path.join(LOGS_COMPARISON, f"{env_id}_trajectory.png"))
-# plt.close()
-plt.show()
+# df_xy_pos = pd.DataFrame(xy_pos, columns=["x", "y"])
+# df_xy_pos.to_csv(os.path.join(LOGS_COMPARISON, f"{env_id}_xy_pos.csv"), index=False)
+# xy_pos_np = np.array(xy_pos)
+# x0 = xy_pos_np[0, 0]
+# y0 = xy_pos_np[0, 1]
+# xf = xy_pos_np[-1, 0]
+# yf = xy_pos_np[-1, 1]
+# distance = np.linalg.norm([xf - x0, yf - y0])
+# print(f"x0: {x0}, y0: {y0}, xf: {xf}, yf: {yf}")
+# print('difference in x', xf - x0)
+# print(f"Distance: {distance}")
+# plt.figure()
+# plt.plot(xy_pos_np[:, 0], xy_pos_np[:, 1], label=f'traj', alpha=0.5)
+# plt.scatter(xy_pos_np[0, 0], xy_pos_np[0, 1], color='red', label='start')
+# plt.scatter(xy_pos_np[-1, 0], xy_pos_np[-1, 1], color='green', label='end')
+# plt.xlabel('x')
+# plt.ylabel('y')
+# plt.title(f'Trajectory')
+# plt.legend()
+# plt.savefig(os.path.join(LOGS_COMPARISON, f"{env_id}_trajectory.png"))
+# # plt.close()
+# plt.show()
