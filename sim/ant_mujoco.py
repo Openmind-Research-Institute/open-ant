@@ -81,7 +81,7 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         #     low=-np.inf, high=np.inf, shape=(obs_size,), dtype=np.float64
         # )
         self.observation_space = Box(
-            low=-1, high=1, shape=(obs_size,), dtype=np.float64
+            low=-2.0, high=2.0, shape=(obs_size,), dtype=np.float64
         )
 
         self.action_space = Box(
@@ -175,9 +175,9 @@ class AntEnv(MujocoEnv, utils.EzPickle):
 
         imu_data = self._get_sensor_data("accelerometer")
         accelerations = imu_data[:3]
-        noisy_accelerations = accelerations + self.np_random.normal(0, 0.1, 3)
+        noisy_accelerations = accelerations + self.np_random.normal(0, 0.01, 3)
         angular_vel = self._get_sensor_data("gyro")
-        noisy_angular_vel = angular_vel + self.np_random.normal(0, 0.1, 3)
+        noisy_angular_vel = angular_vel + self.np_random.normal(0, 0.01, 3)
 
         obs = np.concatenate([
                 joint_angles, # 8
