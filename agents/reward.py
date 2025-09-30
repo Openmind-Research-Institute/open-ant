@@ -3,7 +3,6 @@ import pandas as pd
 from collections import deque
 import matplotlib.pyplot as plt
 import seaborn as sns
-sns.set_theme(style="whitegrid")
 
 
 class RewardTracker:
@@ -41,6 +40,8 @@ class RewardTracker:
                 self.plot(os.path.join(self.log_folder, f"{self.env_id}_average_rewards.png"))
 
     def plot(self, save_path=None):
+        plt.figure(figsize=(10, 5))
+        sns.set_theme(style="whitegrid")
         plt.plot(
             self.df["step"][self.window_size:] * self.env_dt,
             self.df["reward"][self.window_size:],
