@@ -16,9 +16,10 @@ from skrl.trainers.torch import SequentialTrainer
 from skrl.utils import set_seed
 
 import gymnasium as gym
-from gymnasium.wrappers import NormalizeObservation
 from tqdm import tqdm
 import argparse
+import matplotlib.pyplot as plt
+import numpy as np
 
 # Path setup
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../sim')))
@@ -66,6 +67,7 @@ class Critic(DeterministicMixin, Model):
 def run(agent, env, total_timesteps):
     obs, info = env.reset()
     i = 0
+    action_list = []
     for i in tqdm(range(total_timesteps)):
         agent.pre_interaction(i, -1)
         with torch.no_grad():
@@ -82,7 +84,27 @@ def run(agent, env, total_timesteps):
                                     timesteps=total_timesteps)
 
         agent.post_interaction(timestep=i, timesteps=total_timesteps)
+        action_list.append(action.cpu().numpy().flatten())
 
+        reward_tracker.update(reward.item())
+        agent.track_data("average_reward_per_second", reward_tracker.average_reward_per_second)
+        reward_tracker.log(every_N_steps=1000, plot=True)
+
+        # if i % 100 == 0:
+        #     print('Saving actions histogram...')
+        #     action_np = np.array(action_list)
+        #     # Make histogram of actions.
+        #     fig, ax = plt.subplots(2, 4, figsize=(10, 5))
+        #     ax = ax.flatten()
+        #     for idx_action in range(action_np.shape[1]):
+        #         ax[idx_action].hist(action_np[:, idx_action], color='black', bins=20)
+        #         ax[idx_action].set_title(f"Action {idx_action}")
+        #     plt.tight_layout()
+            # plt.savefig(os.path.join(cfg["experiment"]["directory"],
+            #                         cfg["experiment"]["experiment_name"],
+            #                         f"actions_histogram_{int(i)}.png"))
+            # print('Plot saved.')
+            # print(f"actions_histogram_{int(i)}.png")
         if terminated or truncated:
             print(f"Terminated or truncated at timestep {i}")
             with torch.no_grad():
@@ -90,26 +112,22 @@ def run(agent, env, total_timesteps):
         else:
             obs = next_obs
 
-        average_reward_per_second = reward_tracker.update(reward.item())
-        agent.track_data("average_reward_per_second", average_reward_per_second)
-        if i % 1000 == 0:
-            reward_tracker.log(i, average_reward_per_second, print_reward=True)
-
+    return action_list
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--train', type=bool, default=False)
 parser.add_argument('--seed', type=int, default=0)
-parser.add_argument('--terminate_when_upside_down', type=bool, default=False)
+parser.add_argument('--terminate_when_upside_down', type=bool, default=True)
 parser.add_argument('--upside_down_cost_weight', type=float, default=0.0)
 parser.add_argument('--ctrl_cost_weight', type=float, default=0.0)
-parser.add_argument('--render_mode', type=str, default=None)
-parser.add_argument('--nb_envs', type=int, default=1)
+parser.add_argument('--render_mode', type=str, default='rgb_array')
 parser.add_argument('--hw_config', type=str, default=None)
-parser.add_argument('--total_timesteps_train', type=int, default=100_000)
-parser.add_argument('--total_timesteps_eval', type=int, default=100_000)
+parser.add_argument('--total_timesteps_train', type=int, default=200_000)
+parser.add_argument('--total_timesteps_eval', type=int, default=200_000)
 parser.add_argument('--weight_folder', type=str, default='sac_skrl_ant_mujoco_2025-09-15_23-31-02')
 args = parser.parse_args()
-
+for arg in vars(args):
+    print(f"{arg}: {getattr(args, arg)}")
 set_seed(args.seed)
 
 # Env setup.
@@ -120,18 +138,16 @@ if args.hw_config is None:
     env_id = 'ant_mujoco'
     env = AntEnv(
         dt=DT,
-        # render_mode=args.render_mode,
+        render_mode=args.render_mode,
         cost_upside_down_weight=args.upside_down_cost_weight,
         terminate_on_upside_down=args.terminate_when_upside_down,
         ctrl_cost_weight=args.ctrl_cost_weight,
     )
-    env = NormalizeObservation(env)
 else:
     env_id = 'ant_hw'
     with open(args.hw_config, 'r') as f:
         cfg = json.load(f)
     env = make_ant_env(cfg, render_mode=render, dt=DT)
-    env = NormalizeObservation(env)
 
 env = wrap_env(env)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -172,7 +188,7 @@ cfg["entropy_learning_rate"] = 5e-3
 cfg["initial_entropy_value"] = 1.0
 cfg["state_preprocessor"] = RunningStandardScaler
 cfg["state_preprocessor_kwargs"] = {"size": env.observation_space, "device": device}
-cfg["experiment"]["write_interval"] = 10
+cfg["experiment"]["write_interval"] = 100
 cfg["experiment"]["directory"] = LOG_FOLDER
 if args.train:
     cfg["experiment"]["experiment_name"] = f"train_{env_id}_{DATE_NOW}"
@@ -192,7 +208,8 @@ agent = SAC(models=models,
 
 reward_tracker = RewardTracker(env_dt=env.dt, env_id=env_id,
                                log_folder=os.path.join(cfg["experiment"]["directory"],
-                                                       cfg["experiment"]["experiment_name"]))
+                                                       cfg["experiment"]["experiment_name"]),
+                               time_window=120.0)
 # Training or evaluation.
 if args.train:
     print("Training...")
@@ -206,6 +223,7 @@ else:
         [f for f in os.listdir(path) if f != "best_agent.pt"],
         key=lambda x: int(x.split('_')[1].split('.')[0])
     )
+    print('path')
     for file in files:
         print(f"Loading checkpoint {file}")
         path_policy = f'{path}/{file}'
