@@ -17,18 +17,23 @@ class RewardTracker:
             os.makedirs(log_folder)
         self.env_id = env_id
         self.step = 0.0
+        self._average_reward_per_second = 0.0
 
     def update(self, reward):
         reward_per_second = reward / self.env_dt
         self.queue.append(reward_per_second)
         self.step += 1
 
-        average_reward_per_second = sum(self.queue) / len(self.queue)
-        self.buffer.append([self.step, average_reward_per_second])
+        self._average_reward_per_second = sum(self.queue) / len(self.queue)
+        self.buffer.append([self.step, self._average_reward_per_second])
 
-    def log(self, plot=False):
+    @property
+    def average_reward_per_second(self):
+        return self._average_reward_per_second
+
+    def log(self, plot=False, every_N_steps=100):
         # Flush buffer to DataFrame periodically.
-        if self.step % 100 == 0:
+        if self.step % every_N_steps == 0:
             if self.buffer:
                 new_df = pd.DataFrame(self.buffer, columns=["step", "reward"])
                 self.df = pd.concat([self.df, new_df], ignore_index=True)
