@@ -117,22 +117,26 @@ def run(agent, env, total_timesteps):
 parser = argparse.ArgumentParser()
 parser.add_argument('--train', type=bool, default=False)
 parser.add_argument('--seed', type=int, default=0)
+parser.add_argument('--dt', type=float, default=0.05)
 parser.add_argument('--terminate_when_upside_down', type=bool, default=True)
 parser.add_argument('--upside_down_cost_weight', type=float, default=0.0)
 parser.add_argument('--ctrl_cost_weight', type=float, default=0.0)
 parser.add_argument('--render_mode', type=str, default='rgb_array')
 parser.add_argument('--hw_config', type=str, default=None)
-parser.add_argument('--total_timesteps_train', type=int, default=200_000)
-parser.add_argument('--total_timesteps_eval', type=int, default=200_000)
-parser.add_argument('--weight_folder', type=str, default='sac_skrl_ant_mujoco_2025-09-15_23-31-02')
+parser.add_argument('--total_timesteps_train', type=int, default=150_000)
+parser.add_argument('--total_timesteps_eval', type=int, default=150_000)
+parser.add_argument('--weight_init', type=str, default='random')
+parser.add_argument('--weight_folder', type=str, default=None)
+
 args = parser.parse_args()
 for arg in vars(args):
     print(f"{arg}: {getattr(args, arg)}")
+
 set_seed(args.seed)
 
 # Env setup.
 render = "human"
-DT = 0.05
+DT = args.dt
 
 if args.hw_config is None:
     env_id = 'ant_mujoco'
@@ -164,6 +168,11 @@ models["critic_1"] = Critic(env.observation_space, env.action_space, device)
 models["critic_2"] = Critic(env.observation_space, env.action_space, device)
 models["target_critic_1"] = Critic(env.observation_space, env.action_space, device)
 models["target_critic_2"] = Critic(env.observation_space, env.action_space, device)
+
+# initialize models' parameters (weights and biases)
+if args.weight_init == 'small':
+    for model in models.values():
+        model.init_parameters(method_name="normal_", mean=0.0, std=0.1)
 
 # Memory.
 memory = RandomMemory(memory_size=1_000_000, device=device)
@@ -210,6 +219,26 @@ reward_tracker = RewardTracker(env_dt=env.dt, env_id=env_id,
                                log_folder=os.path.join(cfg["experiment"]["directory"],
                                                        cfg["experiment"]["experiment_name"]),
                                time_window=120.0)
+
+def safe_json(o):
+    if isinstance(o, type):          # classes, e.g. <class 'float'>
+        return str(o)
+    if hasattr(o, "dtype"):          # torch/numpy dtypes
+        return str(o)
+    if hasattr(o, "tolist"):         # numpy arrays
+        return o.tolist()
+    if hasattr(o, "__dict__"):       # custom objects
+        return o.__dict__
+    return str(o)
+
+# Save config
+with open(os.path.join(LOG_FOLDER, cfg["experiment"]["experiment_name"], "cfg.json"), "w") as f:
+    json.dump(cfg, f, indent=4, default=safe_json)
+
+# Save args
+with open(os.path.join(LOG_FOLDER, cfg["experiment"]["experiment_name"], "args.json"), "w") as f:
+    json.dump(vars(args), f, indent=4, default=safe_json)
+
 # Training or evaluation.
 if args.train:
     print("Training...")
