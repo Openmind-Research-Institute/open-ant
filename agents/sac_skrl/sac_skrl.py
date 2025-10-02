@@ -28,6 +28,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../.
 from embodied_ant_env import make_ant_env
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from reward import RewardTracker
+from utils import safe_json
 
 
 # Define models.
@@ -219,17 +220,6 @@ reward_tracker = RewardTracker(env_dt=env.dt, env_id=env_id,
                                log_folder=os.path.join(cfg["experiment"]["directory"],
                                                        cfg["experiment"]["experiment_name"]),
                                time_window=120.0)
-
-def safe_json(o):
-    if isinstance(o, type):          # classes, e.g. <class 'float'>
-        return str(o)
-    if hasattr(o, "dtype"):          # torch/numpy dtypes
-        return str(o)
-    if hasattr(o, "tolist"):         # numpy arrays
-        return o.tolist()
-    if hasattr(o, "__dict__"):       # custom objects
-        return o.__dict__
-    return str(o)
 
 # Save config
 with open(os.path.join(LOG_FOLDER, cfg["experiment"]["experiment_name"], "cfg.json"), "w") as f:
