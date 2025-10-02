@@ -42,8 +42,8 @@ class RewardTracker:
 
     def plot(self, save_path=None):
         plt.plot(
-            self.df["step"] * self.env_dt,
-            self.df["reward"],
+            self.df["step"][self.window_size:] * self.env_dt,
+            self.df["reward"][self.window_size:],
             color="black",
             linewidth=1.0,
         )
