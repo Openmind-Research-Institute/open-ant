@@ -20,6 +20,7 @@ from tqdm import tqdm
 import argparse
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 
 # Path setup
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../sim')))
@@ -65,10 +66,12 @@ class Critic(DeterministicMixin, Model):
 
 
 # Main training loop.
-def run(agent, env, total_timesteps):
+def run(agent, env, total_timesteps, folder_log):
     obs, info = env.reset()
     i = 0
     action_list = []
+    xy_pos_list = []
+    reward_list = []
     for i in tqdm(range(total_timesteps)):
         agent.pre_interaction(i, -1)
         with torch.no_grad():
@@ -91,21 +94,6 @@ def run(agent, env, total_timesteps):
         agent.track_data("average_reward_per_second", reward_tracker.average_reward_per_second)
         reward_tracker.log(every_N_steps=1000, plot=True)
 
-        # if i % 100 == 0:
-        #     print('Saving actions histogram...')
-        #     action_np = np.array(action_list)
-        #     # Make histogram of actions.
-        #     fig, ax = plt.subplots(2, 4, figsize=(10, 5))
-        #     ax = ax.flatten()
-        #     for idx_action in range(action_np.shape[1]):
-        #         ax[idx_action].hist(action_np[:, idx_action], color='black', bins=20)
-        #         ax[idx_action].set_title(f"Action {idx_action}")
-        #     plt.tight_layout()
-            # plt.savefig(os.path.join(cfg["experiment"]["directory"],
-            #                         cfg["experiment"]["experiment_name"],
-            #                         f"actions_histogram_{int(i)}.png"))
-            # print('Plot saved.')
-            # print(f"actions_histogram_{int(i)}.png")
         if terminated or truncated:
             print(f"Terminated or truncated at timestep {i}")
             with torch.no_grad():
@@ -113,7 +101,80 @@ def run(agent, env, total_timesteps):
         else:
             obs = next_obs
 
-    return action_list
+        if 'current_x_position' in info and 'current_y_position' in info:
+            xy_pos_list.append([info['current_x_position'], info['current_y_position'] ])
+        reward_list.append(reward.item())
+
+        # Plot and save.
+        every_N_steps = 1000
+        if i % every_N_steps == 0 and i > 0:
+
+            ## Reward plot.
+            fig, ax1 = plt.subplots()
+            ax1.plot(reward_list[every_N_steps:], color="blue", label='Instantaneous reward')
+            ax1.set_xlabel('Step')
+            ax1.set_ylabel('Instantaneous Reward')
+            ax1.set_title('Instantaneous Reward')
+            ax1.axhline(y=0, color='black', linestyle='--', linewidth=0.5)
+            ax1.legend()
+            plt.tight_layout()
+            plt.savefig(os.path.join(folder_log, f"rewards.png"))
+            plt.close()
+
+            ## Save trajectory.
+            folder_trajectory = os.path.join(folder_log, "trajectory")
+            if not os.path.exists(folder_trajectory):
+                os.makedirs(folder_trajectory)
+            df_true_pos_xy = pd.DataFrame(xy_pos_list, columns=["x", "y"])
+            df_true_pos_xy.to_csv(os.path.join(folder_trajectory, f"true_pos_xy.csv"), index=False)
+
+            ## Save and plot the trajectory.
+            if len(xy_pos_list) > 0:
+                # Generate a plot.
+                plt.figure()
+                plt.plot(df_true_pos_xy['x'][every_N_steps:], df_true_pos_xy['y'][every_N_steps:], '-o', label=f'traj {int(i/every_N_steps)}', alpha=0.5)
+                plt.scatter(df_true_pos_xy['x'][every_N_steps], df_true_pos_xy['y'][every_N_steps], color='red', label='start')
+                # plt.scatter(df_true_pos_xy['x'][-1], df_true_pos_xy['y'][-1], color='green', label='end')
+                plt.plot(0, 0, 'x', markersize=10, color='black')
+                plt.xlabel('x')
+                plt.ylabel('y')
+                plt.axis('equal')
+                plt.title(f'Trajectory {int(i/every_N_steps)}')
+                plt.legend()
+                plt.savefig(os.path.join(folder_trajectory, f"trajectory_{int(i/every_N_steps)}.png"))
+
+            ## Plot the trajectory and reward.
+            if len(reward_list) > 0 and len(xy_pos_list) > 0:
+                fig, axs = plt.subplots(2, 1, sharex=True, figsize=(10, 10))
+                axs = axs.flatten()
+                xy_np = np.array(xy_pos_list)
+                ax_pos = axs[0]
+                ax_pos.plot(xy_np[every_N_steps:, 0], label='x', color='tab:blue')
+                ax_pos.set_ylabel('X Position [m]', color='tab:blue')
+                ax_pos.tick_params(axis='y', labelcolor='tab:blue')
+
+                ax_pos_twin = ax_pos.twinx()
+                ax_pos_twin.plot(xy_np[every_N_steps:, 1], label='y', color='tab:orange')
+                ax_pos_twin.set_ylabel('Y Position [m]', color='tab:orange')
+                ax_pos_twin.tick_params(axis='y', labelcolor='tab:orange')
+
+                ax_pos.set_xlabel('Time')
+                ax_pos.set_title('X and Y Position over Time')
+
+                reward_np = np.array(reward_list)
+                axs[1].plot(reward_np[every_N_steps:], '-o', label='reward')
+                axs[1].set_xlabel('Time')
+                axs[1].set_ylabel('Reward')
+                axs[1].set_title('Reward over time')
+                axs[1].legend()
+                plt.tight_layout()
+                plt.savefig(os.path.join(folder_trajectory, f"traj_plus_reward_in_ep_{int(i/every_N_steps)}.png"))
+                plt.close()
+
+                # Save the reward list
+                df_reward_list = pd.DataFrame(reward_list, columns=["reward"])
+                df_reward_list.to_csv(os.path.join(folder_log, f"reward_list.csv"), index=False)
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--train', type=bool, default=False)
@@ -233,7 +294,7 @@ with open(os.path.join(LOG_FOLDER, cfg["experiment"]["experiment_name"], "args.j
 if args.train:
     print("Training...")
     agent.init()
-    run(agent, env, args.total_timesteps_train)
+    run(agent, env, args.total_timesteps_train, folder_log=os.path.join(LOG_FOLDER, cfg["experiment"]["experiment_name"]))
 else:
     print("Evaluating...")
     agent.init()
