@@ -153,7 +153,7 @@ else:
         cfg = json.load(f)
     env = make_ant_env(cfg, render_mode=render, dt=DT)
 
-env = wrap_env(env)
+env = wrap_env(env, wrapper="gymnasium")
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Logging.
