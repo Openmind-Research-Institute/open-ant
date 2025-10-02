@@ -48,8 +48,8 @@ class RewardTracker:
         plt.figure(figsize=(10, 5))
         sns.set_theme(style="whitegrid")
         plt.plot(
-            self.df["step"] * self.env_dt,
-            self.df["reward"],
+            self.df["step"][self.window_size:] * self.env_dt,
+            self.df["reward"][self.window_size:],
             color="black",
             linewidth=1.0,
         )
