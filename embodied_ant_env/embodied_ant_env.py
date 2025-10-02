@@ -21,6 +21,8 @@ class EmbodiedAnt(gym.Env):
         self.dt = dt
         self.last_step_time = None
         self.render_mode = render_mode
+        if self.render_mode == 'human':
+            self.vis_frame = None
         self.i = 0
         if joint_config is None:
             joint_config = {
@@ -118,9 +120,15 @@ class EmbodiedAnt(gym.Env):
             self.i += 1
             if self.i % 10 == 0:
                 show_image(info['vis_frame'])
+                self.vis_frame = info['vis_frame']
 
         self.last_step_time = time.time()
         return observation, reward, terminated, truncated, info
+
+    def render(self):
+        if self.render_mode == 'human':
+            return self.vis_frame
+        return None
 
     def get_observation(self):
         with self._imu_data_lock:
