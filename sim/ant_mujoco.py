@@ -2,7 +2,7 @@ import numpy as np
 
 from gymnasium import utils
 from gymnasium.envs.mujoco import MujocoEnv
-from gymnasium.spaces import Box
+from gymnasium import spaces
 import scipy.spatial.transform as transform
 import os
 import time
@@ -12,6 +12,10 @@ import imageio
 from typing import Sequence, Callable
 import mediapy as media
 import tqdm
+import sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../embodied_ant_env')))
+from embodied_ant_env import ForwardTask, BackAndForthTask
+import gymnasium as gym
 
 
 WORKSPACE_LENGTH = 10.0 # m
@@ -20,16 +24,15 @@ class AntEnv(MujocoEnv, utils.EzPickle):
     metadata = {
         "render_modes": ["human", "rgb_array"],
     }
+
     def __init__(
         self,
         xml_file: str = os.path.join(os.path.dirname(__file__), "assets/ant_position.xml"),
         dt: float = 0.02,
-        forward_reward_weight: float = 1,
-        ctrl_cost_weight: float = 0.0,
-        cost_upside_down_weight: float = 0.0,
         terminate_on_upside_down: bool = False,
         main_body: int | str = 1,
         joint_config: dict[str, float] | None = None,
+        task=ForwardTask(),
         **kwargs,
     ):
         sim_dt = 0.001
@@ -39,8 +42,6 @@ class AntEnv(MujocoEnv, utils.EzPickle):
             self,
             xml_file,
             frame_skip,
-            forward_reward_weight,
-            cost_upside_down_weight,
             main_body,
             **kwargs,
         )
@@ -49,24 +50,17 @@ class AntEnv(MujocoEnv, utils.EzPickle):
             self,
             xml_file,
             frame_skip,
-            observation_space=None,  # needs to be defined after
+            observation_space=None,
             **kwargs,
         )
         self.model.opt.timestep = sim_dt
 
-        self._forward_reward_weight = forward_reward_weight
-        self._ctrl_cost_weight = ctrl_cost_weight
-        self._cost_upside_down_weight = cost_upside_down_weight
+        self.action_space = spaces.Box(low=-1, high=1, shape=(8,), dtype=np.float32)
+        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(24,), dtype=np.float32)
+
+        self.task = task
+
         self._terminate_on_upside_down = terminate_on_upside_down
-
-        obs_size = 8 + 8 + 2 + 3 + 3
-        self.observation_space = Box(
-            low=-np.inf, high=np.inf, shape=(obs_size,), dtype=np.float64
-        )
-
-        self.action_space = Box(
-            low=-1, high=1, shape=(8,), dtype=np.float64
-        )
 
         if joint_config is None:
             joint_config = {
@@ -82,73 +76,40 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         self.init_qpos[3] = 1.0
         self.init_qvel = [0] * self.model.nv
 
-        self.previous_x_position = 0.0
-
-        self.info = {
-            "last_last_action": np.zeros(8),
-            "last_action": np.zeros(8),
-            "heading_vector": np.zeros(2),
-        }
-
     def step(self, action: np.ndarray):
+        # Clip action.
         action = action.copy()
         for i in range(4):
             action[2*i] = np.clip(action[2*i], -1, 1) * self.joint_config['hip_range'] + self.joint_config['hip_zero']
             action[2*i + 1] = np.clip(action[2*i + 1], -1, 1) * self.joint_config['knee_range'] + self.joint_config['knee_zero']
+
+        # Do simulation.
         self.do_simulation(action, self.frame_skip)
 
-        observation = self._get_obs()
+        # Get observation and reward from task.
+        info = self.get_observation()
+        observation, reward, terminated, truncated = self.task(info, action)
 
-        reward, reward_info = self._get_rew()
+        # Check if out of bounds or nans or truncated from task.
+        truncated = self._get_truncated_out_of_bounds_or_nans() or truncated
 
-        if self.render_mode == "human":
-            self.render()
-
-        self.info.update({
-            "current_x_position": self.data.qpos[0],
-            "current_y_position": self.data.qpos[1],
-            "previous_x_position": self.previous_x_position,
-            "last_last_action": self.info["last_action"],
-            "last_action": action,
-        })
-        self.previous_x_position = self.data.qpos[0]
-
-        truncated = self._get_truncated()
-        if self._terminate_on_upside_down == True:
-            terminated = self.info["upside_down"] < 0
-        else:
-            terminated = False
-
-        return observation, reward, terminated, truncated, self.info
-
-    def _get_rew(self):
-        # Control cost.
-        ctrl_cost = self._ctrl_cost_weight * np.sum(np.square(self.info["last_last_action"] - self.info["last_action"]))
-
-        # Forward progress reward.
-        forward_progress_reward = (self.data.qpos[0] - self.previous_x_position) * self._forward_reward_weight
-
-        # Upside down cost.
+        # Terminate on upside down.
         quaternion_wxyz = self.data.qpos[3:7]
         up_vector_ant_in_world = transform.Rotation.from_quat(quaternion_wxyz, scalar_first=True).as_matrix()[:, 2]
         z_world = np.array([0, 0, 1])
         upside_down = np.dot(up_vector_ant_in_world, z_world)
-        cost_upside_down = 0.0
-        if upside_down < 0:
-            cost_upside_down = self._cost_upside_down_weight
-            print("Upside down")
+        if self._terminate_on_upside_down == True:
+            terminated = upside_down < 0
+        else:
+            terminated = False
 
-        # Total reward.
-        reward = forward_progress_reward - cost_upside_down - ctrl_cost
-        reward_info = {"reward": reward,
-                       "forward_progress_reward": forward_progress_reward,
-                       "ctrl_cost": ctrl_cost,
-                       "cost_upside_down": cost_upside_down}
-        self.info.update({'upside_down': upside_down})
+        # Render.
+        if self.render_mode == "human":
+            self.render()
 
-        return reward, reward_info
+        return observation, reward, terminated, truncated, info
 
-    def _get_truncated(self):
+    def _get_truncated_out_of_bounds_or_nans(self):
         truncation_condition = (
             np.isnan(self.data.qpos).any() | np.isnan(self.data.qvel).any() |
             (self.data.qpos[0] < -WORKSPACE_LENGTH / 2.0) | (self.data.qpos[0] > WORKSPACE_LENGTH / 2.0) |
@@ -163,50 +124,49 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         sensor_dim = self.model.sensor_dim[sensor_id]
         return self.data.sensordata[sensor_adr : sensor_adr + sensor_dim]
 
-    def _get_obs(self):
-        qpos = self.data.qpos.copy()
-        qvel = self.data.qvel.copy()
-
-        joint_angles = qpos[7:]
-        joint_velocities = qvel[6:]
-        quaternion_wxyz = qpos[3:7]
+    def get_observation(self):
+        quaternion_wxyz = self.data.qpos[3:7]
         heading_vector = (transform.Rotation.from_quat(quaternion_wxyz, scalar_first=True).as_matrix() @ np.array([1, 0, 0]))[0:2]
         heading_vector = heading_vector / np.linalg.norm(heading_vector)
 
         imu_data = self._get_sensor_data("accelerometer")
         accelerations = imu_data[:3]
         noisy_accelerations = accelerations + self.np_random.normal(0, 0.1, 3)
+
         angular_vel = self._get_sensor_data("gyro")
         noisy_angular_vel = angular_vel + self.np_random.normal(0, 0.1, 3)
 
-        obs = np.concatenate([
-                joint_angles, # 8
-                joint_velocities, # 8
-                heading_vector, # 2
-                noisy_accelerations, # 3
-                noisy_angular_vel, # 3
-                ], axis=None)
+        info = {}
+        info["joint_positions"] = self.data.qpos[7:]
+        info["joint_velocities"] = self.data.qvel[6:]
+        info["heading_vector"] = heading_vector
+        info["ax"] = noisy_accelerations[0]
+        info["ay"] = noisy_accelerations[1]
+        info["az"] = noisy_accelerations[2]
+        info["wx"] = noisy_angular_vel[0]
+        info["wy"] = noisy_angular_vel[1]
+        info["wz"] = noisy_angular_vel[2]
+        info["current_x_position"] = self.data.qpos[0]
+        info["current_y_position"] = self.data.qpos[1]
+        return info
 
-        self.info["heading_vector"] = heading_vector
-
-        return obs
-
-    def reset_model(self, seed=None):
+    def reset(self, seed=None, options=None):
         if seed is not None:
-            # Use the environment's seeding utility so it's consistent
             self.np_random, _ = gymnasium.utils.seeding.np_random(seed)
 
-        qpos = self.init_qpos + self.np_random.uniform(
-            low=-0.1, high=0.1, size=self.model.nq
-        )
+        self.step(np.zeros(self.action_space.shape[0]))
+
+        qpos = np.array(self.init_qpos) + self.np_random.uniform(low=-0.1, high=0.1)
+        # Normalize quaternion.
+        qpos[3:7] = qpos[3:7] / np.linalg.norm(qpos[3:7])
+
         qvel = np.array(self.init_qvel)
-
         self.set_state(qpos, qvel)
-        self.previous_x_position = self.data.qpos[0]
 
-        observation = self._get_obs()
+        info = self.get_observation()
+        observation, reward, terminated, truncated = self.task.reset(info)
 
-        return observation
+        return observation, info
 
 
 def main():
@@ -236,7 +196,7 @@ def main():
 
     trajectory = []
     counter = 0
-    while counter < 100:
+    while counter < 1000:
         delta_actions = [2*np.sin(time.time())*0.8]*8
         env.step(np.array(delta_actions))
 
