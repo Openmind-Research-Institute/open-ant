@@ -16,17 +16,20 @@ from skrl.trainers.torch import SequentialTrainer
 from skrl.utils import set_seed
 
 import gymnasium as gym
+from gymnasium.wrappers import RecordVideo
 from tqdm import tqdm
 import argparse
 import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
 import numpy as np
 import pandas as pd
+import copy
 
 # Path setup
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../sim')))
 from ant_mujoco import AntEnv
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../embodied_ant_env')))
-from embodied_ant_env import make_ant_env
+from embodied_ant_env import make_ant_env, ForwardTask, BackAndForthTask
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from reward import RewardTracker
 from utils import safe_json
@@ -69,7 +72,6 @@ class Critic(DeterministicMixin, Model):
 def run(agent, env, total_timesteps, folder_log):
     obs, info = env.reset()
     i = 0
-    action_list = []
     xy_pos_list = []
     reward_list = []
     for i in tqdm(range(total_timesteps)):
@@ -88,12 +90,6 @@ def run(agent, env, total_timesteps, folder_log):
                                     timesteps=total_timesteps)
 
         agent.post_interaction(timestep=i, timesteps=total_timesteps)
-        action_list.append(action.cpu().numpy().flatten())
-
-        reward_tracker.update(reward.item())
-        agent.track_data("average_reward_per_second", reward_tracker.average_reward_per_second)
-        reward_tracker.log(every_N_steps=1000, plot=True)
-
         if terminated or truncated:
             print(f"Terminated or truncated at timestep {i}")
             with torch.no_grad():
@@ -101,25 +97,21 @@ def run(agent, env, total_timesteps, folder_log):
         else:
             obs = next_obs
 
+        # Loggings and plotting.
+        every_N_steps = 1000
+        reward_tracker.update(reward.item())
+        agent.track_data("average_reward_per_second", reward_tracker.average_reward_per_second)
+        reward_tracker.log(every_N_steps, plot=False)
+
         if 'current_x_position' in info and 'current_y_position' in info:
             xy_pos_list.append([info['current_x_position'], info['current_y_position'] ])
         reward_list.append(reward.item())
 
         # Plot and save.
-        every_N_steps = 1000
         if i % every_N_steps == 0 and i > 0:
-
-            ## Reward plot.
-            fig, ax1 = plt.subplots()
-            ax1.plot(reward_list[every_N_steps:], color="blue", label='Instantaneous reward')
-            ax1.set_xlabel('Step')
-            ax1.set_ylabel('Instantaneous Reward')
-            ax1.set_title('Instantaneous Reward')
-            ax1.axhline(y=0, color='black', linestyle='--', linewidth=0.5)
-            ax1.legend()
-            plt.tight_layout()
-            plt.savefig(os.path.join(folder_log, f"rewards.png"))
-            plt.close()
+            # Save the reward list.
+            df_reward_list = pd.DataFrame(reward_list, columns=["reward"])
+            df_reward_list.to_csv(os.path.join(folder_log, f"reward_list.csv"), index=False)
 
             ## Save trajectory.
             folder_trajectory = os.path.join(folder_log, "trajectory")
@@ -128,67 +120,97 @@ def run(agent, env, total_timesteps, folder_log):
             df_true_pos_xy = pd.DataFrame(xy_pos_list, columns=["x", "y"])
             df_true_pos_xy.to_csv(os.path.join(folder_trajectory, f"true_pos_xy.csv"), index=False)
 
-            ## Save and plot the trajectory.
-            if len(xy_pos_list) > 0:
-                # Generate a plot.
-                plt.figure()
-                plt.plot(df_true_pos_xy['x'][every_N_steps:], df_true_pos_xy['y'][every_N_steps:], '-o', label=f'traj {int(i/every_N_steps)}', alpha=0.5)
-                plt.scatter(df_true_pos_xy['x'][every_N_steps], df_true_pos_xy['y'][every_N_steps], color='red', label='start')
-                # plt.scatter(df_true_pos_xy['x'][-1], df_true_pos_xy['y'][-1], color='green', label='end')
-                plt.plot(0, 0, 'x', markersize=10, color='black')
-                plt.xlabel('x')
-                plt.ylabel('y')
-                plt.axis('equal')
-                plt.title(f'Trajectory {int(i/every_N_steps)}')
-                plt.legend()
-                plt.savefig(os.path.join(folder_trajectory, f"trajectory_{int(i/every_N_steps)}.png"))
+            # Make pdf plots
+            with PdfPages(os.path.join(folder_log, f"report.pdf")) as pdf:
 
-            ## Plot the trajectory and reward.
-            if len(reward_list) > 0 and len(xy_pos_list) > 0:
-                fig, axs = plt.subplots(2, 1, sharex=True, figsize=(10, 10))
-                axs = axs.flatten()
-                xy_np = np.array(xy_pos_list)
-                ax_pos = axs[0]
-                ax_pos.plot(xy_np[every_N_steps:, 0], label='x', color='tab:blue')
-                ax_pos.set_ylabel('X Position [m]', color='tab:blue')
-                ax_pos.tick_params(axis='y', labelcolor='tab:blue')
-
-                ax_pos_twin = ax_pos.twinx()
-                ax_pos_twin.plot(xy_np[every_N_steps:, 1], label='y', color='tab:orange')
-                ax_pos_twin.set_ylabel('Y Position [m]', color='tab:orange')
-                ax_pos_twin.tick_params(axis='y', labelcolor='tab:orange')
-
-                ax_pos.set_xlabel('Time')
-                ax_pos.set_title('X and Y Position over Time')
-
-                reward_np = np.array(reward_list)
-                axs[1].plot(reward_np[every_N_steps:], '-o', label='reward')
-                axs[1].set_xlabel('Time')
-                axs[1].set_ylabel('Reward')
-                axs[1].set_title('Reward over time')
-                axs[1].legend()
+                ## Average reward plot.
+                fig, ax1 = plt.subplots()
+                plt.plot(
+                    reward_tracker.df["step"][reward_tracker.window_size:] * reward_tracker.env_dt,
+                    reward_tracker.df["reward"][reward_tracker.window_size:],
+                    color="black",
+                    linewidth=1.0,
+                )
+                ax1.set_xlabel("Time [s]")
+                ax1.set_ylabel("Average Reward per Second")
+                ax1.set_title("Average Reward per Second")
                 plt.tight_layout()
-                plt.savefig(os.path.join(folder_trajectory, f"traj_plus_reward_in_ep_{int(i/every_N_steps)}.png"))
+                plt.grid(False)
+                pdf.savefig()
                 plt.close()
 
-                # Save the reward list
-                df_reward_list = pd.DataFrame(reward_list, columns=["reward"])
-                df_reward_list.to_csv(os.path.join(folder_log, f"reward_list.csv"), index=False)
+                ## Instantaneous reward plot.
+                fig, ax1 = plt.subplots()
+                ax1.plot(reward_list[every_N_steps:], color="blue", label='Instantaneous reward')
+                ax1.set_xlabel('Step')
+                ax1.set_ylabel('Instantaneous Reward')
+                ax1.set_title('Instantaneous Reward')
+                ax1.axhline(y=0, color='black', linestyle='--', linewidth=0.5)
+                ax1.legend()
+                ax1.grid(False)
+                plt.tight_layout()
+                pdf.savefig()
+                plt.close()
+
+                ## Trajectory plot.
+                if len(xy_pos_list) > 0:
+                    # Generate a plot.
+                    plt.figure()
+                    plt.plot(df_true_pos_xy['x'][every_N_steps:], df_true_pos_xy['y'][every_N_steps:], '-o', label=f'traj {int(i/every_N_steps)}', alpha=0.5)
+                    plt.scatter(df_true_pos_xy['x'][every_N_steps], df_true_pos_xy['y'][every_N_steps], color='red', label='start')
+                    plt.plot(0, 0, 'x', markersize=10, color='black')
+                    plt.xlabel('x')
+                    plt.ylabel('y')
+                    plt.axis('equal')
+                    plt.title(f'Trajectory {int(i/every_N_steps)}')
+                    plt.legend()
+                    plt.grid(False)
+                    pdf.savefig()
+                    plt.close()
+
+                ## Trajectory and reward plot.
+                if len(reward_list) > 0 and len(xy_pos_list) > 0:
+                    fig, axs = plt.subplots(2, 1, sharex=True, figsize=(10, 10))
+                    axs = axs.flatten()
+                    xy_np = np.array(xy_pos_list)
+                    ax_pos = axs[0]
+                    ax_pos.plot(xy_np[every_N_steps:, 0], label='x', color='tab:blue')
+                    ax_pos.set_ylabel('X Position [m]', color='tab:blue')
+                    ax_pos.tick_params(axis='y', labelcolor='tab:blue')
+
+                    ax_pos_twin = ax_pos.twinx()
+                    ax_pos_twin.plot(xy_np[every_N_steps:, 1], label='y', color='tab:orange')
+                    ax_pos_twin.set_ylabel('Y Position [m]', color='tab:orange')
+                    ax_pos_twin.tick_params(axis='y', labelcolor='tab:orange')
+
+                    ax_pos.set_xlabel('Time')
+                    ax_pos.set_title('X and Y Position over Time')
+
+                    reward_np = np.array(reward_list)
+                    axs[1].plot(reward_np[every_N_steps:], '-o', label='reward')
+                    axs[1].set_xlabel('Time')
+                    axs[1].set_ylabel('Reward')
+                    axs[1].set_title('Reward over time')
+                    axs[1].legend()
+                    axs[1].grid(False)
+                    plt.tight_layout()
+                    pdf.savefig()
+                    plt.close()
 
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--train', type=bool, default=False)
 parser.add_argument('--seed', type=int, default=0)
 parser.add_argument('--dt', type=float, default=0.05)
-parser.add_argument('--terminate_when_upside_down', type=bool, default=True)
-parser.add_argument('--upside_down_cost_weight', type=float, default=0.0)
-parser.add_argument('--ctrl_cost_weight', type=float, default=0.0)
+parser.add_argument('--terminate_on_upside_down', type=bool, default=True)
+parser.add_argument('--action_cost_weight', type=float, default=0.0)
 parser.add_argument('--render_mode', type=str, default='rgb_array')
 parser.add_argument('--hw_config', type=str, default=None)
 parser.add_argument('--total_timesteps_train', type=int, default=150_000)
 parser.add_argument('--total_timesteps_eval', type=int, default=150_000)
 parser.add_argument('--weight_init', type=str, default='random')
 parser.add_argument('--weight_folder', type=str, default=None)
+parser.add_argument('--memory_size', type=int, default=1_000_000)
 
 args = parser.parse_args()
 for arg in vars(args):
@@ -205,9 +227,8 @@ if args.hw_config is None:
     env = AntEnv(
         dt=DT,
         render_mode=args.render_mode,
-        cost_upside_down_weight=args.upside_down_cost_weight,
-        terminate_on_upside_down=args.terminate_when_upside_down,
-        ctrl_cost_weight=args.ctrl_cost_weight,
+        terminate_on_upside_down=args.terminate_on_upside_down,
+        task=ForwardTask(action_cost_weight=args.action_cost_weight),
     )
 else:
     env_id = 'ant_hw'
@@ -215,7 +236,6 @@ else:
         cfg = json.load(f)
     env = make_ant_env(cfg, render_mode=render, dt=DT)
 
-env = wrap_env(env, wrapper="gymnasium")
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Logging.
@@ -237,7 +257,7 @@ if args.weight_init == 'small':
         model.init_parameters(method_name="normal_", mean=0.0, std=0.1)
 
 # Memory.
-memory = RandomMemory(memory_size=1_000_000, device=device)
+memory = RandomMemory(memory_size=args.memory_size, device=device)
 
 # Config.
 cfg = SAC_DEFAULT_CONFIG.copy()
@@ -257,7 +277,7 @@ cfg["grad_norm_clip"] = 0
 cfg["learn_entropy"] = True
 cfg["entropy_learning_rate"] = 5e-3
 cfg["initial_entropy_value"] = 1.0
-cfg["state_preprocessor"] = RunningStandardScaler
+# cfg["state_preprocessor"] = RunningStandardScaler
 cfg["state_preprocessor_kwargs"] = {"size": env.observation_space, "device": device}
 cfg["experiment"]["write_interval"] = 100
 cfg["experiment"]["directory"] = LOG_FOLDER
@@ -278,17 +298,23 @@ agent = SAC(models=models,
             device=device)
 
 reward_tracker = RewardTracker(env_dt=env.dt, env_id=env_id,
-                               log_folder=os.path.join(cfg["experiment"]["directory"],
-                                                       cfg["experiment"]["experiment_name"]),
-                               time_window=120.0)
+                            log_folder=os.path.join(cfg["experiment"]["directory"],
+                                                    cfg["experiment"]["experiment_name"]),
+                            time_window=120.0)
 
-# Save config
+# Save config.
 with open(os.path.join(LOG_FOLDER, cfg["experiment"]["experiment_name"], "cfg.json"), "w") as f:
     json.dump(cfg, f, indent=4, default=safe_json)
 
-# Save args
+# Save args.
 with open(os.path.join(LOG_FOLDER, cfg["experiment"]["experiment_name"], "args.json"), "w") as f:
     json.dump(vars(args), f, indent=4, default=safe_json)
+
+# Record video.
+step_trigger = lambda t: t % 1000 == 0
+if args.render_mode == 'rgb_array':
+    env = RecordVideo(env, video_folder=os.path.join(LOG_FOLDER, cfg["experiment"]["experiment_name"]), step_trigger=step_trigger, disable_logger=True)
+env = wrap_env(env, wrapper="gymnasium")
 
 # Training or evaluation.
 if args.train:
