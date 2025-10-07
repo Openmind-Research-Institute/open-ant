@@ -141,15 +141,6 @@ class EmbodiedAnt(gym.Env):
         self.last_heading_vector = np.array([1, 0])
         self.last_seen = 0
 
-        self.q_joints = {'hip_1': 1,
-                         'ankle_1': 2,
-                         'hip_2': 3,
-                         'ankle_2': 4,
-                         'hip_3': 5,
-                         'ankle_3': 6,
-                         'hip_4': 7,
-                         'ankle_4': 8}
-
         self.temperature_log = open('temperature_log.csv', 'a')
         # self.temperature_log = open('temperature_log.csv', 'w')
 
