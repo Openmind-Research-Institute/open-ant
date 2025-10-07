@@ -130,8 +130,6 @@ class EmbodiedAnt(gym.Env):
         self.last_heading_vector = np.array([1, 0])
         self.last_seen = 0
 
-        self.ctrl_cost_weight = 0.0
-
         self.temperature_log = open('temperature_log.csv', 'a')
         # self.temperature_log = open('temperature_log.csv', 'w')
         self.error_log = open('error_log.csv', 'w')
