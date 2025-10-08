@@ -156,7 +156,7 @@ class AntEnv(MujocoEnv, utils.EzPickle):
 
     def reset(self, seed=None, options=None):
         if seed is not None:
-            self.np_random, _ = gymnasium.utils.seeding.np_random(seed)
+            self.np_random, _ = gym.utils.seeding.np_random(seed)
 
         self.step(np.zeros(self.action_space.shape[0]))
 
