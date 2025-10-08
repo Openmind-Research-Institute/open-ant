@@ -101,7 +101,7 @@ def run(agent, env, total_timesteps, folder_log):
         every_N_steps = 1000
         reward_tracker.update(reward.item())
         agent.track_data("average_reward_per_second", reward_tracker.average_reward_per_second)
-        reward_tracker.log(every_N_steps, plot=False)
+        reward_tracker.log(every_N_steps=every_N_steps, plot=False)
 
         if 'current_x_position' in info and 'current_y_position' in info:
             xy_pos_list.append([info['current_x_position'], info['current_y_position'] ])
@@ -228,13 +228,15 @@ if args.hw_config is None:
         dt=DT,
         render_mode=args.render_mode,
         terminate_on_upside_down=args.terminate_on_upside_down,
-        task=ForwardTask(action_cost_weight=args.action_cost_weight),
+        task=BackAndForthTask(),
     )
+    print("here")
 else:
     env_id = 'ant_hw'
     with open(args.hw_config, 'r') as f:
         cfg = json.load(f)
     env = make_ant_env(cfg, render_mode=render, dt=DT)
+    print("here2")
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -311,9 +313,11 @@ with open(os.path.join(LOG_FOLDER, cfg["experiment"]["experiment_name"], "args.j
     json.dump(vars(args), f, indent=4, default=safe_json)
 
 # Record video.
+print('Recording video...')
 step_trigger = lambda t: t % 1000 == 0
 if args.render_mode == 'rgb_array':
     env = RecordVideo(env, video_folder=os.path.join(LOG_FOLDER, cfg["experiment"]["experiment_name"]), step_trigger=step_trigger, disable_logger=True)
+print('Wrapping env...')
 env = wrap_env(env, wrapper="gymnasium")
 
 # Training or evaluation.
