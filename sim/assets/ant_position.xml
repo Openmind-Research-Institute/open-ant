@@ -35,6 +35,8 @@
     <geom name="east_wall" type="box" pos="5.5 0 0.5" size="0.05 5.5 0.5" rgba="0.7 0.7 0.7 1"/>
     <geom name="west_wall" type="box" pos="-5.5 0 0.5" size="0.05 5.5 0.5" rgba="0.7 0.7 0.7 1"/>
 
+    <geom name="boundary" type="cylinder" pos="0 0 0.01" size="1 0.01" rgba="0 0 1 0.5" contype="0" conaffinity="0"/>
+
     <body name="torso" pos="0 0 0.3">
       <camera name="track" mode="trackcom" pos="0 -1.5 0.3" xyaxes="1 0 0 0 0 1"/>
       <geom name="torso_geom" pos="0 0 0" size="0.075" type="sphere" mass="0.284"/>
