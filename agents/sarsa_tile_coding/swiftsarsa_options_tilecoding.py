@@ -15,16 +15,18 @@ import zipfile
 from PIL import Image
 import io
 import cv2
+import swiftsarsa
 
 # Custom imports.
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../sim')))
 from ant_mujoco import AntEnv
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../embodied_ant_env')))
 from embodied_ant_env import make_ant_env
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), '..')))
 from reward import RewardTracker
 from tilecoding import IHT, tiles
-
 
 np.set_printoptions(precision=4, suppress=True, linewidth=120, threshold=1000)
 
@@ -34,6 +36,7 @@ def linear_ramp(start_pos: float, end_pos: float, duration: float):
     num = round(duration / args.dt)
     input_pos_list = np.linspace(start_pos, end_pos, num)
     return input_pos_list
+
 
 # plt.figure()
 class OptionEnv:
@@ -50,9 +53,9 @@ class OptionEnv:
 
         # Reward tracker.
         self.reward_tracker = RewardTracker(env_dt=env.dt,
-                                    env_id=f"run_{env_id}",
-                                    time_window=120.0,
-                                    log_folder=log_dir)
+                                            env_id=f"run_{env_id}",
+                                            time_window=120.0,
+                                            log_folder=log_dir)
         self.average_rewards_per_second = []
 
     def step(self, option_idx: int):
@@ -101,46 +104,48 @@ class OptionEnv:
 
     def render(self):
         return self.env.render()
-    
+
     def duration_steps(self, option_idx: int):
         return round(self.options[option_idx]['duration'] / args.dt)
+
 
 options = []
 for i in range(4):  # 4 legs
     options.append({
         "name": "sinusoid_forward",
-        "hip_joint_idx": 2*i,
+        "hip_joint_idx": 2 * i,
         "hip_target": np.radians(45),
-        "knee_joint_idx": 2*i + 1,
+        "knee_joint_idx": 2 * i + 1,
         "knee_amplitude": np.radians(45),
         "duration": 0.6
     })
     options.append({
         "name": "sinusoid_backward",
-        "hip_joint_idx": 2*i,
+        "hip_joint_idx": 2 * i,
         "hip_target": -np.radians(45),
-        "knee_joint_idx": 2*i + 1,
+        "knee_joint_idx": 2 * i + 1,
         "knee_amplitude": np.radians(45),
         "duration": 0.6
     })
     options.append({
         "name": "stance_forward",
-        "hip_joint_idx": 2*i,
+        "hip_joint_idx": 2 * i,
         "hip_target": np.radians(45),
-        "knee_joint_idx": 2*i + 1,
-        "knee_amplitude": np.radians(-20), # This is so it pushes into the ground for better contact.
+        "knee_joint_idx": 2 * i + 1,
+        "knee_amplitude": np.radians(-20),  # This is so it pushes into the ground for better contact.
         "duration": 0.6
     })
     options.append({
         "name": "stance_backward",
-        "hip_joint_idx": 2*i,
+        "hip_joint_idx": 2 * i,
         "hip_target": -np.radians(45),
-        "knee_joint_idx": 2*i + 1,
+        "knee_joint_idx": 2 * i + 1,
         "knee_amplitude": np.radians(-20),
         "duration": 0.6
     })
 
 print(len(options), "options defined.")
+
 
 # Tile coding.
 class SuttonTileCoderWrapper:
@@ -161,8 +166,10 @@ class SuttonTileCoderWrapper:
     def n_tiles(self):
         return self.iht.size
 
+
 def q_of(w, idx, o):
     return w[o, idx].sum()
+
 
 def select_greedy_option(w, T, state, num_options):
     idx = T[state]
@@ -180,12 +187,40 @@ def select_greedy_option(w, T, state, num_options):
     # plt.pause(0.01)
     return int(np.random.choice(best)), q_vals
 
+
+def select_greedy_option_swift_sarsa(q_vals):
+    # Tie-break among maxima, in case of ties.
+    maxq = q_vals.max()
+
+    best = np.flatnonzero(q_vals == maxq)
+    # print(maxq, best, q_vals)
+    # quit(0)
+    # plt.clf()
+    # plt.bar(range(len(q_vals)), q_vals)
+    # # Color the highest q-value in red.
+    # plt.bar(np.argmax(q_vals), q_vals[np.argmax(q_vals)], color='red')
+    # plt.title('Q-values for each option')
+    # plt.xlabel('Option')
+    # plt.ylabel('Q-value')
+    # plt.pause(0.01)
+    return int(np.random.choice(best)), q_vals
+
+
 def select_option_epsilon_greedy(S, epsilon, w, T):
     # ε-greedy over options using tile-coded T(s).
     if np.random.rand() < epsilon:
         return np.random.randint(num_options)
     O_greedy, _ = select_greedy_option(w, T, S, num_options)
     return O_greedy
+
+
+def select_option_epsilon_greedy_swift_sarsa(q_vals, epsilon):
+    # ε-greedy over options using tile-coded T(s).
+    if np.random.rand() < epsilon:
+        return np.random.randint(len(q_vals))
+    O_greedy, _ = select_greedy_option_swift_sarsa(q_vals)
+    return O_greedy
+
 
 def clip_state_to_limits(S, limits):
     S = np.asarray(S, dtype=np.float64)
@@ -213,7 +248,6 @@ joint_config = {
     'knee_range': np.radians(45),
 }
 
-
 hw_config = args.hw_config if args.hw_config is not None else None
 if hw_config is None:
     env_id = 'ant_mujoco'
@@ -221,9 +255,9 @@ if hw_config is None:
     render_mode = "human" if args.render else "rgb_array"
     print(f"Render mode: {render_mode}")
     env = AntEnv(
-                render_mode=render_mode,
-                 dt=args.dt,
-                 joint_config=joint_config)
+        render_mode=render_mode,
+        dt=args.dt,
+        joint_config=joint_config)
 else:
     env_id = 'ant_hw'
     with open(hw_config, 'r') as f:
@@ -233,16 +267,16 @@ else:
                        dt=args.dt,
                        joint_config=joint_config)
 
-
 # Constants.
 MAX_OPTIONS_PER_TIMELIMIT_EPISODE = 300
 EPSILON = 0.05
 EPSILON_START = EPSILON
 DISCOUNTING = 0.99
+LAMBDA = 0.90
 
-DIM_TILING = 10 # Number of tiles per dimension.
-TILINGS = 4*env.observation_space.shape[0] # Number of offset tilings.
-IHT_SIZE = 2**20
+DIM_TILING = 10  # Number of tiles per dimension.
+TILINGS = 4 * env.observation_space.shape[0]  # Number of offset tilings.
+IHT_SIZE = 2 ** 20
 
 USE_DECAYING_EPSILON = False
 
@@ -253,7 +287,6 @@ os.makedirs(log_dir, exist_ok=True)
 weights_iht_folder = os.path.join(log_dir, "weights_iht")
 if not os.path.exists(weights_iht_folder):
     os.makedirs(weights_iht_folder)
-
 
 # Environment.
 options_env = OptionEnv(env, options)
@@ -276,15 +309,13 @@ else:
     if args.train == False:
         EPSILON = 0.0
 
-
 # IHT table size.
 tiles_per_dim = [DIM_TILING] * state_limits.shape[0]
 T = SuttonTileCoderWrapper(iht=iht,
                            tiles_per_dim=tiles_per_dim,
                            value_limits=state_limits,
                            tilings=TILINGS)
-step_size = 0.1 / TILINGS # Step-size, see: http://incompleteideas.net/tiles/tiles3.html.
-
+step_size = 0.1 / TILINGS  # Step-size, see: http://incompleteideas.net/tiles/tiles3.html.
 
 with open(os.path.join(log_dir, "config.json"), "w") as f:
     json.dump({
@@ -321,6 +352,7 @@ generate_performance_report = False
 S, _ = env.reset(seed=SEED)
 O = select_option_epsilon_greedy(S, EPSILON, w, T)
 
+learner = swiftsarsa.SwiftSarsaBinaryFeatures(1000000, 16, LAMBDA, 1e-2, 1e-3, 0.1, 0.99, 1e-4, 1e-10)
 while True:
     if USE_DECAYING_EPSILON:
         EPSILON = max(0.05, EPSILON_START - idx_timelimit_episode * 0.015)
@@ -329,50 +361,46 @@ while True:
     # Step.
     S_prime, R, terminated, truncated, info = options_env.step(O)
 
+    indices = T[S_prime]
+    q_vals = np.array(learner.get_action_values(indices))
     # Next option (ε-greedy).
-    O_prime = select_option_epsilon_greedy(S_prime, EPSILON, w, T)
-
-    # TD.
+    O_prime = select_option_epsilon_greedy_swift_sarsa(q_vals, EPSILON)
     k = options_env.duration_steps(O)
+    if terminated:
+        learner.learn(indices, R, 0, O_prime)
+    else:
+        learner.learn(indices, R, (DISCOUNTING ** k), O_prime)
+
+    O = O_prime
     idx_S = T[S]
     idx_S_prime = T[S_prime]
-
-    # TODO: add the Delta Ts.
-    target = R + (DISCOUNTING ** k) * q_of(w, idx_S_prime, O_prime)
-    pred = q_of(w, idx_S,  O)
-    TD_error = target - pred
-
-    # Update weights.
-    if args.train == True:
-        w[O, idx_S] += step_size * TD_error
-
-    S = S_prime
-    O = O_prime
 
     return_per_timelimit += R
     real_time_seconds += options_env.duration_steps(O) * args.dt
 
     nb_options += 1
 
-    if nb_options % 20 == 0: # Render less often to save time.
+    if nb_options % 20 == 0:  # Render less often to save time.
         frames_buffer.append(env.render())
-    td_errors.append(TD_error)
 
     if terminated or truncated:
         print('Terminated', terminated, 'truncated', truncated)
         S, _ = env.reset(seed=SEED)
-        O = select_option_epsilon_greedy(S, EPSILON, w, T)
+        indices = T[S]
+        q_vals = np.array(learner.get_action_values(indices))
+        O = select_option_epsilon_greedy_swift_sarsa(q_vals, EPSILON)
 
     if nb_options >= MAX_OPTIONS_PER_TIMELIMIT_EPISODE:
-        print(f"Episode {idx_timelimit_episode} | reward: {return_per_timelimit:.4f} | time in seconds: {(real_time_seconds):.4f} | time in hours: {(real_time_seconds) / 3600:.4f} | epsilon: {EPSILON:.4f}")            
-        returns_df.loc[idx_timelimit_episode] = [idx_timelimit_episode, return_per_timelimit, real_time_seconds, nb_options]
+        print(
+            f"Episode {idx_timelimit_episode} | reward: {return_per_timelimit:.4f} | time in seconds: {(real_time_seconds):.4f} | time in hours: {(real_time_seconds) / 3600:.4f} | epsilon: {EPSILON:.4f}")
+        returns_df.loc[idx_timelimit_episode] = [idx_timelimit_episode, return_per_timelimit, real_time_seconds,
+                                                 nb_options]
         returns_df.to_csv(os.path.join(log_dir, "return_per_timelimit.csv"), index=False)
 
         idx_timelimit_episode += 1
         nb_options = 0
         return_per_timelimit = 0.0
         generate_performance_report = True
-
 
     if generate_performance_report:
         # Save all the images in a zip file.
@@ -432,7 +460,8 @@ while True:
             ax2.xaxis.set_ticks_position("bottom")
             ax2.xaxis.set_label_position("bottom")
             ax2.spines["bottom"].set_position(("outward", 40))
-            time_ticks = np.linspace(0, returns_df['real_time_seconds'].max() / 3600, 10)  # 10 evenly spaced time points.
+            time_ticks = np.linspace(0, returns_df['real_time_seconds'].max() / 3600,
+                                     10)  # 10 evenly spaced time points.
             episode_ticks = np.linspace(0, returns_df['episode'].max(), 10)  # 10 evenly spaced episode points.
             ax1.set_xticks(episode_ticks)
             ax1.set_xticklabels([f"{int(e)}" for e in episode_ticks])
@@ -442,7 +471,7 @@ while True:
             plt.tight_layout()
             pdf.savefig()
             plt.close()
-            
+
             # TD error plot.
             fig, ax1 = plt.subplots()
             counter_options_list = np.arange(len(td_errors))

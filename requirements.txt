@@ -15,4 +15,4 @@ scipy
 # algorithms
 torch
 matplotlib
-
+swiftsarsa==0.1.4
