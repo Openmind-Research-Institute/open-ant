@@ -8,6 +8,7 @@ from motor_controller import MotorController
 from apriltag_tracking import VisionTracker, show_image
 import gymnasium as gym
 from gymnasium import spaces
+from gymnasium.spaces import Box
 
 class ForwardTask:
     def __init__(self, action_cost_weight=0.0):
@@ -102,6 +103,8 @@ class EmbodiedAnt(gym.Env):
         self.dt = dt
         self.last_step_time = None
         self.render_mode = render_mode
+        if self.render_mode == 'human':
+            self.vis_frame = None
         self.i = 0
         if joint_config is None:
             joint_config = {
@@ -113,6 +116,14 @@ class EmbodiedAnt(gym.Env):
         self.joint_config = joint_config
 
         self._threads_should_exit = False
+
+        self.observation_space = Box(
+            low=-2.0, high=2.0, shape=(24,), dtype=np.float64
+        )
+
+        self.action_space = Box(
+            low=-1, high=1, shape=(8,), dtype=np.float64
+        )
 
         self.imu = imu
         self._imu_data = None
@@ -129,6 +140,15 @@ class EmbodiedAnt(gym.Env):
         self.last_pos = np.array([0, 0, 0])
         self.last_heading_vector = np.array([1, 0])
         self.last_seen = 0
+
+        self.q_joints = {'hip_1': 1,
+                         'ankle_1': 2,
+                         'hip_2': 3,
+                         'ankle_2': 4,
+                         'hip_3': 5,
+                         'ankle_3': 6,
+                         'hip_4': 7,
+                         'ankle_4': 8}
 
         self.temperature_log = open('temperature_log.csv', 'a')
         # self.temperature_log = open('temperature_log.csv', 'w')
@@ -191,9 +211,15 @@ class EmbodiedAnt(gym.Env):
             self.i += 1
             if self.i % 10 == 0:
                 show_image(info['vis_frame'])
+                self.vis_frame = info['vis_frame']
 
         self.last_step_time = time.time()
         return observation, reward, terminated, truncated, info
+
+    def render(self):
+        if self.render_mode == 'human':
+            return self.vis_frame
+        return None
 
     def get_observation(self):
         with self._imu_data_lock:

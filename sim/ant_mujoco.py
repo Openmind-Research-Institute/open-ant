@@ -169,6 +169,14 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         return observation, info
 
 
+    def get_joint_names(self):
+        '''Returns the names of the joints.'''
+        self.name_joints = []
+        for i in range(1, self.model.njnt):  # skip root
+            self.name_joints.append(mujoco.mj_id2name(
+                self.model, mujoco.mjtObj.mjOBJ_JOINT, i))
+        return self.name_joints
+
 def main():
     current_path = os.path.dirname(os.path.abspath(__file__))
     env = AntEnv(xml_file=os.path.join(current_path, "assets/ant_position.xml"),
