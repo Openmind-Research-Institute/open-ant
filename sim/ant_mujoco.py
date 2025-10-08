@@ -120,9 +120,43 @@ class AntEnv(MujocoEnv, utils.EzPickle):
 
         # Render.
         if self.render_mode == "human":
-            self.render()
+            # Add an arrow to the scene
+            self.render_with_arrow(info)
 
         return observation, reward, terminated, truncated, info
+
+    def render_with_arrow(self, info):
+        # Direction of the arrow is the reward_direction
+        self.render()
+        if info and 'reward_direction' in info:
+            reward_direction = info['reward_direction']
+            self.mujoco_renderer.viewer._markers = []
+
+            direction = np.array([reward_direction[0], reward_direction[1], 0])
+            x = direction
+            z = np.array([0, 0, 1])
+            y = np.cross(z, x)
+
+            m_z_to_x = np.array([
+                [0, 0, 1],
+                [0, 1, 0],
+                [-1, 0, 0]])
+            mat = np.array([x, y, z]).T @ m_z_to_x
+
+            self.add_markers_to_scene(np.array([info['current_x_position'], info['current_y_position'], 0.2]),
+                                      mat.flatten(), np.array([1.0, 0.0, 0.0, 1.0]), "Arrow")
+
+
+    def add_markers_to_scene(self, pos, mat, rgba, label):
+        marker_params = {
+            "type": mujoco.mjtGeom.mjGEOM_ARROW,
+            "size": np.array([0.01, 0.01, 1.0]),
+            "pos": pos,
+            "mat": mat,
+            "rgba": rgba,
+            "label": label,
+        }
+        self.mujoco_renderer.viewer.add_marker(**marker_params)
 
     def _get_truncated_out_of_bounds_or_nans(self):
         truncation_condition = (
