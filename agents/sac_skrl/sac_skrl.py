@@ -230,13 +230,11 @@ if args.hw_config is None:
         terminate_on_upside_down=args.terminate_on_upside_down,
         task=BackAndForthTask(),
     )
-    print("here")
 else:
     env_id = 'ant_hw'
     with open(args.hw_config, 'r') as f:
         cfg = json.load(f)
     env = make_ant_env(cfg, render_mode=render, dt=DT)
-    print("here2")
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
