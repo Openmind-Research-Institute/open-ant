@@ -24,7 +24,8 @@ from embodied_ant_env import make_ant_env
 sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), '..')))
 from reward import RewardTracker
 from tilecoding import IHT, tiles
-
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../embodied_ant_env')))
+from embodied_ant_env import make_ant_env, ForwardTask, BackAndForthTask
 
 np.set_printoptions(precision=4, suppress=True, linewidth=120, threshold=1000)
 
@@ -221,9 +222,10 @@ if hw_config is None:
     render_mode = "human" if args.render else "rgb_array"
     print(f"Render mode: {render_mode}")
     env = AntEnv(
-                render_mode=render_mode,
-                 dt=args.dt,
-                 joint_config=joint_config)
+        dt=args.dt,
+        render_mode="human",
+        task=BackAndForthTask(),
+    )
 else:
     env_id = 'ant_hw'
     with open(hw_config, 'r') as f:
