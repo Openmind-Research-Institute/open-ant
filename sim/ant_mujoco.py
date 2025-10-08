@@ -72,14 +72,9 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         self.model.opt.timestep = sim_dt
 
         self.task = task
-        if isinstance(task, BackAndForthTask):
-            size_obs = 26
-        if isinstance(task, ForwardTask):
-            size_obs = 24
 
         self.action_space = spaces.Box(low=-1, high=1, shape=(8,), dtype=np.float32)
-        self.observation_space = spaces.Box(low=-1, high=1, shape=(size_obs,), dtype=np.float32)
-
+        self.observation_space = task.observation_space
         self._terminate_on_upside_down = terminate_on_upside_down
 
         if joint_config is None:

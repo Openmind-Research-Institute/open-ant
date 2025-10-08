@@ -15,6 +15,9 @@ class ForwardTask:
         self.action_cost_weight = action_cost_weight
         self.last_pos = np.array([0, 0])
         self.last_action = np.zeros(8)
+        self.reward_direction = np.array([1, 0])
+        self.observation_space = spaces.Box(low=-1.5, high=1.5, shape=(24,), dtype=np.float32)
+        print('Using ForwardTask')
 
     def reset(self, info):
         return self(info, np.zeros(8))
@@ -29,7 +32,7 @@ class ForwardTask:
         truncated = False
 
         reward = progress - cost_action
-
+        info['reward_direction'] = self.reward_direction
         observation = np.concatenate([
             info['joint_positions'],
             info['joint_velocities'],
@@ -49,6 +52,8 @@ class BackAndForthTask:
         self.last_pos = np.array([0, 0])
         self.reward_direction = np.array([1, 0])
         self.last_action = np.zeros(8)
+        self.observation_space = spaces.Box(low=-1.5, high=1.5, shape=(26,), dtype=np.float32)
+        print('Using BackAndForthTask')
 
     def reset(self, info):
         th = np.random.uniform(-np.pi, np.pi)
@@ -92,8 +97,6 @@ class BackAndForthTask:
 
 
 class EmbodiedAnt(gym.Env):
-    action_space = spaces.Box(low=-1, high=1, shape=(8,), dtype=np.float32)
-    observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(24,), dtype=np.float32)
 
     def __init__(self, motor_controller, imu, tracker, dt=0.02, render_mode=None, joint_config=None, task=ForwardTask()):
         super().__init__()
@@ -117,9 +120,7 @@ class EmbodiedAnt(gym.Env):
 
         self._threads_should_exit = False
 
-        self.observation_space = Box(
-            low=-2.0, high=2.0, shape=(24,), dtype=np.float64
-        )
+        self.observation_space = task.observation_space
 
         self.action_space = Box(
             low=-1, high=1, shape=(8,), dtype=np.float64
