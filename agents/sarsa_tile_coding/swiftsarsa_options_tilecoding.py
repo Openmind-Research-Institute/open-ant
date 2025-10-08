@@ -171,48 +171,11 @@ def q_of(w, idx, o):
     return w[o, idx].sum()
 
 
-def select_greedy_option(w, T, state, num_options):
-    idx = T[state]
-    q_vals = np.array([w[o, idx].sum() for o in range(num_options)], dtype=np.float64)
-    # Tie-break among maxima, in case of ties.
-    maxq = q_vals.max()
-    best = np.flatnonzero(q_vals == maxq)
-    # plt.clf()
-    # plt.bar(range(len(q_vals)), q_vals)
-    # # Color the highest q-value in red.
-    # plt.bar(np.argmax(q_vals), q_vals[np.argmax(q_vals)], color='red')
-    # plt.title('Q-values for each option')
-    # plt.xlabel('Option')
-    # plt.ylabel('Q-value')
-    # plt.pause(0.01)
-    return int(np.random.choice(best)), q_vals
-
-
 def select_greedy_option_swift_sarsa(q_vals):
     # Tie-break among maxima, in case of ties.
     maxq = q_vals.max()
-
     best = np.flatnonzero(q_vals == maxq)
-    # print(maxq, best, q_vals)
-    # quit(0)
-    # plt.clf()
-    # plt.bar(range(len(q_vals)), q_vals)
-    # # Color the highest q-value in red.
-    # plt.bar(np.argmax(q_vals), q_vals[np.argmax(q_vals)], color='red')
-    # plt.title('Q-values for each option')
-    # plt.xlabel('Option')
-    # plt.ylabel('Q-value')
-    # plt.pause(0.01)
     return int(np.random.choice(best)), q_vals
-
-
-def select_option_epsilon_greedy(S, epsilon, w, T):
-    # ε-greedy over options using tile-coded T(s).
-    if np.random.rand() < epsilon:
-        return np.random.randint(num_options)
-    O_greedy, _ = select_greedy_option(w, T, S, num_options)
-    return O_greedy
-
 
 def select_option_epsilon_greedy_swift_sarsa(q_vals, epsilon):
     # ε-greedy over options using tile-coded T(s).
@@ -220,7 +183,6 @@ def select_option_epsilon_greedy_swift_sarsa(q_vals, epsilon):
         return np.random.randint(len(q_vals))
     O_greedy, _ = select_greedy_option_swift_sarsa(q_vals)
     return O_greedy
-
 
 def clip_state_to_limits(S, limits):
     S = np.asarray(S, dtype=np.float64)
@@ -350,7 +312,7 @@ generate_performance_report = False
 
 # Reset environment.
 S, _ = env.reset(seed=SEED)
-O = select_option_epsilon_greedy(S, EPSILON, w, T)
+O = 0
 
 learner = swiftsarsa.SwiftSarsaBinaryFeatures(1000000, 16, LAMBDA, 1e-2, 1e-3, 0.1, 0.99, 1e-4, 1e-10)
 while True:
@@ -360,20 +322,15 @@ while True:
 
     # Step.
     S_prime, R, terminated, truncated, info = options_env.step(O)
-
     indices = T[S_prime]
     q_vals = np.array(learner.get_action_values(indices))
     # Next option (ε-greedy).
-    O_prime = select_option_epsilon_greedy_swift_sarsa(q_vals, EPSILON)
+    O = select_option_epsilon_greedy_swift_sarsa(q_vals, EPSILON)
     k = options_env.duration_steps(O)
     if terminated:
-        learner.learn(indices, R, 0, O_prime)
+        learner.learn(indices, R, 0, O)
     else:
-        learner.learn(indices, R, (DISCOUNTING ** k), O_prime)
-
-    O = O_prime
-    idx_S = T[S]
-    idx_S_prime = T[S_prime]
+        learner.learn(indices, R, (DISCOUNTING ** k), O)
 
     return_per_timelimit += R
     real_time_seconds += options_env.duration_steps(O) * args.dt
