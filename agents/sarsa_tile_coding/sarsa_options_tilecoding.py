@@ -198,7 +198,7 @@ def clip_state_to_limits(S, limits):
 parser = argparse.ArgumentParser()
 parser.add_argument('--seed', type=int, default=42)
 parser.add_argument('--hw_config', type=str, default=None)
-parser.add_argument('--train', type=bool, default=True)
+parser.add_argument('--learn', type=bool, default=True)
 parser.add_argument('--load_previous_weights', type=bool, default=False)
 parser.add_argument('--render', action='store_true', default=False)
 parser.add_argument('--dt', type=float, default=0.05)
@@ -285,7 +285,7 @@ else:
     with open(os.path.join(log_dir_to_load, "weights_iht/iht_9.pkl"), "rb") as f:
         iht = pickle.load(f)
     print('Loaded weights from previous run.')
-    if args.train == False:
+    if args.learn == False:
         EPSILON = 0.0
 
 
@@ -313,7 +313,7 @@ with open(os.path.join(log_dir, "config.json"), "w") as f:
         "log_dir": log_dir,
         "env_id": env_id,
         "dt": args.dt,
-        "train": args.train,
+        "learn": args.learn,
         "load_previous_weights": args.load_previous_weights,
         "joint_config": joint_config,
     }, f, indent=2)
@@ -358,7 +358,7 @@ while True:
     TD_error = target - pred
 
     # Update weights.
-    if args.train == True:
+    if args.learn == True:
         w[O, idx_S] += step_size * TD_error
 
     S = S_prime
