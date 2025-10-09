@@ -205,6 +205,8 @@ args = parser.parse_args()
 SEED = args.seed
 np.random.seed(SEED)
 
+NAME_ALGO = "swiftsarsa_options_tilecoding"
+
 # Environment.
 joint_config = {
     'hip_zero': 0.0,
@@ -295,6 +297,7 @@ step_size = 0.1 / TILINGS  # Step-size, see: http://incompleteideas.net/tiles/ti
 
 with open(os.path.join(log_dir, "config.json"), "w") as f:
     json.dump({
+        "name_algo": NAME_ALGO,
         "tiles_per_dim": tiles_per_dim,
         "tilings": TILINGS,
         "state_limits": state_limits.tolist(),
@@ -389,7 +392,7 @@ while True:
         nb_options = 0
         return_per_timelimit = 0.0
 
-        with PdfPages(os.path.join(log_dir, f"report.pdf")) as pdf:
+        with PdfPages(os.path.join(log_dir, f"{NAME_ALGO}_report.pdf")) as pdf:
             # Average reward plot.
             fig, ax = plt.subplots()
             ax.plot(options_env.average_rewards_per_second[options_env.reward_tracker.window_size:])
