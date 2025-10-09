@@ -130,6 +130,7 @@ class AntEnv(MujocoEnv, utils.EzPickle):
             self.add_markers_to_scene(np.array([info['current_x_position'], info['current_y_position'], 0.2]),
                                       mat.flatten(), np.array([1.0, 0.0, 0.0, 1.0]), "Arrow")
 
+        return self.mujoco_renderer.render(self.render_mode)
 
     def add_markers_to_scene(self, pos, mat, rgba, label):
         marker_params = {
@@ -164,10 +165,10 @@ class AntEnv(MujocoEnv, utils.EzPickle):
 
         imu_data = self._get_sensor_data("accelerometer")
         accelerations = imu_data[:3]
-        noisy_accelerations = accelerations + self.np_random.normal(0, 0.1, 3)
+        noisy_accelerations = accelerations + self.np_random.normal(0, 0.01, 3)
 
         angular_vel = self._get_sensor_data("gyro")
-        noisy_angular_vel = angular_vel + self.np_random.normal(0, 0.1, 3)
+        noisy_angular_vel = angular_vel + self.np_random.normal(0, 0.01, 3)
 
         info = {}
         info["joint_positions"] = self.data.qpos[7:]
