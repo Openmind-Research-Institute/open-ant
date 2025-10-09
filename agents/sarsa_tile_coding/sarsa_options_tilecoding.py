@@ -200,7 +200,7 @@ parser.add_argument('--seed', type=int, default=42)
 parser.add_argument('--hw_config', type=str, default=None)
 parser.add_argument('--train', type=bool, default=True)
 parser.add_argument('--load_previous_weights', type=bool, default=False)
-parser.add_argument('--render', type=bool, default=False)
+parser.add_argument('--render', action='store_true', default=False)
 parser.add_argument('--dt', type=float, default=0.05)
 
 args = parser.parse_args()
@@ -230,10 +230,11 @@ if hw_config is None:
     )
 else:
     env_id = 'ant_hw'
+    render_mode = "human"
     with open(hw_config, 'r') as f:
         cfg = json.load(f)
     env = make_ant_env(cfg,
-                       render_mode='human',
+                       render_mode=render_mode,
                        dt=args.dt,
                        joint_config=joint_config)
 
@@ -369,7 +370,8 @@ while True:
     nb_options += 1
 
     if nb_options % 10 == 0:
-        cv2.imwrite(os.path.join(frames_folder, f"frame_{nb_options}.png"), options_env.render())
+        if render_mode == "rgb_array":
+            cv2.imwrite(os.path.join(frames_folder, f"frame_{nb_options}.png"), options_env.render())
 
     if terminated or truncated:
         print('Terminated', terminated, 'truncated', truncated)
