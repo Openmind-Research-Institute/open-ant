@@ -58,8 +58,6 @@ class AntEnv(MujocoEnv, utils.EzPickle):
             **kwargs,
         )
 
-        self._forward_reward_weight = forward_reward_weight
-
         self._reset_noise_scale = reset_noise_scale
 
         MujocoEnv.__init__(
@@ -95,8 +93,8 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         # Clip action.
         action = action.copy()
         for i in range(4):
-            action[2*i] = np.clip(action[2*i], -1, 1) * self.joint_config['hip_range'] + self.joint_config['hip_zero']
-            action[2*i + 1] = np.clip(action[2*i + 1], -1, 1) * self.joint_config['knee_range'] + self.joint_config['knee_zero']
+            action[2*i] = np.clip(action[2*i], -1, 1) * self._joint_config['hip_range'] + self._joint_config['hip_zero']
+            action[2*i + 1] = np.clip(action[2*i + 1], -1, 1) * self._joint_config['knee_range'] + self._joint_config['knee_zero']
 
         # Do simulation.
         self.do_simulation(action, self.frame_skip)
@@ -162,8 +160,8 @@ class AntEnv(MujocoEnv, utils.EzPickle):
     def _get_truncated_out_of_bounds_or_nans(self):
         truncation_condition = (
             np.isnan(self.data.qpos).any() | np.isnan(self.data.qvel).any() |
-            (x_pos < -WORKSPACE_LENGTH / 2.0) | (x_pos > WORKSPACE_LENGTH / 2.0) |
-            (y_pos < -WORKSPACE_WIDTH / 2.0) | (y_pos > WORKSPACE_WIDTH / 2.0)
+            (self.data.qpos[0] < -WORKSPACE_LENGTH / 2.0) | (self.data.qpos[0] > WORKSPACE_LENGTH / 2.0) |
+            (self.data.qpos[1] < -WORKSPACE_LENGTH / 2.0) | (self.data.qpos[1] > WORKSPACE_LENGTH / 2.0)
         )
 
         return bool(truncation_condition)
