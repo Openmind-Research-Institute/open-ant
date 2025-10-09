@@ -334,7 +334,7 @@ real_time_seconds = 0.0
 S, _ = options_env.reset(seed=SEED)
 O = 0
 
-learner = swiftsarsa.SwiftSarsaBinaryFeatures(1000000, 16, LAMBDA, 1e-2, 1e-3, 0.1, 0.99, 1e-4, 1e-10)
+learner = swiftsarsa.SwiftSarsaBinaryFeatures(iht.size, 16, LAMBDA, 1e-2, 1e-3, 0.1, 0.99, 1e-4, 1e-10)
 while True:
     if USE_DECAYING_EPSILON:
         EPSILON = max(0.05, EPSILON_START - idx_timelimit_episode * 0.015)
