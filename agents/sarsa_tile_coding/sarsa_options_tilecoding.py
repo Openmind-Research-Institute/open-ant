@@ -55,6 +55,7 @@ class OptionEnv:
                                     time_window=120.0,
                                     log_folder=log_dir)
         self.average_rewards_per_second = []
+        self.info = None
 
     def step(self, option_idx: int):
         opt = self.options[option_idx]
@@ -78,11 +79,11 @@ class OptionEnv:
         for i in range(self.duration_steps(option_idx)):
             self.joint_action[hip_joint_idx] = hip_traj[i]
             self.joint_action[knee_joint_idx] = knee_traj[i]
-            obs, reward, terminated, truncated, info = self.env.step(self.joint_action)
+            obs, reward, terminated, truncated, self.info = self.env.step(self.joint_action)
 
             # Record data.
             self.obs_list.append(obs)
-            self.xy_pos_list.append([info["current_x_position"], info["current_y_position"]])
+            self.xy_pos_list.append([self.info["current_x_position"], self.info["current_y_position"]])
             self.reward_list.append(reward)
 
             # Average reward update.
@@ -92,16 +93,16 @@ class OptionEnv:
             total_reward += gamma_i * reward
             gamma_i *= self.discount
             if terminated or truncated:
-                return obs, total_reward, terminated, truncated, info
+                return obs, total_reward, terminated, truncated, self.info
 
-        return obs, total_reward, terminated, truncated, info
+        return obs, total_reward, terminated, truncated, self.info
 
     def reset(self, seed=None):
-        self.joint_pos = np.zeros(len(self.env.q_joints))
+        self.joint_pos = np.zeros(self.env.action_space.shape[0])
         return self.env.reset(seed=SEED)
 
     def render(self):
-        return self.env.render()
+        return self.env.render_with_arrow(self.info)
     
     def duration_steps(self, option_idx: int):
         return round(self.options[option_idx]['duration'] / args.dt)
@@ -223,8 +224,9 @@ if hw_config is None:
     print(f"Render mode: {render_mode}")
     env = AntEnv(
         dt=args.dt,
-        render_mode="human",
-        task=BackAndForthTask(),
+        joint_config=joint_config,
+        render_mode=render_mode,
+        task=ForwardTask(),
     )
 else:
     env_id = 'ant_hw'
@@ -248,7 +250,7 @@ IHT_SIZE = 2**20
 
 USE_DECAYING_EPSILON = False
 
-# Log directory.
+# Directories.
 log_dir = os.path.join(os.path.dirname(__file__), 'logs', datetime.datetime.now().strftime('%Y%m%d_%H%M%S'))
 os.makedirs(log_dir, exist_ok=True)
 
@@ -256,6 +258,13 @@ weights_iht_folder = os.path.join(log_dir, "weights_iht")
 if not os.path.exists(weights_iht_folder):
     os.makedirs(weights_iht_folder)
 
+frames_folder = os.path.join(log_dir, "frames")
+if not os.path.exists(frames_folder):
+    os.makedirs(frames_folder)
+
+folder_trajectory = os.path.join(log_dir, "trajectory")
+if not os.path.exists(folder_trajectory):
+    os.makedirs(folder_trajectory)
 
 # Environment.
 options_env = OptionEnv(env, options)
@@ -308,19 +317,22 @@ with open(os.path.join(log_dir, "config.json"), "w") as f:
         "joint_config": joint_config,
     }, f, indent=2)
 
-returns_df = pd.DataFrame(columns=["episode", "reward", "real_time_seconds", "nb_options"])
 
-frames_buffer = []
-td_errors = []
+logging_data = {
+    "timelimit_episode": [],
+    "return_per_timelimit": [],
+    "real_time_seconds": [],
+    "reward_per_option": [],
+}
+logging_data_df = pd.DataFrame(logging_data)
 
 nb_options = 0
 return_per_timelimit = 0.0
 idx_timelimit_episode = 0
 real_time_seconds = 0.0
-generate_performance_report = False
 
 # Reset environment.
-S, _ = env.reset(seed=SEED)
+S, _ = options_env.reset(seed=SEED)
 O = select_option_epsilon_greedy(S, EPSILON, w, T)
 
 while True:
@@ -356,61 +368,39 @@ while True:
 
     nb_options += 1
 
-    if nb_options % 20 == 0: # Render less often to save time.
-        frames_buffer.append(env.render())
-    td_errors.append(TD_error)
+    if nb_options % 10 == 0:
+        cv2.imwrite(os.path.join(frames_folder, f"frame_{nb_options}.png"), options_env.render())
 
     if terminated or truncated:
         print('Terminated', terminated, 'truncated', truncated)
-        S, _ = env.reset(seed=SEED)
+        S, _ = options_env.reset(seed=SEED)
         O = select_option_epsilon_greedy(S, EPSILON, w, T)
 
     if nb_options >= MAX_OPTIONS_PER_TIMELIMIT_EPISODE:
-        print(f"Episode {idx_timelimit_episode} | reward: {return_per_timelimit:.4f} | time in seconds: {(real_time_seconds):.4f} | time in hours: {(real_time_seconds) / 3600:.4f} | epsilon: {EPSILON:.4f}")            
-        returns_df.loc[idx_timelimit_episode] = [idx_timelimit_episode, return_per_timelimit, real_time_seconds, nb_options]
-        returns_df.to_csv(os.path.join(log_dir, "return_per_timelimit.csv"), index=False)
+        logging_data["timelimit_episode"].append(idx_timelimit_episode)
+        logging_data["return_per_timelimit"].append(return_per_timelimit)
+        logging_data["reward_per_option"].append(R)
+        logging_data["real_time_seconds"].append(real_time_seconds)
 
-        idx_timelimit_episode += 1
-        nb_options = 0
-        return_per_timelimit = 0.0
-        generate_performance_report = True
+        print(f"Episode {idx_timelimit_episode} | reward: {return_per_timelimit:.4f} | time in seconds: {(real_time_seconds):.4f} | time in hours: {(real_time_seconds) / 3600:.4f} | epsilon: {EPSILON:.4f}")
 
-
-    if generate_performance_report:
-        # Save all the images in a zip file.
-        with zipfile.ZipFile(os.path.join(log_dir, f"vis_frames_{idx_timelimit_episode}.zip"), 'w') as zipf:
-            for i, frame in enumerate(frames_buffer):
-                img = Image.fromarray(frame)
-                buf = io.BytesIO()
-                img.save(buf, format="PNG")
-                img_bytes = buf.getvalue()
-                zipf.writestr(f"vis_frame_{i}.png", img_bytes)
+        # Save logging data.
+        logging_data_df = pd.concat([logging_data_df, pd.DataFrame(logging_data)], ignore_index=True)
+        logging_data_df.to_csv(os.path.join(log_dir, "logging_data.csv"), index=False)
 
         # Save weights.
         np.save(os.path.join(weights_iht_folder, f"weights.npy"), w)
         pickle.dump(iht, open(os.path.join(weights_iht_folder, f"iht.pkl"), "wb"))
 
-        # Save the raw reward list.
-        rewards_df = pd.DataFrame(options_env.reward_list, columns=["reward"])
-        rewards_df.to_csv(os.path.join(log_dir, f"rewards_raw.csv"), index=False)
-
-        # Save the obs list.
-        # name_obs = ['q_hip_1', 'q_knee_1', 'q_hip_2', 'q_knee_2', 'q_hip_3', 'q_knee_3', 'q_hip_4', 'q_knee_4',
-        #             'v_hip_1', 'v_knee_1', 'v_hip_2', 'v_knee_2', 'v_hip_3', 'v_knee_3', 'v_hip_4', 'v_knee_4',
-        #             'heading_x', 'heading_y',
-        #             'acc_x', 'acc_y', 'acc_z',
-        #             'angular_vel_x', 'angular_vel_y', 'angular_vel_z']
-        # df_obs_list = pd.DataFrame(options_env.obs_list, columns=name_obs)
-        # df_obs_list.to_csv(os.path.join(log_dir, f"obs_list_{idx_timelimit_episode}.csv"), index=False)
-
         # Save trajectory.
-        folder_trajectory = os.path.join(log_dir, "trajectory")
-        if not os.path.exists(folder_trajectory):
-            os.makedirs(folder_trajectory)
         trajectory_df = pd.DataFrame(options_env.xy_pos_list, columns=["x", "y"])
-        trajectory_df.to_csv(os.path.join(folder_trajectory, f"true_pos_xy.csv"), index=False)
+        trajectory_df.to_csv(os.path.join(folder_trajectory, f"true_pos_xy_{idx_timelimit_episode}.csv"), index=False)
 
-        with PdfPages(os.path.join(log_dir, f"report_episode_{idx_timelimit_episode}.pdf")) as pdf:
+        idx_timelimit_episode += 1
+        nb_options = 0
+        return_per_timelimit = 0.0
+
+        with PdfPages(os.path.join(log_dir, f"report.pdf")) as pdf:
             # Average reward plot.
             fig, ax = plt.subplots()
             ax.plot(options_env.average_rewards_per_second[options_env.reward_tracker.window_size:])
@@ -423,7 +413,7 @@ while True:
 
             # Reward plot.
             fig, ax1 = plt.subplots()
-            ax1.plot(returns_df['episode'], returns_df['reward'], color="blue", label='return')
+            ax1.plot(logging_data_df['timelimit_episode'], logging_data_df['return_per_timelimit'], color="blue", label='return')
             ax1.set_xlabel('Episode')
             ax1.set_ylabel('Return')
             ax1.set_title('Return per Episode')
@@ -434,24 +424,13 @@ while True:
             ax2.xaxis.set_ticks_position("bottom")
             ax2.xaxis.set_label_position("bottom")
             ax2.spines["bottom"].set_position(("outward", 40))
-            time_ticks = np.linspace(0, returns_df['real_time_seconds'].max() / 3600, 10)  # 10 evenly spaced time points.
-            episode_ticks = np.linspace(0, returns_df['episode'].max(), 10)  # 10 evenly spaced episode points.
+            time_ticks = np.linspace(0, logging_data_df['real_time_seconds'].max() / 3600, 10)  # 10 evenly spaced time points.
+            episode_ticks = np.linspace(0, logging_data_df['timelimit_episode'].max(), 10)  # 10 evenly spaced episode points.
             ax1.set_xticks(episode_ticks)
             ax1.set_xticklabels([f"{int(e)}" for e in episode_ticks])
             ax2.set_xticks(episode_ticks)
             ax2.set_xticklabels([f"{t:.2f}h" for t in time_ticks])
             ax2.set_xlabel("Real Time (hours)")
-            plt.tight_layout()
-            pdf.savefig()
-            plt.close()
-            
-            # TD error plot.
-            fig, ax1 = plt.subplots()
-            counter_options_list = np.arange(len(td_errors))
-            ax1.plot(counter_options_list, td_errors)
-            ax1.set_xlabel('Steps')
-            ax1.set_ylabel('TD Error')
-            ax1.set_title('TD Error')
             plt.tight_layout()
             pdf.savefig()
             plt.close()
@@ -461,6 +440,7 @@ while True:
             plt.plot(trajectory_df['x'], trajectory_df['y'], '-.', label=f'traj {idx_timelimit_episode}', alpha=0.5)
             plt.scatter(trajectory_df['x'][0], trajectory_df['y'][0], color='red', label='start')
             plt.scatter(trajectory_df['x'].iloc[-1], trajectory_df['y'].iloc[-1], color='green', label='end')
+            plt.plot(np.cos(np.linspace(0, 2*np.pi, 100)), np.sin(np.linspace(0, 2*np.pi, 100)), '--', label='circle')
             plt.plot(0, 0, 'x', markersize=10, color='black')
             plt.xlabel('x')
             plt.ylabel('y')
@@ -496,7 +476,3 @@ while True:
             plt.tight_layout()
             pdf.savefig()
             plt.close()
-
-            frames_buffer = []
-
-            generate_performance_report = False
