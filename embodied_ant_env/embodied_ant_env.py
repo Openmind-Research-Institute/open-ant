@@ -10,12 +10,97 @@ import gymnasium as gym
 from gymnasium import spaces
 from gymnasium.spaces import Box
 
-class EmbodiedAnt(gym.Env):
-    action_space = spaces.Box(low=-1, high=1, shape=(8,), dtype=np.float32)
-    observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(24,), dtype=np.float32)
+class ForwardTask:
+    def __init__(self, action_cost_weight=0.0):
+        self.action_cost_weight = action_cost_weight
+        self.last_pos = np.array([0, 0])
+        self.last_action = np.zeros(8)
+        self.reward_direction = np.array([1, 0])
+        self.observation_space = spaces.Box(low=-1.5, high=1.5, shape=(24,), dtype=np.float32)
+        print('Using ForwardTask')
 
-    def __init__(self, motor_controller, imu, tracker, dt=0.02, render_mode=None, joint_config=None):
+    def reset(self, info):
+        return self(info, np.zeros(8))
+
+    def __call__(self, info, action):
+        pos = np.array([info['current_x_position'], info['current_y_position']])
+        progress = (pos - self.last_pos)[0]
+        cost_action = np.sum(np.square(self.last_action - action)) * self.action_cost_weight
+        self.last_pos = pos
+        self.last_action = action.copy()
+        terminated = False
+        truncated = False
+
+        reward = progress - cost_action
+        info['reward_direction'] = self.reward_direction
+        observation = np.concatenate([
+            info['joint_positions'],
+            info['joint_velocities'],
+            info['heading_vector'],
+            info['ax'],
+            info['ay'],
+            info['az'],
+            info['wx'],
+            info['wy'],
+            info['wz'],
+        ], axis=None)
+        return observation, reward, terminated, truncated
+
+class BackAndForthTask:
+    def __init__(self, action_cost_weight=0.0):
+        self.action_cost_weight = action_cost_weight
+        self.last_pos = np.array([0, 0])
+        self.reward_direction = np.array([1, 0])
+        self.last_action = np.zeros(8)
+        self.observation_space = spaces.Box(low=-1.5, high=1.5, shape=(26,), dtype=np.float32)
+        print('Using BackAndForthTask')
+
+    def reset(self, info):
+        th = np.random.uniform(-np.pi, np.pi)
+        self.reward_direction = np.array([np.cos(th), np.sin(th)])
+        return self(info, np.zeros(8))
+
+    def __call__(self, info, action):
+        pos = np.array([info['current_x_position'], info['current_y_position']])
+        origin = np.array([0, 0]) # todo get from camera
+        radius = 1
+        # bounce back on the circle edge
+        if np.dot(pos - origin, self.reward_direction) > 0 and np.linalg.norm(pos - origin) > radius:
+            self.reward_direction = origin - pos
+            self.reward_direction /= np.linalg.norm(self.reward_direction)
+
+        progress = np.dot(pos - self.last_pos, self.reward_direction)
+
+        cost_action = np.sum(np.square(self.last_action - action)) * self.action_cost_weight
+        self.last_pos = pos
+        self.last_action = action.copy()
+        terminated = False
+        truncated = False
+
+        reward = progress - cost_action
+
+        info['reward_direction'] = self.reward_direction
+        observation = np.concatenate([
+            info['joint_positions'],
+            info['joint_velocities'],
+            info['heading_vector'],
+            info['reward_direction'],
+            info['ax'],
+            info['ay'],
+            info['az'],
+            info['wx'],
+            info['wy'],
+            info['wz'],
+        ], axis=None)
+
+        return observation, reward, terminated, truncated
+
+
+class EmbodiedAnt(gym.Env):
+
+    def __init__(self, motor_controller, imu, tracker, dt=0.02, render_mode=None, joint_config=None, task=ForwardTask()):
         super().__init__()
+        self.task = task
         self.motor_controller = motor_controller
         self.motor_controller.enable()
         self.dt = dt
@@ -35,9 +120,7 @@ class EmbodiedAnt(gym.Env):
 
         self._threads_should_exit = False
 
-        self.observation_space = Box(
-            low=-2.0, high=2.0, shape=(24,), dtype=np.float64
-        )
+        self.observation_space = task.observation_space
 
         self.action_space = Box(
             low=-1, high=1, shape=(8,), dtype=np.float64
@@ -59,15 +142,6 @@ class EmbodiedAnt(gym.Env):
         self.last_heading_vector = np.array([1, 0])
         self.last_seen = 0
 
-        self.q_joints = {'hip_1': 1,
-                         'ankle_1': 2,
-                         'hip_2': 3,
-                         'ankle_2': 4,
-                         'hip_3': 5,
-                         'ankle_3': 6,
-                         'hip_4': 7,
-                         'ankle_4': 8}
-
         self.temperature_log = open('temperature_log.csv', 'a')
         # self.temperature_log = open('temperature_log.csv', 'w')
 
@@ -78,9 +152,9 @@ class EmbodiedAnt(gym.Env):
         self.step(np.zeros(8))
         print('reset(): please move the ant back to the origin.')
         user_input = input('press enter when ready')
-        obs, info = self.get_observation()
-        self.get_reward(info)
-        return obs, info
+        info = self.get_observation()
+        observation, reward, terminated, truncated = self.task.reset(info)
+        return observation, info
 
     def step(self, action, sleep_until_next_step=True):
         if self._threads_should_exit:
@@ -102,8 +176,8 @@ class EmbodiedAnt(gym.Env):
         if sleep_until_next_step:
             time.sleep(sleep_duration)
 
-        observation, info = self.get_observation()
-        reward, terminated, truncated = self.get_reward(info)
+        info = self.get_observation()
+        observation, reward, terminated, truncated = self.task(info, action)
 
         self.temperature_log.write(f"{time.time()}, " + ", ".join(map(str, info['temperatures'])) + "\n")
         self.temperature_log.flush()
@@ -115,6 +189,9 @@ class EmbodiedAnt(gym.Env):
                 print(error[2])
             truncated = True
             self.motor_controller.recover_from_error()
+
+        if self.tracker_lost(info):
+            truncated = True
 
         if self.render_mode == 'human':
             self.i += 1
@@ -155,6 +232,8 @@ class EmbodiedAnt(gym.Env):
         if 'body' in bodies:
             info['current_x_position'] = bodies['body']['position'][0]
             info['current_y_position'] = bodies['body']['position'][1]
+            self.last_pos = bodies['body']['position']
+            self.last_seen = time.time()
         else:
             info['current_x_position'] = self.last_pos[0]
             info['current_y_position'] = self.last_pos[1]
@@ -166,38 +245,19 @@ class EmbodiedAnt(gym.Env):
             info['heading_vector'] = heading_vector
         else:
             heading_vector = self.last_heading_vector
-        observation = np.concatenate([
-            joint_positions,
-            joint_velocities,
-            heading_vector,
-            imu_data['ax'],
-            imu_data['ay'],
-            imu_data['az'],
-            imu_data['wx'],
-            imu_data['wy'],
-            imu_data['wz'],
-        ], axis=None)
-        return observation, info
 
-    def get_reward(self, info):
-        if 'body' in info['bodies']:
-            pos = info['bodies']['body']['position']
-            self.last_seen = time.time()
-        else:
-            pos = self.last_pos
-        progress = (pos - self.last_pos)[0]
-        self.last_pos = pos
-        terminated = False
-        truncated = False
+        return info
+
+    def tracker_lost(self, info):
         if time.time() - self.last_seen > 2:
             print('body tracker not seen for 2 seconds')
-            truncated = True
+            return True
         if 'body' in info['bodies']:
             img_pos = info['bodies']['body']['image_pos']
             if img_pos[0] < 0.1 or img_pos[0] > 0.9 or img_pos[1] < 0.1 or img_pos[1] > 0.9:
                 print('body is out of camera frame')
-                truncated = True # body is out of frame
-        return progress, terminated, truncated
+                return True # body is out of frame
+        return False
 
     def close(self):
         self._threads_should_exit = True
