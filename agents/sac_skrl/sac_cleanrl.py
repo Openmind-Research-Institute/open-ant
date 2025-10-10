@@ -82,21 +82,6 @@ class Args:
     terminate_on_upside_down: bool = True
     """whether to terminate the episode if the agent is upside down"""
 
-
-# def make_env(env_id, seed, idx, capture_video, run_name):
-#     def thunk():
-#         env_id = 'Ant-v4'
-#         if capture_video and idx == 0:
-#             env = gym.make(env_id, render_mode="rgb_array")
-#             env = gym.wrappers.RecordVideo(env, f"videos/{run_name}")
-#         else:
-#             env = gym.make(env_id)
-#         env = gym.wrappers.RecordEpisodeStatistics(env)
-#         env.action_space.seed(seed)
-#         return env
-
-#     return thunk
-
 # ALGO LOGIC: initialize agent here:
 class SoftQNetwork(nn.Module):
     def __init__(self, env):
@@ -280,7 +265,6 @@ if __name__ == "__main__":
                 print('infos["episode"]', infos["episode"])
                 writer.add_scalar("charts/episodic_return", infos["episode"]["r"], global_step)
                 writer.add_scalar("charts/episodic_length", infos["episode"]["l"], global_step)
-                # break
 
         # TRY NOT TO MODIFY: save data to reply buffer; handle `final_observation`
         real_next_obs = next_obs.copy()
