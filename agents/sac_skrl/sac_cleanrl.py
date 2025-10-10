@@ -13,6 +13,7 @@ import torch.optim as optim
 import tyro
 from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
+from matplotlib.backends.backend_pdf import PdfPages
 
 from buffers import ReplayBuffer
 # Path setup
@@ -24,6 +25,14 @@ from embodied_ant_env import make_ant_env, ForwardTask, BackAndForthTask
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from reward import RewardTracker
 from utils import safe_json
+import matplotlib.pyplot as plt
+
+# Matplotlib font setup
+plt.rcParams['font.family'] = 'Arial'
+plt.rcParams['font.size'] = 20
+plt.rcParams['axes.linewidth'] = 2
+plt.rcParams['axes.labelsize'] = 20
+plt.rcParams['axes.titlesize'] = 20
 
 @dataclass
 class Args:
@@ -66,7 +75,7 @@ class Args:
     q_lr: float = 1e-3
     """the learning rate of the Q network network optimizer"""
     policy_frequency: int = 2
-    """the frequency of training policy (delayed)"""
+    """the frequency of learning policy (delayed)"""
     target_network_frequency: int = 1  # Denis Yarats' implementation delays this by 2.
     """the frequency of updates for the target nerworks"""
     alpha: float = 0.2
@@ -202,7 +211,7 @@ if __name__ == "__main__":
             
             if capture_video and idx == 0:
                 print('RecordVideo')
-                env = gym.wrappers.RecordVideo(env, f"videos/{run_name}", episode_trigger=lambda x: x % 10 == 0)
+                env = gym.wrappers.RecordVideo(env, f"runs/{run_name}/videos/{run_name}", episode_trigger=lambda x: x % 10 == 0)
             env = gym.wrappers.RecordEpisodeStatistics(env)
             env.action_space.seed(seed)
             return env
@@ -248,6 +257,28 @@ if __name__ == "__main__":
 
     # TRY NOT TO MODIFY: start the game
     obs, _ = envs.reset(seed=args.seed)
+
+    reward_tracker = RewardTracker(env_dt=args.dt, env_id=args.env_id,
+                            log_folder=os.path.join("runs", run_name),
+                            time_window=120.0)
+
+    # Debugging variables.
+    dict_debugging = {}
+    dict_debugging['episodic_returns'] = []
+    dict_debugging['episodic_lengths'] = []
+    dict_debugging['episodic_step'] = []
+    dict_debugging['steps'] = []
+    dict_debugging['qf1_values'] = []
+    dict_debugging['qf2_values'] = []
+    dict_debugging['qf1_losses'] = []
+    dict_debugging['qf2_losses'] = []
+    dict_debugging['qf_losses'] = []
+    dict_debugging['actor_losses'] = []
+    dict_debugging['alphas'] = []
+    dict_debugging['alpha_losses'] = []
+    dict_debugging['SPS'] = []
+    dict_debugging['average_reward_per_second'] = []
+
     for global_step in tqdm(range(args.total_timesteps)):
         # ALGO LOGIC: put action logic here
         if global_step < args.learning_starts:
@@ -265,15 +296,24 @@ if __name__ == "__main__":
                 print('infos["episode"]', infos["episode"])
                 writer.add_scalar("charts/episodic_return", infos["episode"]["r"], global_step)
                 writer.add_scalar("charts/episodic_length", infos["episode"]["l"], global_step)
+                dict_debugging['episodic_returns'].append(infos["episode"]["r"])
+                dict_debugging['episodic_lengths'].append(infos["episode"]["l"])
+                dict_debugging['episodic_step'].append(global_step)
 
         # TRY NOT TO MODIFY: save data to reply buffer; handle `final_observation`
         real_next_obs = next_obs.copy()
         rb.add(obs, real_next_obs, actions, rewards, terminations, infos)
 
+        if args.num_envs == 1:
+            reward_tracker.update(rewards.item())
+            reward_tracker.log(plot=True, every_N_steps=100)
+        else:
+            raise ValueError("reward_tracker is only supported for single environment")
+
         # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
         obs = next_obs
 
-        # ALGO LOGIC: training.
+        # ALGO LOGIC: learning.
         if global_step > args.learning_starts:
             data = rb.sample(args.batch_size)
             with torch.no_grad():
@@ -281,8 +321,9 @@ if __name__ == "__main__":
                 qf1_next_target = qf1_target(data.next_observations, next_state_actions)
                 qf2_next_target = qf2_target(data.next_observations, next_state_actions)
                 min_qf_next_target = torch.min(qf1_next_target, qf2_next_target) - alpha * next_state_log_pi
-                next_q_value = data.rewards.flatten() * args.dt + (1 - data.dones.flatten()) * (args.gamma ** args.dt) * (min_qf_next_target).view(-1)
-
+                # next_q_value = data.rewards.flatten() * args.dt + (1 - data.dones.flatten()) * (args.gamma ** args.dt) * (min_qf_next_target).view(-1)
+                next_q_value = data.rewards.flatten() + (1 - data.dones.flatten()) * args.gamma * (min_qf_next_target).view(-1)
+                # NOTE: the dt here, see K. de Asis, R. Sutton, "An Idiosyncrasy of Time-discretization in RL".
             qf1_a_values = qf1(data.observations, data.actions).view(-1)
             qf2_a_values = qf2(data.observations, data.actions).view(-1)
             qf1_loss = F.mse_loss(qf1_a_values, next_q_value)
@@ -326,6 +367,18 @@ if __name__ == "__main__":
                     target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
 
             if global_step % 100 == 0:
+                dict_debugging['steps'].append(global_step)
+                dict_debugging['qf1_values'].append(qf1_a_values.mean().item())
+                dict_debugging['qf2_values'].append(qf2_a_values.mean().item())
+                dict_debugging['qf1_losses'].append(qf1_loss.item())
+                dict_debugging['qf2_losses'].append(qf2_loss.item())
+                dict_debugging['qf_losses'].append(qf_loss.item() / 2.0)
+                dict_debugging['actor_losses'].append(actor_loss.item())
+                dict_debugging['alphas'].append(alpha)
+                dict_debugging['alpha_losses'].append(alpha_loss.item())
+                dict_debugging['SPS'].append(int(global_step / (time.time() - start_time)))
+                dict_debugging['average_reward_per_second'].append(reward_tracker.average_reward_per_second)
+
                 writer.add_scalar("losses/qf1_values", qf1_a_values.mean().item(), global_step)
                 writer.add_scalar("losses/qf2_values", qf2_a_values.mean().item(), global_step)
                 writer.add_scalar("losses/qf1_loss", qf1_loss.item(), global_step)
@@ -333,6 +386,7 @@ if __name__ == "__main__":
                 writer.add_scalar("losses/qf_loss", qf_loss.item() / 2.0, global_step)
                 writer.add_scalar("losses/actor_loss", actor_loss.item(), global_step)
                 writer.add_scalar("losses/alpha", alpha, global_step)
+                writer.add_scalar("charts/average_reward_per_second", reward_tracker.average_reward_per_second, global_step)
                 print("SPS:", int(global_step / (time.time() - start_time)))
                 writer.add_scalar(
                     "charts/SPS",
@@ -341,6 +395,43 @@ if __name__ == "__main__":
                 )
                 if args.autotune:
                     writer.add_scalar("losses/alpha_loss", alpha_loss.item(), global_step)
+
+                figs_html = []
+                with PdfPages(f"runs/{run_name}/report.pdf") as pdf:
+
+                    fig = plt.figure()
+                    plt.plot(dict_debugging['steps'], dict_debugging['average_reward_per_second'], linewidth=2)
+                    plt.xlabel('Steps')
+                    plt.ylabel('Average Reward per Second')
+                    plt.title('Average Reward per Second')
+                    plt.tight_layout()
+                    pdf.savefig()
+                    plt.close()
+
+                    if len(dict_debugging['episodic_returns']) > 0:
+                        fig, ax = plt.subplots(2, 1, figsize=(10, 10))
+                        ax[0].plot(dict_debugging['episodic_step'], dict_debugging['episodic_returns'])
+                        ax[0].set_xlabel('Steps')
+                        ax[0].set_ylabel('Episodic Returns')
+                        ax[0].set_title('Episodic Returns')
+                        ax[1].plot(dict_debugging['episodic_step'], dict_debugging['episodic_lengths'])
+                        ax[1].set_xlabel('Steps')
+                        ax[1].set_ylabel('Episodic Lengths')
+                        ax[1].set_title('Episodic Lengths')
+                        plt.tight_layout()
+                        pdf.savefig()
+                        plt.close()
+
+                    for key, value in dict_debugging.items():
+                        if key.startswith('episodic'):
+                            continue
+                        fig = plt.figure()
+                        plt.plot(dict_debugging['steps'], value)
+                        plt.xlabel('Steps')
+                        plt.ylabel(key)
+                        plt.title(key)
+                        pdf.savefig()
+                        plt.close()
 
     envs.close()
     writer.close()
