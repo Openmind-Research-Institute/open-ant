@@ -17,3 +17,6 @@ torch
 matplotlib
 skrl
 
+# others
+tyro
+
