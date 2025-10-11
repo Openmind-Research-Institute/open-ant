@@ -12,6 +12,8 @@ import torch.nn.functional as F
 import torch.optim as optim
 import tyro
 from tqdm import tqdm
+import json
+from datetime import datetime
 from torch.utils.tensorboard import SummaryWriter
 from matplotlib.backends.backend_pdf import PdfPages
 
@@ -24,7 +26,6 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../.
 from embodied_ant_env import make_ant_env, ForwardTask, BackAndForthTask
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from reward import RewardTracker
-from utils import safe_json
 import matplotlib.pyplot as plt
 
 # Matplotlib font setup
@@ -90,6 +91,8 @@ class Args:
     """the render mode"""
     terminate_on_upside_down: bool = True
     """whether to terminate the episode if the agent is upside down"""
+    weights_path: str = None
+    """previously learned weights"""
 
 # ALGO LOGIC: initialize agent here:
 class SoftQNetwork(nn.Module):
@@ -165,7 +168,8 @@ class Actor(nn.Module):
 if __name__ == "__main__":
 
     args = tyro.cli(Args)
-    run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
+    date = datetime.now().strftime("%Y%m%d-%H%M%S")
+    run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{date}"
     if args.track:
         import wandb
 
@@ -234,6 +238,13 @@ if __name__ == "__main__":
     qf2_target.load_state_dict(qf2.state_dict())
     q_optimizer = optim.Adam(list(qf1.parameters()) + list(qf2.parameters()), lr=args.q_lr)
     actor_optimizer = optim.Adam(list(actor.parameters()), lr=args.policy_lr)
+
+    if args.weights_path is not None:
+        actor.load_state_dict(torch.load(os.path.join(args.weights_path, "actor.pth")))
+        qf1.load_state_dict(torch.load(os.path.join(args.weights_path, "qf1.pth")))
+        qf2.load_state_dict(torch.load(os.path.join(args.weights_path, "qf2.pth")))
+        qf1_target.load_state_dict(torch.load(os.path.join(args.weights_path, "qf1_target.pth")))
+        qf2_target.load_state_dict(torch.load(os.path.join(args.weights_path, "qf2_target.pth")))
 
     # Automatic entropy tuning.
     if args.autotune:
@@ -367,6 +378,16 @@ if __name__ == "__main__":
                     target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
 
             if global_step % 100 == 0:
+
+                # Save all the networks.
+                save_weights_folder = os.path.join("runs", run_name, "weights")
+                os.makedirs(save_weights_folder, exist_ok=True)
+                torch.save(actor.state_dict(), os.path.join(save_weights_folder, "actor.pth"))
+                torch.save(qf1.state_dict(), os.path.join(save_weights_folder, "qf1.pth"))
+                torch.save(qf2.state_dict(), os.path.join(save_weights_folder, "qf2.pth"))
+                torch.save(qf1_target.state_dict(), os.path.join(save_weights_folder, "qf1_target.pth"))
+                torch.save(qf2_target.state_dict(), os.path.join(save_weights_folder, "qf2_target.pth"))
+
                 dict_debugging['steps'].append(global_step)
                 dict_debugging['qf1_values'].append(qf1_a_values.mean().item())
                 dict_debugging['qf2_values'].append(qf2_a_values.mean().item())
