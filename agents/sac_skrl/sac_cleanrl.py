@@ -201,17 +201,24 @@ if __name__ == "__main__":
     
     def make_env(env_id, seed, idx, capture_video, run_name):
         def thunk():
+            joint_config = {
+                'hip_zero': 0,
+                'knee_zero': -np.radians(50),
+                'hip_range': np.radians(45),
+                'knee_range': np.radians(20),
+            }
             if args.hw_config is None:
                 env = AntEnv(
                     dt=args.dt,
                     render_mode=args.render_mode,
                     terminate_on_upside_down=args.terminate_on_upside_down,
                     task=ForwardTask(),
+                    joint_config=joint_config,
                 )
             else:
                 with open(args.hw_config, 'r') as f:
                     cfg = json.load(f)
-                env = make_ant_env(cfg, render_mode=render, dt=args.dt)
+                env = make_ant_env(cfg, render_mode=render, dt=args.dt, joint_config=joint_config)
             
             if capture_video and idx == 0:
                 print('RecordVideo')
