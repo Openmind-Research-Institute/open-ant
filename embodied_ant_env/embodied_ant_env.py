@@ -213,12 +213,14 @@ class EmbodiedAnt(gym.Env):
             if self.i % 10 == 0:
                 show_image(info['vis_frame'])
                 self.vis_frame = info['vis_frame']
+        elif self.render_mode == 'rgb_array':
+            self.vis_frame = info['vis_frame']
 
         self.last_step_time = time.time()
         return observation, reward, terminated, truncated, info
 
     def render(self):
-        if self.render_mode == 'human':
+        if self.render_mode == 'human' or self.render_mode == 'rgb_array':
             return self.vis_frame
         return None
 
