@@ -1,3 +1,16 @@
 #!/bin/bash
 
-python sac_skrl.py --train True --seed 0 --terminate_on_upside_down True --action_cost_weight 0.0 --dt 0.12
+# learn in sim
+if [ "$1" == "sim" ]; then
+    python3 sac_cleanrl.py --render_mode rgb_array --capture_video --dt 0.05 --env_id SimEmbodiedAnt
+fi
+
+# learn in hardware
+if [ "$1" == "hw" ]; then
+    python3 sac_cleanrl.py --render_mode rgb_array --capture_video --dt 0.025 --env_id HwEmbodiedAnt --hw_config /Users/sorinalupu/OpenmindResearch/workshops/EmbodiedAnt/embodied_ant_env/ant34.json --weights_path /Users/sorinalupu/OpenmindResearch/workshops/EmbodiedAnt/agents/sac_skrl/runs/SimEmbodiedAnt__sac_cleanrl__1__20251011-124337/weights --learning_starts 20
+fi
+
+# if [ "$1" == "hw" ]; then
+#     python3 sac_cleanrl.py --render_mode rgb_array --dt 0.05 --env_id HwEmbodiedAnt --hw_config /Users/sorinalupu/OpenmindResearch/workshops/EmbodiedAnt/embodied_ant_env/ant34.json
+# fi
+
