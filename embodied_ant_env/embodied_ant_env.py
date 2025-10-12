@@ -190,8 +190,8 @@ class EmbodiedAnt(gym.Env):
         info = self.get_observation()
         observation, reward, terminated, truncated = self.task(info, action)
 
-        # self.temperature_log.write(f"{time.time()}, " + ", ".join(map(str, info['temperatures'])) + "\n")
-        # self.temperature_log.flush()
+        self.temperature_log.write(f"{time.time()}, " + ", ".join(map(str, info['temperatures'])) + "\n")
+        self.temperature_log.flush()
 
         errors = self.motor_controller.check_errors()
         if len(errors) > 0: # only log errors if there are any
@@ -235,12 +235,12 @@ class EmbodiedAnt(gym.Env):
             else:
                 bodies, frame, vis_frame = {}, np.zeros((640, 480, 3)), np.zeros((640, 480, 3))
         joint_positions, joint_velocities, joint_loads = self.motor_controller.get_feedback()
-        # temperatures = self.motor_controller.get_temperature()
+        temperatures = self.motor_controller.get_temperature()
         info = imu_data
         info['joint_positions'] = joint_positions
         info['joint_velocities'] = joint_velocities
         info['joint_loads'] = joint_loads
-        # info['temperatures'] = temperatures
+        info['temperatures'] = temperatures
         info['bodies'] = bodies
 
         info['frame'] = frame
