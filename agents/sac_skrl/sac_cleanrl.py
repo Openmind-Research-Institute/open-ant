@@ -247,11 +247,16 @@ if __name__ == "__main__":
     actor_optimizer = optim.Adam(list(actor.parameters()), lr=args.policy_lr)
 
     if args.weights_path is not None:
-        actor.load_state_dict(torch.load(os.path.join(args.weights_path, "actor.pth")))
-        qf1.load_state_dict(torch.load(os.path.join(args.weights_path, "qf1.pth")))
-        qf2.load_state_dict(torch.load(os.path.join(args.weights_path, "qf2.pth")))
-        qf1_target.load_state_dict(torch.load(os.path.join(args.weights_path, "qf1_target.pth")))
-        qf2_target.load_state_dict(torch.load(os.path.join(args.weights_path, "qf2_target.pth")))
+        state_dict = torch.load(os.path.join(args.weights_path, "actor.pth"), map_location=torch.device('cpu'))
+        actor.load_state_dict(state_dict)
+        state_dict = torch.load(os.path.join(args.weights_path, "qf1.pth"), map_location=torch.device('cpu'))
+        qf1.load_state_dict(state_dict)
+        state_dict = torch.load(os.path.join(args.weights_path, "qf2.pth"), map_location=torch.device('cpu'))
+        qf2.load_state_dict(state_dict)
+        state_dict = torch.load(os.path.join(args.weights_path, "qf1_target.pth"), map_location=torch.device('cpu'))
+        qf1_target.load_state_dict(state_dict)
+        state_dict = torch.load(os.path.join(args.weights_path, "qf2_target.pth"), map_location=torch.device('cpu'))
+        qf2_target.load_state_dict(state_dict)
 
     # Automatic entropy tuning.
     if args.autotune:
@@ -299,7 +304,7 @@ if __name__ == "__main__":
 
     for global_step in tqdm(range(args.total_timesteps)):
         # ALGO LOGIC: put action logic here
-        if global_step < args.learning_starts:
+        if global_step < args.learning_starts and args.weights_path is None:
             actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
         else:
             actions, _, _ = actor.get_action(torch.Tensor(obs).to(device))
