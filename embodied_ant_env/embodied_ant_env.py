@@ -81,12 +81,13 @@ class EmbodiedAnt(gym.Env):
                 sleep_duration = 0
         if sleep_until_next_step:
             time.sleep(sleep_duration)
+        self.last_step_time = time.time()
 
         observation, info = self.get_observation()
         reward, terminated, truncated = self.get_reward(info)
 
-        self.temperature_log.write(f"{time.time()}, " + ", ".join(map(str, info['temperatures'])) + "\n")
-        self.temperature_log.flush()
+        # self.temperature_log.write(f"{time.time()}, " + ", ".join(map(str, info['temperatures'])) + "\n")
+        # self.temperature_log.flush()
 
         errors = self.motor_controller.check_errors()
         if len(errors) > 0:
@@ -101,7 +102,6 @@ class EmbodiedAnt(gym.Env):
             if self.i % 10 == 0:
                 show_image(info['vis_frame'])
 
-        self.last_step_time = time.time()
         return observation, reward, terminated, truncated, info
 
     def get_observation(self):
@@ -116,12 +116,12 @@ class EmbodiedAnt(gym.Env):
             else:
                 bodies, frame, vis_frame = {}, np.zeros((640, 480, 3)), np.zeros((640, 480, 3))
         joint_positions, joint_velocities, joint_loads = self.motor_controller.get_feedback()
-        temperatures = self.motor_controller.get_temperature()
+        # temperatures = self.motor_controller.get_temperature()
         info = imu_data
         info['joint_positions'] = joint_positions
         info['joint_velocities'] = joint_velocities
         info['joint_loads'] = joint_loads
-        info['temperatures'] = temperatures
+        # info['temperatures'] = temperatures
         info['bodies'] = bodies
         info['frame'] = frame
         info['vis_frame'] = vis_frame
@@ -239,25 +239,12 @@ if __name__ == "__main__":
                             fov_diagonal_deg=cfg['camera_fov_diagonal_deg'],
                             tag_sizes=cfg['camera_tag_sizes'],
                             tag_ids=cfg['camera_tag_ids'])
-    env = EmbodiedAnt(motor_controller=motor_controller, imu=imu, tracker=tracker)
+    env = EmbodiedAnt(motor_controller=motor_controller, imu=imu, tracker=tracker, dt=0.05)
     i = 0
 
     while True:
-        # time.sleep(1)
         time_now = time.time()
-        ctrl = np.zeros(8)
-        ctrl[1] = np.sin(10*time_now)*1.5
-        ctrl[3] = np.sin(10*time_now)*1.5
-        ctrl[5] = np.sin(10*time_now)*1.5
-        ctrl[7] = np.sin(10*time_now)*1.5
-        ctrl = np.array(ctrl)
-        obs, rew, term, trunc, info = env.step(ctrl)
-        # obs, rew, term, trunc, info = env.step(np.random.uniform(-0.3, 0.3, 8))
-        # print(obs)
-        print(rew)
-        # print(term)
-        # print(trunc)
-        # print(info)
-
-        if (i := i + 1) % 10 == 0:
-            show_image(info['vis_frame'])
+        action = env.action_space.sample()
+        obs, rew, term, trunc, info = env.step(action)
+        # if (i := i + 1) % 10 == 0:
+        #     show_image(info['vis_frame'])
