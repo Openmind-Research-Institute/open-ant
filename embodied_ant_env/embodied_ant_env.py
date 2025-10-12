@@ -257,10 +257,9 @@ class EmbodiedAnt(gym.Env):
             heading_vector = (bodies['body']['orientation'] @ np.array([1, 0, 0]))[:2]
             heading_vector /= np.linalg.norm(heading_vector)
             self.last_heading_vector = heading_vector
-            info['heading_vector'] = heading_vector
         else:
             heading_vector = self.last_heading_vector
-
+        info['heading_vector'] = heading_vector
         return info
 
     def tracker_lost(self, info):
