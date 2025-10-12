@@ -313,8 +313,9 @@ if __name__ == "__main__":
                 print('RecordVideo')
                 env = gym.wrappers.RecordVideo(env, f"runs/{run_name}/videos/{run_name}", episode_trigger=lambda x: x % 10 == 0)
             env = gym.wrappers.RecordEpisodeStatistics(env)
-            env = NormalizeObservation(env)
-            env = ScaleReward(env)
+            # env = NormalizeObservation(env)
+            # env = ScaleReward(env)
+            env = gym.wrappers.TransformReward(env, lambda r: r * 10)
             env.action_space.seed(seed)
             return env
 
