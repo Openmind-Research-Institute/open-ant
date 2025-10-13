@@ -66,7 +66,7 @@ class MotorController:
             if res != dynamixel_sdk.COMM_SUCCESS:
                 self.logger.error(f"Failed to set operating mode: {self.packet.getTxRxResult(res)}")
                 raise Exception(f"Failed to set operating mode: {self.packet.getTxRxResult(res)}")
-            res, err = self.packet.write2ByteTxRx(self.port, motor['id'], self.ADDR_PWM_LIMIT, int(80/0.113)) # set PWM limit
+            res, err = self.packet.write2ByteTxRx(self.port, motor['id'], self.ADDR_PWM_LIMIT, int(50/0.113)) # set PWM limit
             if res != dynamixel_sdk.COMM_SUCCESS:
                 self.logger.error(f"Failed to set PWM limit: {self.packet.getTxRxResult(res)}")
                 raise Exception(f"Failed to set PWM limit: {self.packet.getTxRxResult(res)}")
