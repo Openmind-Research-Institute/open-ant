@@ -2,7 +2,7 @@ defaults:
     - override hydra/launcher: submitit_local
 
 # environment
-task: dog-run
+task: embodied-ant
 obs: state
 episodic: false
 
@@ -64,10 +64,10 @@ dropout: 0.01
 simnorm_dim: 8
 
 # logging
-wandb_project: ???
-wandb_entity: ???
+wandb_project: 'embodied-ant'
+wandb_entity: lupusorina-california-institute-of-technology-caltech-org
 wandb_silent: false
-enable_wandb: true
+enable_wandb: false
 save_csv: true
 
 # misc
@@ -81,9 +81,9 @@ work_dir: ???
 task_title: ???
 multitask: ???
 tasks: ???
-obs_shape: ???
-action_dim: ???
-episode_length: ???
+obs_shape: {'state': [24]}
+action_dim: 8
+episode_length: 1000
 obs_shapes: ???
 action_dims: ???
 episode_lengths: ???
