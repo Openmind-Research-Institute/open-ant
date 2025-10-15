@@ -50,6 +50,8 @@ from trainer.online_trainer import OnlineTrainer
 from common.logger import Logger
 from envs.wrappers.timeout import Timeout
 from envs.mujoco import MuJoCoWrapper
+from envs.wrappers.tensor import TensorWrapper
+
 torch.backends.cudnn.benchmark = True
 torch.set_float32_matmul_precision('high')
 
@@ -97,6 +99,14 @@ def train(cfg: dict):
 		raise ValueError('Unknown task:', cfg.task)
 	env = MuJoCoWrapper(env, cfg)
 	env = Timeout(env, max_episode_steps=1000)
+	env = TensorWrapper(env)
+	try: # Dict
+		cfg.obs_shape = {k: v.shape for k, v in env.observation_space.spaces.items()}
+	except: # Box
+		cfg.obs_shape = {cfg.get('obs', 'state'): env.observation_space.shape}
+	cfg.action_dim = env.action_space.shape[0]
+	cfg.seed_steps = max(1000, 5*cfg.episode_length)
+
 	cfg.discount_max = 0.99
 	cfg.rho = 0.7
 
