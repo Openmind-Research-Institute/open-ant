@@ -44,8 +44,8 @@ class EmbodiedAnt(gym.Env):
         self._tracker_thread = threading.Thread(target=self._poll_tracker, daemon=True)
         self._tracker_thread.start()
 
-        self.last_pos = np.array([0, 0, 0])
-        self.last_heading_vector = np.array([1, 0])
+        self.last_pos = None
+        self.last_heading_vector = None
         self.last_seen = 0
 
         self.temperature_log = open('temperature_log.csv', 'a')
@@ -125,13 +125,24 @@ class EmbodiedAnt(gym.Env):
         info['bodies'] = bodies
         info['frame'] = frame
         info['vis_frame'] = vis_frame
+
+        if 'body' in bodies:
+            info['current_x_position'] = bodies['body']['position'][0]
+            info['current_y_position'] = bodies['body']['position'][1]
+        else:
+            info['current_x_position'] = self.last_pos[0] if self.last_pos is not None else 0.0
+            info['current_y_position'] = self.last_pos[1] if self.last_pos is not None else 0.0
+
         if 'body' in bodies:
             heading_vector = (bodies['body']['orientation'] @ np.array([1, 0, 0]))[:2]
             heading_vector /= np.linalg.norm(heading_vector)
+
             self.last_heading_vector = heading_vector
             info['heading_vector'] = heading_vector
         else:
-            heading_vector = self.last_heading_vector
+            heading_vector = self.last_heading_vector if self.last_heading_vector is not None else np.array([1.0, 0.0])
+        info['heading_vector'] = heading_vector
+
         observation = np.concatenate([
             joint_positions,
             joint_velocities,
@@ -151,7 +162,11 @@ class EmbodiedAnt(gym.Env):
             self.last_seen = time.time()
         else:
             pos = self.last_pos
-        progress = (pos - self.last_pos)[0]
+        if self.last_pos is not None:
+            progress = (pos - self.last_pos)[0]
+        else:
+            progress = 0.0
+        level = - 0.01 * (info['ax']**2 + info['ay']**2)
         self.last_pos = pos
         terminated = False
         truncated = False
