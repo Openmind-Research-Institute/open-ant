@@ -55,7 +55,7 @@ class VisionTracker:
         # filter out detections by decision margin
         detections = [det for det in detections if det.decision_margin > 2.0]
         # filter out detections by hamming distance
-        detections = [det for det in detections if det.hamming <= 1]
+        detections = [det for det in detections if det.hamming <= 0]
         # print(f"after filtering: {len(detections)} detections")
         return detections
 
