@@ -138,8 +138,8 @@ class EmbodiedAnt(gym.Env):
         self._tracker_thread = threading.Thread(target=self._poll_tracker, daemon=True)
         self._tracker_thread.start()
 
-        self.last_pos = np.array([0, 0, 0])
-        self.last_heading_vector = np.array([1, 0])
+        self.last_pos = None
+        self.last_heading_vector = None
         self.last_seen = 0
 
         self.q_joints = {'hip_1': 1,
@@ -245,17 +245,18 @@ class EmbodiedAnt(gym.Env):
 
         info['frame'] = frame
         info['vis_frame'] = vis_frame
+
         if 'body' in bodies:
             info['current_x_position'] = bodies['body']['position'][0]
             info['current_y_position'] = bodies['body']['position'][1]
-            self.last_pos = bodies['body']['position']
-            self.last_seen = time.time()
         else:
-            info['current_x_position'] = self.last_pos[0]
-            info['current_y_position'] = self.last_pos[1]
+            info['current_x_position'] = self.last_pos[0] if self.last_pos is not None else 0.0
+            info['current_y_position'] = self.last_pos[1] if self.last_pos is not None else 0.0
+
         if 'body' in bodies:
             heading_vector = (bodies['body']['orientation'] @ np.array([1, 0, 0]))[:2]
             heading_vector /= np.linalg.norm(heading_vector)
+
             self.last_heading_vector = heading_vector
         else:
             heading_vector = self.last_heading_vector
