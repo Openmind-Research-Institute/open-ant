@@ -59,7 +59,32 @@ class VisionTracker:
         # print(f"after filtering: {len(detections)} detections")
         return detections
 
-    def draw_detections(self, frame, detections, detection_time):
+    def draw_axes(self, frame, R, t, K, axis_length=0.05):
+        """
+        Draw the coordinate axes for a given pose (R, t) on the image.
+        R: 3x3 rotation matrix
+        t: 3x1 translation vector
+        K: 3x3 camera matrix
+        """
+        axis_3D = np.float32([
+            [0, 0, 0],                # origin
+            [axis_length, 0, 0],      # x-axis
+            [0, axis_length, 0],      # y-axis
+            [0, 0, axis_length],      # z-axis
+        ]).reshape(-1, 3)
+
+        # Project points to 2D
+        rvec, _ = cv2.Rodrigues(R)
+        tvec = t.reshape(3, 1)
+        pts_2D, _ = cv2.projectPoints(axis_3D, rvec, tvec, K, None)
+        pts_2D = pts_2D.reshape(-1, 2).astype(int)
+
+        origin = tuple(pts_2D[0])
+        cv2.line(frame, origin, tuple(pts_2D[1]), (0, 0, 255), 2)  # X - red
+        cv2.line(frame, origin, tuple(pts_2D[2]), (0, 255, 0), 2)  # Y - green
+        cv2.line(frame, origin, tuple(pts_2D[3]), (255, 0, 0), 2)  # Z - blue
+
+    def draw_detections(self, frame, detections, detection_time, draw_axes=False, draw_text=False):
         for det in detections:
             for i in range(4):
                 pt1 = tuple(det.corners[i].astype(int))
@@ -68,8 +93,19 @@ class VisionTracker:
 
             center = tuple(det.center.astype(int))
             cv2.circle(frame, center, 5, (0,0,255), -1)
-            cv2.putText(frame, f"ID: {det.tag_id}", (center[0]+5, center[1]-5),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (255,0,0), 1)
+
+            if det.pose_t is not None:
+                if draw_text:
+                    cv2.putText(frame, f"ID: {det.tag_id}", (center[0]+5, center[1]-5),
+                                cv2.FONT_HERSHEY_SIMPLEX, 1, (255,0,0), 1)
+                    cv2.putText(frame, str(det.pose_R[0]), (center[0]+30, center[1]+30),
+                                cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 1)
+                    cv2.putText(frame, str(det.pose_R[1]), (center[0]+30, center[1]+60),
+                                cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 1)
+                    cv2.putText(frame, str(det.pose_R[2]), (center[0]+30, center[1]+90),
+                                cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 1)
+                if draw_axes:
+                    self.draw_axes(frame, det.pose_R, det.pose_t, self.K)
 
         cv2.putText(frame, f"detection time: {detection_time:.3f}s", (10, 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (255,0,0), 2)
