@@ -249,6 +249,8 @@ class EmbodiedAnt(gym.Env):
         if 'body' in bodies:
             info['current_x_position'] = bodies['body']['position'][0]
             info['current_y_position'] = bodies['body']['position'][1]
+            self.last_pos = bodies['body']['position']
+            self.last_seen = time.time()
         else:
             info['current_x_position'] = self.last_pos[0] if self.last_pos is not None else 0.0
             info['current_y_position'] = self.last_pos[1] if self.last_pos is not None else 0.0
