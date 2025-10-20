@@ -4,33 +4,34 @@
 # Modified by Sorina Lupu, Openmind Research Institute, 2025
 
 import os
-import random
 import time
-from dataclasses import dataclass
-
+import sys
+import tyro
+import json
+import random
 import gymnasium as gym
 import numpy as np
+from dataclasses import dataclass
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-import tyro
+import wandb
+
 from tqdm import tqdm
-import json
 from datetime import datetime
 from torch.utils.tensorboard import SummaryWriter
 from matplotlib.backends.backend_pdf import PdfPages
+import matplotlib.pyplot as plt
 
 from buffers import ReplayBuffer
-# Path setup
-import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../sim')))
 from ant_mujoco import AntEnv
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../embodied_ant_env')))
 from embodied_ant_env import make_ant_env, ForwardTask, BackAndForthTask
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from reward import RewardTracker
-import matplotlib.pyplot as plt
 
 # Matplotlib font setup
 plt.rcParams['font.family'] = 'Arial'
@@ -38,9 +39,6 @@ plt.rcParams['font.size'] = 20
 plt.rcParams['axes.linewidth'] = 2
 plt.rcParams['axes.labelsize'] = 20
 plt.rcParams['axes.titlesize'] = 20
-
-import numpy as np
-import gymnasium as gym
 
 @dataclass
 class Args:
