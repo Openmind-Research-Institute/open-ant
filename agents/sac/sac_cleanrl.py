@@ -33,7 +33,7 @@ from embodied_ant_env import make_ant_env, ForwardTask, BackAndForthTask
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from reward import RewardTracker
 
-# Matplotlib font setup
+# Matplotlib font setup.
 plt.rcParams['font.family'] = 'Arial'
 plt.rcParams['font.size'] = 20
 plt.rcParams['axes.linewidth'] = 2
@@ -52,7 +52,7 @@ class Args:
     """if toggled, cuda will be enabled by default"""
     track: bool = False
     """if toggled, this experiment will be tracked with Weights and Biases"""
-    wandb_project_name: str = "cleanRL"
+    wandb_project_name: str = "EmbodiedAnt"
     """the wandb's project name"""
     wandb_entity: str = None
     """the entity (team) of wandb's project"""
@@ -65,13 +65,13 @@ class Args:
     total_timesteps: int = 1000000
     """total timesteps of the experiments"""
     num_envs: int = 1
-    """the number of parallel game environments"""
+    """the number of parallel environments"""
     buffer_size: int = int(1e6)
     """the replay memory buffer size"""
     gamma: float = 0.99
     """the discount factor gamma"""
     tau: float = 0.005
-    """target smoothing coefficient (default: 0.005)"""
+    """target smoothing coefficient"""
     batch_size: int = 256
     """the batch size of sample from the reply memory"""
     learning_starts: int = 5e3
@@ -81,11 +81,11 @@ class Args:
     q_lr: float = 1e-3
     """the learning rate of the Q network network optimizer"""
     policy_frequency: int = 2
-    """the frequency of learning policy (delayed)"""
+    """the frequency of learning policy (delayed update)"""
     target_network_frequency: int = 1  # Denis Yarats' implementation delays this by 2.
-    """the frequency of updates for the target nerworks"""
+    """the frequency of updates for the target networks"""
     alpha: float = 0.2
-    """Entropy regularization coefficient."""
+    """entropy regularization coefficient"""
     autotune: bool = True
     """automatic tuning of the entropy coefficient"""
     dt: float = 0.05
@@ -129,7 +129,7 @@ class Actor(nn.Module):
         self.fc2 = nn.Linear(256, 256)
         self.fc_mean = nn.Linear(256, np.prod(env.single_action_space.shape))
         self.fc_logstd = nn.Linear(256, np.prod(env.single_action_space.shape))
-        # action rescaling
+        # Action rescaling.
         self.register_buffer(
             "action_scale",
             torch.tensor(
@@ -163,7 +163,7 @@ class Actor(nn.Module):
         y_t = torch.tanh(x_t)
         action = y_t * self.action_scale + self.action_bias
         log_prob = normal.log_prob(x_t)
-        # Enforcing Action Bound
+        # Enforcing Action Bound.
         log_prob -= torch.log(self.action_scale * (1 - y_t.pow(2)) + 1e-6)
         log_prob = log_prob.sum(1, keepdim=True)
         mean = torch.tanh(mean) * self.action_scale + self.action_bias
@@ -175,9 +175,10 @@ if __name__ == "__main__":
     args = tyro.cli(Args)
     date = datetime.now().strftime("%Y%m%d-%H%M%S")
     run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{date}"
-    if args.track:
-        import wandb
+    save_weights_folder = os.path.join("runs", run_name, "weights")
+    os.makedirs(save_weights_folder, exist_ok=True)
 
+    if args.track:
         wandb.init(
             project=args.wandb_project_name,
             entity=args.wandb_entity,
@@ -197,11 +198,9 @@ if __name__ == "__main__":
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     torch.backends.cudnn.deterministic = args.torch_deterministic
-
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
 
     render = args.render_mode
-    
     def make_env(env_id, seed, idx, capture_video, run_name):
         def thunk():
             joint_config = {
@@ -213,7 +212,7 @@ if __name__ == "__main__":
             if args.hw_config is None:
                 env = AntEnv(
                     dt=args.dt,
-                    render_mode=args.render_mode,
+                    render_mode=render,
                     terminate_on_upside_down=args.terminate_on_upside_down,
                     task=ForwardTask(),
                     joint_config=joint_config,
@@ -227,7 +226,7 @@ if __name__ == "__main__":
                 print('RecordVideo')
                 env = gym.wrappers.RecordVideo(env, f"runs/{run_name}/videos/{run_name}", episode_trigger=lambda x: x % 10 == 0)
             env = gym.wrappers.RecordEpisodeStatistics(env)
-            env = gym.wrappers.TransformReward(env, lambda r: r * 10)
+            env = gym.wrappers.TransformReward(env, lambda r: r * 10) # Scale the reward by 10.
             env.action_space.seed(seed)
             return env
 
@@ -262,8 +261,8 @@ if __name__ == "__main__":
         state_dict = torch.load(os.path.join(args.weights_path, "qf2_target.pth"), map_location=torch.device('cpu'))
         qf2_target.load_state_dict(state_dict)
 
-    # Automatic entropy tuning.
     if args.autotune:
+        # Automatic entropy tuning.
         target_entropy = -torch.prod(torch.Tensor(envs.single_action_space.shape).to(device)).item()
         log_alpha = torch.zeros(1, requires_grad=True, device=device)
         alpha = log_alpha.exp().item()
@@ -272,6 +271,7 @@ if __name__ == "__main__":
         alpha = args.alpha
 
     envs.single_observation_space.dtype = np.float32
+    # Initialize the replay buffer.
     rb = ReplayBuffer(
         args.buffer_size,
         envs.single_observation_space,
@@ -309,19 +309,20 @@ if __name__ == "__main__":
     dict_debugging['average_reward_per_second'] = []
 
     for global_step in tqdm(range(args.total_timesteps)):
-        # ALGO LOGIC: put action logic here
+        # Get the action.
         if global_step < args.learning_starts and args.weights_path is None:
             actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
         else:
             actions, _, _ = actor.get_action(torch.Tensor(obs).to(device))
             actions = actions.detach().cpu().numpy()
 
-        # TRY NOT TO MODIFY: execute the game and log data.
+        # Step the environment.
         next_obs, rewards, terminations, truncations, infos = envs.step(actions)
+
+        # Log the information.
         info_logs.write(f"{global_step}, " + ", ".join(map(str, infos.values())) + "\n")
         info_logs.flush()
 
-        # TRY NOT TO MODIFY: record rewards for plotting purposes
         if "episode" in infos:
             if infos["episode"] is not None:
                 print('infos["episode"]', infos["episode"])
@@ -331,20 +332,20 @@ if __name__ == "__main__":
                 dict_debugging['episodic_lengths'].append(infos["episode"]["l"])
                 dict_debugging['episodic_step'].append(global_step)
 
-        # TRY NOT TO MODIFY: save data to reply buffer; handle `final_observation`
-        real_next_obs = next_obs.copy()
-        rb.add(obs, real_next_obs, actions, rewards, terminations, infos)
+        # Add the data to the replay buffer.
+        rb.add(obs, next_obs, actions, rewards, terminations, infos)
 
+        # Update the reward tracker.
         if args.num_envs == 1:
             reward_tracker.update(rewards.item())
             reward_tracker.log(plot=True, every_N_steps=100)
         else:
             raise ValueError("reward_tracker is only supported for single environment")
 
-        # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
+        # Update the observation.
         obs = next_obs
 
-        # ALGO LOGIC: learning.
+        # Learning.
         if global_step > args.learning_starts:
             data = rb.sample(args.batch_size)
             with torch.no_grad():
@@ -352,30 +353,31 @@ if __name__ == "__main__":
                 qf1_next_target = qf1_target(data.next_observations, next_state_actions)
                 qf2_next_target = qf2_target(data.next_observations, next_state_actions)
                 min_qf_next_target = torch.min(qf1_next_target, qf2_next_target) - alpha * next_state_log_pi
-                # next_q_value = data.rewards.flatten() * args.dt + (1 - data.dones.flatten()) * (args.gamma ** args.dt) * (min_qf_next_target).view(-1)
                 next_q_value = data.rewards.flatten() + (1 - data.dones.flatten()) * args.gamma * (min_qf_next_target).view(-1)
-                # NOTE: the dt here, see K. de Asis, R. Sutton, "An Idiosyncrasy of Time-discretization in RL".
+                # next_q_value = data.rewards.flatten() * args.dt + (1 - data.dones.flatten()) * (args.gamma ** args.dt) * (min_qf_next_target).view(-1)
+                # TODO: add the dt here (see K. de Asis, R. Sutton, "An Idiosyncrasy of Time-discretization in RL").
             qf1_a_values = qf1(data.observations, data.actions).view(-1)
             qf2_a_values = qf2(data.observations, data.actions).view(-1)
             qf1_loss = F.mse_loss(qf1_a_values, next_q_value)
             qf2_loss = F.mse_loss(qf2_a_values, next_q_value)
             qf_loss = qf1_loss + qf2_loss
 
-            # optimize the model
+            # Optimize the Action-Value networks.
             q_optimizer.zero_grad()
             qf_loss.backward()
             q_optimizer.step()
 
-            if global_step % args.policy_frequency == 0:  # TD 3 Delayed update support
+            if global_step % args.policy_frequency == 0:
                 for _ in range(
                     args.policy_frequency
-                ):  # compensate for the delay by doing 'actor_update_interval' instead of 1
+                ):  # Compensate for the delay by doing 'actor_update_interval' instead of 1.
                     pi, log_pi, _ = actor.get_action(data.observations)
                     qf1_pi = qf1(data.observations, pi)
                     qf2_pi = qf2(data.observations, pi)
                     min_qf_pi = torch.min(qf1_pi, qf2_pi)
                     actor_loss = ((alpha * log_pi) - min_qf_pi).mean()
 
+                    # Optimize the Actor network.
                     actor_optimizer.zero_grad()
                     actor_loss.backward()
                     actor_optimizer.step()
@@ -390,7 +392,7 @@ if __name__ == "__main__":
                         a_optimizer.step()
                         alpha = log_alpha.exp().item()
 
-            # update the target networks
+            # Update the target networks.
             if global_step % args.target_network_frequency == 0:
                 for param, target_param in zip(qf1.parameters(), qf1_target.parameters()):
                     target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
@@ -400,8 +402,6 @@ if __name__ == "__main__":
             if global_step % 100 == 0:
 
                 # Save all the networks.
-                save_weights_folder = os.path.join("runs", run_name, "weights")
-                os.makedirs(save_weights_folder, exist_ok=True)
                 torch.save(actor.state_dict(), os.path.join(save_weights_folder, "actor.pth"))
                 torch.save(qf1.state_dict(), os.path.join(save_weights_folder, "qf1.pth"))
                 torch.save(qf2.state_dict(), os.path.join(save_weights_folder, "qf2.pth"))
@@ -437,9 +437,8 @@ if __name__ == "__main__":
                 if args.autotune:
                     writer.add_scalar("losses/alpha_loss", alpha_loss.item(), global_step)
 
-                figs_html = []
                 with PdfPages(f"runs/{run_name}/report.pdf") as pdf:
-
+                    # Plot the average reward per second.
                     fig = plt.figure()
                     plt.plot(dict_debugging['steps'], dict_debugging['average_reward_per_second'], linewidth=2)
                     plt.xlabel('Steps')
@@ -449,6 +448,7 @@ if __name__ == "__main__":
                     pdf.savefig()
                     plt.close()
 
+                    # Plot the episodic returns and lengths.
                     if len(dict_debugging['episodic_returns']) > 0:
                         fig, ax = plt.subplots(2, 1, figsize=(10, 10))
                         ax[0].plot(dict_debugging['episodic_step'], dict_debugging['episodic_returns'])
@@ -463,6 +463,7 @@ if __name__ == "__main__":
                         pdf.savefig()
                         plt.close()
 
+                    # Plot the other metrics.
                     for key, value in dict_debugging.items():
                         if key.startswith('episodic'):
                             continue
@@ -474,5 +475,6 @@ if __name__ == "__main__":
                         pdf.savefig()
                         plt.close()
 
+    # Close the environment and the writer.
     envs.close()
     writer.close()
