@@ -191,7 +191,6 @@ if __name__ == "__main__":
         "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
     )
 
-    # TRY NOT TO MODIFY: seeding
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
@@ -199,7 +198,6 @@ if __name__ == "__main__":
 
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
 
-    # env setup
     render = args.render_mode
     
     def make_env(env_id, seed, idx, capture_video, run_name):
@@ -282,8 +280,10 @@ if __name__ == "__main__":
     )
     start_time = time.time()
 
-    # TRY NOT TO MODIFY: start the game
-    obs, _ = envs.reset(seed=args.seed)
+    obs, info = envs.reset(seed=args.seed)
+    info_logs = open(os.path.join("runs", run_name, "info_logs.csv"), 'w')
+    info_logs.write('step, ' + ', '.join(info.keys()) + '\n')
+    info_logs.flush()
 
     reward_tracker = RewardTracker(env_dt=args.dt, env_id=args.env_id,
                             log_folder=os.path.join("runs", run_name),
@@ -306,13 +306,6 @@ if __name__ == "__main__":
     dict_debugging['SPS'] = []
     dict_debugging['average_reward_per_second'] = []
 
-    robot_state_debugging = {}
-    robot_state_debugging['heading_vector_x'] = []
-    robot_state_debugging['heading_vector_y'] = []
-    robot_state_debugging['current_x_position'] = []
-    robot_state_debugging['current_y_position'] = []
-    robot_state_debugging['steps'] = []
-
     for global_step in tqdm(range(args.total_timesteps)):
         # ALGO LOGIC: put action logic here
         if global_step < args.learning_starts and args.weights_path is None:
@@ -323,11 +316,8 @@ if __name__ == "__main__":
 
         # TRY NOT TO MODIFY: execute the game and log data.
         next_obs, rewards, terminations, truncations, infos = envs.step(actions)
-        robot_state_debugging['heading_vector_x'].append(infos['heading_vector'][0][0])
-        robot_state_debugging['heading_vector_y'].append(infos['heading_vector'][0][1])
-        robot_state_debugging['current_x_position'].append(infos['current_x_position'])
-        robot_state_debugging['current_y_position'].append(infos['current_y_position'])
-        robot_state_debugging['steps'].append(global_step)
+        info_logs.write(f"{global_step}, " + ", ".join(map(str, infos.values())) + "\n")
+        info_logs.flush()
 
         # TRY NOT TO MODIFY: record rewards for plotting purposes
         if "episode" in infos:
@@ -476,15 +466,6 @@ if __name__ == "__main__":
                             continue
                         fig = plt.figure()
                         plt.plot(dict_debugging['steps'], value)
-                        plt.xlabel('Steps')
-                        plt.ylabel(key)
-                        plt.title(key)
-                        pdf.savefig()
-                        plt.close()
-
-                    for key, value in robot_state_debugging.items():
-                        fig = plt.figure()
-                        plt.plot(robot_state_debugging['steps'], value)
                         plt.xlabel('Steps')
                         plt.ylabel(key)
                         plt.title(key)
