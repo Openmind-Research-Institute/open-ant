@@ -85,14 +85,14 @@ def train(cfg: dict):
 	if cfg.task == 'embodied-ant':
 		DT = 0.05
 		joint_config = {
-			'hip_zero': 0,
-			'knee_zero': -np.radians(50),
+			'hip_zero': 0.0,
+			'knee_zero': 0.0,
 			'hip_range': np.radians(30),
-			'knee_range': np.radians(20),
+			'knee_range': np.radians(60),
 		}
 		env = AntEnv(
 				dt=DT,
-				render_mode="human",
+				render_mode="rgb_array",
 				joint_config=joint_config,
 		)
 	else:

@@ -7,6 +7,8 @@ import scipy.spatial.transform as transform
 import os
 import time
 import matplotlib.pyplot as plt
+from typing import Union, Dict
+from typing import Optional
 
 DEFAULT_CAMERA_CONFIG = {
     "distance": 4.0,
@@ -22,7 +24,7 @@ class AntEnv(MujocoEnv, utils.EzPickle):
             "human",
             "rgb_array",
             "depth_array",
-            "rgbd_tuple",
+            # "rgbd_tuple",
         ],
     }
 
@@ -30,11 +32,10 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         self,
         xml_file: str = os.path.join(os.path.dirname(__file__), "assets/ant_position.xml"),
         dt: float = 0.02,
-        default_camera_config: dict[str, float | int] = DEFAULT_CAMERA_CONFIG,
-        forward_reward_weight: float = 1,
-        main_body: int | str = 1,
+        default_camera_config: dict[str, Union[float, int]] = DEFAULT_CAMERA_CONFIG,        forward_reward_weight: float = 1,
+        main_body: Union[int, str] = 1,
         reset_noise_scale: float = 0.1,
-        joint_config: dict[str, float] | None = None,
+        joint_config: Optional[Dict[str, float]] = None,
         **kwargs,
     ):
         sim_dt = 0.001
@@ -158,7 +159,7 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         joint_angles = qpos[7:]
         joint_velocities = qvel[6:]
         quaternion_wxyz = qpos[3:7]
-        heading_vector = (transform.Rotation.from_quat(quaternion_wxyz, scalar_first=True).as_matrix() @ np.array([1, 0, 0]))[0:2]
+        heading_vector = (transform.Rotation.from_quat(quaternion_wxyz).as_matrix() @ np.array([1, 0, 0]))[0:2]
         heading_vector = heading_vector / np.linalg.norm(heading_vector)
 
         imu_data = self._get_sensor_data("accelerometer")

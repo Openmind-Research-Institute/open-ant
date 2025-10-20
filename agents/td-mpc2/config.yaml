@@ -12,7 +12,7 @@ eval_episodes: 10
 eval_freq: 50000
 
 # training
-steps: 10_000_000
+steps: 50_000_000
 batch_size: 256
 reward_coef: 0.1
 value_coef: 0.1
@@ -33,7 +33,7 @@ data_dir: ???
 # planning
 mpc: true
 iterations: 6
-num_samples: 512
+num_samples: 20000
 num_elites: 64
 num_pi_trajs: 24
 horizon: 3
@@ -64,10 +64,10 @@ dropout: 0.01
 simnorm_dim: 8
 
 # logging
-wandb_project: 'embodied-ant'
-wandb_entity: lupusorina-california-institute-of-technology-caltech-org
+wandb_project: 'ant'
+wandb_entity: "sorina-lupu-openmind-research-institute"
 wandb_silent: false
-enable_wandb: false
+enable_wandb: true
 save_csv: true
 
 # misc
