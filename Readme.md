@@ -116,15 +116,18 @@ cd sim
 python3 ant_mujoco.py
 ```
 
-## Run SARSA with tile coding
+## Run SAC
+
+for simulation:
 ```
-cd agents/
-python3 sarsa_options_tilecoding.py --train --render
+cd agents/sac/
+./run.sh sim
 ```
 
 for hardware:
 ```
-python3 sarsa_options_tilecoding.py --hw_config /Users/sorinalupu/OpenmindResearch/workshops/EmbodiedAnt/embodied_ant_env/ant34.json
+cd agents/sac/
+./run.sh hw
 ```
 
 ## Frequently Asked Questions (FAQ)
