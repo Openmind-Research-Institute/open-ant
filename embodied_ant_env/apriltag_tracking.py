@@ -2,6 +2,7 @@ import cv2
 from pyapriltags import Detector
 import numpy as np
 import time
+import matplotlib.pyplot as plt
 
 
 class VisionTracker:
@@ -174,18 +175,30 @@ def show_image(frame):
 if __name__ == "__main__":
     import sys
     camera_id = int(sys.argv[1]) if len(sys.argv) > 1 else 0
-    tracker = VisionTracker(camera_id=camera_id, fov_diagonal_deg=60, tag_sizes={'origin': 0.1, 'body': 0.045}, tag_ids={'origin': 0, 'body': 12})
+    tracker = VisionTracker(camera_id=camera_id,
+                            fov_diagonal_deg=58,
+                            tag_sizes={'origin': 0.072, 'body': 0.045},
+                            tag_ids={'origin': 0, 'body': 12})
 
+    plt.figure(dpi=150)
     while True:
         bodies, frame, vis_frame = tracker.track()
         # Resize the visualization frame to half its original size before showing
         small_vis_frame = cv2.resize(vis_frame, (vis_frame.shape[1] // 2, vis_frame.shape[0] // 2))
         cv2.imshow("apriltag detections", small_vis_frame)
         for tag_id, detection in bodies.items():
-            # print(detection)
+            print(detection)
             print(f"{tag_id}: {detection['position']}")
             print(f"{tag_id}: \n{detection['orientation']}")
-        # print(bodies)
+
+        if 'body' in bodies:
+            plt.plot(bodies['body']['position'][0], bodies['body']['position'][1], 'o')
+        plt.plot(0, 0, 'o', color='red')
+        plt.pause(0.01)
+        plt.show(block=False)
+        plt.grid(True)
+        # plt.clf()
+
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
