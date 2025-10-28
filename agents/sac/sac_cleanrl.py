@@ -318,6 +318,7 @@ if __name__ == "__main__":
 
         # Step the environment.
         next_obs, rewards, terminations, truncations, infos = envs.step(actions)
+        original_rewards = infos['original_reward']
 
         # Log the information.
         info_logs.write(f"{global_step}, " + ", ".join(map(str, infos.values())) + "\n")
@@ -337,12 +338,14 @@ if __name__ == "__main__":
 
         # Update the reward tracker.
         if args.num_envs == 1:
-            reward_tracker.update(rewards.item())
+            reward_tracker.update(original_rewards.item())
             reward_tracker.log(plot=True, every_N_steps=100)
         else:
             raise ValueError("reward_tracker is only supported for single environment")
 
         # Update the observation.
+        if any(truncations):
+            obs, _ = envs.reset()
         obs = next_obs
 
         # Learning.
