@@ -33,6 +33,7 @@ class ForwardTask:
 
         reward = progress - cost_action
         info['reward_direction'] = self.reward_direction
+        info['original_reward'] = reward
         observation = np.concatenate([
             info['joint_positions'],
             info['joint_velocities'],
@@ -80,6 +81,7 @@ class BackAndForthTask:
         reward = progress - cost_action
 
         info['reward_direction'] = self.reward_direction
+        info['original_reward'] = reward
         observation = np.concatenate([
             info['joint_positions'],
             info['joint_velocities'],
