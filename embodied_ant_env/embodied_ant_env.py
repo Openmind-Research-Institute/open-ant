@@ -13,18 +13,23 @@ from gymnasium.spaces import Box
 class ForwardTask:
     def __init__(self, action_cost_weight=0.0):
         self.action_cost_weight = action_cost_weight
-        self.last_pos = np.array([0, 0])
+        self.last_pos = None
         self.last_action = np.zeros(8)
         self.reward_direction = np.array([1, 0])
         self.observation_space = spaces.Box(low=-1.5, high=1.5, shape=(24,), dtype=np.float32)
         print('Using ForwardTask')
 
     def reset(self, info):
+        self.last_pos = None
         return self(info, np.zeros(8))
 
     def __call__(self, info, action):
         pos = np.array([info['current_x_position'], info['current_y_position']])
-        progress = (pos - self.last_pos)[0]
+        if self.last_pos is None:
+            self.last_pos = pos
+            progress = 0.0
+        else:
+            progress = (pos - self.last_pos)[0]
         cost_action = np.sum(np.square(self.last_action - action)) * self.action_cost_weight
         self.last_pos = pos
         self.last_action = action.copy()
@@ -50,7 +55,7 @@ class ForwardTask:
 class BackAndForthTask:
     def __init__(self, action_cost_weight=0.0):
         self.action_cost_weight = action_cost_weight
-        self.last_pos = np.array([0, 0])
+        self.last_pos = None
         self.reward_direction = np.array([1, 0])
         self.last_action = np.zeros(8)
         self.observation_space = spaces.Box(low=-1.5, high=1.5, shape=(26,), dtype=np.float32)
@@ -58,6 +63,7 @@ class BackAndForthTask:
 
     def reset(self, info):
         th = np.random.uniform(-np.pi, np.pi)
+        self.last_pos = None
         self.reward_direction = np.array([np.cos(th), np.sin(th)])
         return self(info, np.zeros(8))
 
@@ -70,7 +76,11 @@ class BackAndForthTask:
             self.reward_direction = origin - pos
             self.reward_direction /= np.linalg.norm(self.reward_direction)
 
-        progress = np.dot(pos - self.last_pos, self.reward_direction)
+        if self.last_pos is None:
+            self.last_pos = pos
+            progress = 0.0
+        else:
+            progress = np.dot(pos - self.last_pos, self.reward_direction)
 
         cost_action = np.sum(np.square(self.last_action - action)) * self.action_cost_weight
         self.last_pos = pos
