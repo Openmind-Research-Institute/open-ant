@@ -338,7 +338,7 @@ if __name__ == "__main__":
 
         # Update the reward tracker.
         if args.num_envs == 1:
-            reward_tracker.update(original_rewards.item())
+            reward_tracker.update(rewards.item())
             reward_tracker.log(plot=True, every_N_steps=100)
         else:
             raise ValueError("reward_tracker is only supported for single environment")
