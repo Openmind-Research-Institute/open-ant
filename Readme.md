@@ -1,6 +1,10 @@
 # Embodied Ant
 
-![image info](./imgs/ant_setup.png)
+<!-- ![image info](./imgs/traj_ppo.gif) -->
+
+<p align="center">
+  <img src="./imgs/traj_ppo.gif" alt="Ant walking demo" width="600"/>
+</p>
 
 ## Hardware
 
@@ -9,7 +13,7 @@ The hardware is designed to be easy to build and use:
 - no battery: continuous operation with wall adapter
 - all COTS parts + 3D printed parts
 - no soldering required
-- no special tools required (only a screwdriver for M2, M2.5, M3)
+- no special tools required (only the standard hex drivers for M2, M2.5, and M3 screws which are 1.5mm, 2.0mm, and 2.5mm, respectively)
 
 ### Specs
 
@@ -18,6 +22,14 @@ The hardware is designed to be easy to build and use:
 
 
 ### Bill of Materials
+
+<p align="center">
+  <img src="./imgs/robots.png" alt="Robots" width="600"/>
+</p>
+
+
+
+#### Embodied Ant
 
 | Part Name                | Quantity | Notes                        | Link                                      |
 |--------------------------|----------|------------------------------|-------------------------------------------|
@@ -29,11 +41,34 @@ The hardware is designed to be easy to build and use:
 | short USB-A to USB-C Cable | 1      | For autopilot (IMU)          | [Amazon](https://www.amazon.com/dp/B01ASXBY62) |
 | short USB-A to miro-USB cable | 1   | For Dynamixel U2D2           | [Amazon](https://www.amazon.com/dp/B08BZD66H4?th=1)
 | USB-A extension cable    | 1       | As tether for the robot       | [Amazon](https://www.amazon.com/dp/B07ZV6FHWF/)
-| Screw M2x5mm             | 64      | Output shaft, 8 per motor     | [McMaster](https://www.mcmaster.com/91290A012/)
-| Screw M2x12mm            | 24      | 3D print assembly 5 per leg + IMU | [McMaster](https://www.mcmaster.com/91290A019/)
-| Screw M2.5x16mm          | 32      | motor mount, 4 per motor      | [McMaster](https://www.mcmaster.com/91290a106/)
+| Screw M2x5mm with socket head             | 64      | Output shaft, 8 per motor     | [McMaster](https://www.mcmaster.com/91290A012/)
+| Screw M2x12mm with socket head            | 24      | 3D print assembly 5 per leg + IMU | [McMaster](https://www.mcmaster.com/91290A019/)
+| Screw M2.5x16mm with socket head          | 32      | motor mount, 4 per motor      | [McMaster](https://www.mcmaster.com/91290a106/)
+| Screw M3x8mm with socket head             | 2       | U2D2 power board mount        | [McMaster](https://www.mcmaster.com/91290A113/)
 | Nut M2                   | 20      | 3D print assembly 5 per leg   | [McMaster](https://www.mcmaster.com/91828A111/)
-| Screw M3x8mm             | 2       | U2D2 power board mount        | [McMaster](https://www.mcmaster.com/91290A113/)
+| Nut M3                   | 2       | U2D2 power board mount        | [McMaster](https://www.mcmaster.com/91828A211/)
+| 3D Printed Parts         | -       | STL files in `hardware/`      | -                                         |
+
+#### Embodied Ant X
+
+| Part Name                | Quantity | Notes                        | Link                                      |
+|--------------------------|----------|------------------------------|-------------------------------------------|
+| Dynamixel XM430-W350-T   | 4        | Main actuators  (incl.  180mm cable)              | [Robotis](https://www.robotis.us/dynamixel-xm430-w350-t/) |
+| Dynamixel XL430-W250-T   | 4        | Main actuators  (incl.  180mm cable)              | [Robotis](https://www.robotis.us/dynamixel-xl430-w250-t/) |
+| HN11-I101 Set            | 4        | Idler bearing                | [Robotis](https://www.robotis.us/hn11-i101-set/)|
+| HN12-I101 Set            | 4        | Idler bearing                | [Robotis](https://www.robotis.us/hn12-i101-set/)|
+| U2D2 Starter Set         | 1        | Includes: USB to Dynamixel, Power Hub Board, 12V 5A Power Suppy    | [Robotis](https://www.robotis.us/dynamixel-starter-set-us/) |
+| Kakute H7 Mini / TBS Lucid Freestyle mini | 1 | Quadcopter flight controller used as IMU (Any Betaflight compatible autopilot with 20x20mm mouts will work) | [getfpv](https://www.getfpv.com/tbs-lucid-freestyle-f4-mini-flight-controller-icm42688-20x20.html)
+| Cable Matters Ultra Mini USB Hub | 1 | 4 Port USB Hub               | [Amazon](https://www.amazon.com/dp/B00PHPWLPA/) |
+| short USB-A to USB-C Cable | 1      | For autopilot (IMU)          | [Amazon](https://www.amazon.com/dp/B01ASXBY62) |
+| short USB-A to miro-USB cable | 1   | For Dynamixel U2D2           | [Amazon](https://www.amazon.com/dp/B08BZD66H4?th=1)
+| USB-A extension cable    | 1       | As tether for the robot       | [Amazon](https://www.amazon.com/dp/B07ZV6FHWF/)
+| Screw M2x3mm with socket head |  32    | Output shaft, 8 per motor     | [McMaster](https://www.mcmaster.com/91290a010/)
+| Screw M2x5mm with socket head             | 32      | Output shaft, 8 per motor     | [McMaster](https://www.mcmaster.com/91290A012/)
+| Screw M2x12mm with socket head            | 24      | 3D print assembly 5 per leg + IMU | [McMaster](https://www.mcmaster.com/91290A019/)
+| Screw M2.5x16mm with socket head          | 32      | motor mount, 4 per motor      | [McMaster](https://www.mcmaster.com/91290a106/)
+| Screw M3x8mm with socket head     | 2       | U2D2 power board mount        | [McMaster](https://www.mcmaster.com/91290A113/)
+| Nut M2                   | 20      | 3D print assembly 5 per leg   | [McMaster](https://www.mcmaster.com/91828A111/)
 | Nut M3                   | 2       | U2D2 power board mount        | [McMaster](https://www.mcmaster.com/91828A211/)
 | 3D Printed Parts         | -       | STL files in `hardware/`      | -                                         |
 
@@ -41,7 +76,7 @@ The hardware is designed to be easy to build and use:
 
 ### Dynamixel Setup (before assembling the robot!)
 
-The Dynamixels should be configured to 1Mbaud, set to zero position (for assembly), and have their IDs changed to the following:
+The Dynamixels should be configured to 1Mbaud and have their IDs changed to the following:
 
 | Motor Position      | Motor ID |
 |---------------------|----------|
@@ -111,3 +146,40 @@ For reward: position of the body in x and y, and the angle of the body.
 cd sim
 python3 ant_mujoco.py
 ```
+
+## Run SAC
+
+for simulation:
+```
+cd agents/sac/
+./run.sh sim
+```
+
+for hardware:
+```
+cd agents/sac/
+./run.sh hw
+```
+
+## Frequently Asked Questions (FAQ)
+
+### Q: The position of the ant flickers. What should I do?
+
+The ArUco system is designed to be quite robust. If you encounter problems, make sure the markers are clearly visible and the camera exposure is configured properly (you can adjust exposure using LogiTune).
+Depending on your environment, you may need to disable auto-exposure for more consistent detection. Also, for the best performance, you should have the camera looking down at the playground.
+
+Lastly, make sure to plot all system inputs and outputs to verify that the signals are clean, learning from noisy or faulty signals can lead to poor results.
+
+### Q: What’s the recommended way to specify a /dev/ device path in a JSON file on Ubuntu?
+
+Use the persistent device path, for example:
+```
+/dev/serial/by-id/YYY
+```
+
+### Q: Will the screws become loose over time due to vibrations?
+
+Yes, it can happen. For this, it is recommended to use Loctite Threadlocker Blue.
+
+
+

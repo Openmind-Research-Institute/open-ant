@@ -1,10 +1,8 @@
 <mujoco model="ant">
   <compiler angle="radian" coordinate="local" inertiafromgeom="true"/>
-
   <option iterations="3" ls_iterations="5" timestep="0.001" integrator="Euler">
     <flag eulerdamp="disable"/>
   </option>
-
   <default>
     <joint limited="true" damping="0.1"/>
     <geom friction="0.6 0.001 0.001" rgba="0.4 0.33 0.26 1.0"/>
@@ -12,8 +10,8 @@
   <asset>
     <texture builtin="gradient" height="100" rgb1="1 1 1" rgb2="0 0 0" type="skybox" width="100"/>
     <texture builtin="flat" height="1278" mark="cross" markrgb="1 1 1" name="texgeom" random="0.01" rgb1="0.8 0.6 0.4" rgb2="0.8 0.6 0.4" type="cube" width="127"/>
-    <texture builtin="checker" height="100" name="texplane" rgb1="0 0 0" rgb2="0.8 0.8 0.8" type="2d" width="100"/>
-    <material name="MatPlane" reflectance="0.5" shininess="1" specular="1" texrepeat="60 60" texture="texplane"/>
+    <texture builtin="checker" height="100" name="texplane" rgb1="0 0 0" rgb2="0.1 0.1 0.1" type="2d" width="100"/>
+    <material name="MatPlane" texrepeat="60 60" texture="texplane"/>
     <material name="geom" texture="texgeom" texuniform="true"/>
   </asset>
   <sensor>
@@ -30,9 +28,18 @@
     <geom name="x_axis" type="cylinder" fromto="0 0 0 0.3 0 0" size="0.01" rgba="1 0 0 1" contype="0" conaffinity="0"/>
     <geom name="y_axis" type="cylinder" fromto="0 0 0 0 0.3 0" size="0.01" rgba="0 1 0 1" contype="0" conaffinity="0"/>
     <geom name="z_axis" type="cylinder" fromto="0 0 0 0 0 0.3" size="0.01" rgba="0 0 1 1" contype="0" conaffinity="0"/>
+
+    <!-- Arena boundary walls -->
+    <geom name="north_wall" type="box" pos="0 5.5 0.5" size="5.5 0.05 0.5" rgba="0.7 0.7 0.7 1"/>
+    <geom name="south_wall" type="box" pos="0 -5.5 0.5" size="5.5 0.05 0.5" rgba="0.7 0.7 0.7 1"/>
+    <geom name="east_wall" type="box" pos="5.5 0 0.5" size="0.05 5.5 0.5" rgba="0.7 0.7 0.7 1"/>
+    <geom name="west_wall" type="box" pos="-5.5 0 0.5" size="0.05 5.5 0.5" rgba="0.7 0.7 0.7 1"/>
+
+    <geom name="boundary" type="cylinder" pos="0 0 0.01" size="1 0.01" rgba="0 0 1 0.5" contype="0" conaffinity="0"/>
+
     <body name="torso" pos="0 0 0.3">
-      <camera name="track" mode="trackcom" pos="0 -1.5 0.3" xyaxes="1 0 0 0 0 1"/>
-      <geom name="torso_geom" pos="0 0 0" size="0.075" type="sphere" mass="0.350"/>
+      <camera name="track" mode="trackcom" pos="0 -4.0 0.6" xyaxes="1 0 0 0 0 1"/>
+      <geom name="torso_geom" pos="0 0 0" size="0.075" type="sphere" mass="0.284"/>
       <joint armature="0" damping="0" limited="false" margin="0.01" name="root" pos="0 0 0" type="free"/>
       <site name="imu_location" pos="0 0 0" euler="0 0 0" size="0.01" type="sphere" rgba="1 0 0 1"/>
       <site name="left_eye" pos="0.05 0.03 0.02" size="0.025" type="sphere" rgba="1 1 1 1"/>
@@ -41,49 +48,53 @@
       <site name="right_pupil" pos="0.06 -0.03 0.02" size="0.022" type="sphere" rgba="0 0 0 1"/>
 
       <body name="rear_right_leg" pos="0 0 0">
-        <geom fromto="0.0 0.0 0.0 -0.06 -0.06 0.0" name="rear_right_leg_geom" size="0.024" type="capsule" mass="0.020"/>
+        <geom fromto="0.0 0.0 0.0 -0.06 -0.06 0.0" name="rear_right_leg_geom" size="0.024" type="capsule" mass="0.058"/>
         <body name="aux_3" pos="-0.06 -0.06 0">
           <joint axis="0 0 1" name="hip_rr" pos="0.0 0.0 0.0" range="-0.785 0.785" type="hinge"/>
-          <geom fromto="0.0 0.0 0.0 -0.06 -0.06 0.0" name="rear_right_upper_leg_geom" size="0.024" type="capsule" mass="0.080"/>
+          <geom fromto="0.0 0.0 0.0 -0.06 -0.06 0.0" name="rear_right_upper_leg_geom" size="0.024" type="capsule" mass="0.076"/>
           <body pos="-0.06 -0.06 0">
             <joint axis="-1 1 0" name="knee_rr" pos="0.0 0.0 0.0" range="-1.22 1.22" type="hinge"/>
             <geom fromto="0.0 0.0 0.0 -0.12 -0.12 0.0" name="rear_right_lower_leg_geom" size="0.024" type="capsule" mass="0.030" rgba="0 0 1 1"/>
+            <!-- <site name="rear_right_leg_end" pos="-0.12 -0.12 0" size="0.05" type="sphere" rgba="1 1 1 1"/> -->
           </body>
         </body>
       </body>
 
       <body name="front_right_leg" pos="0 0 0">
-        <geom fromto="0.0 0.0 0.0 0.06 -0.06 0.0" name="front_right_leg_geom" size="0.024" type="capsule" mass="0.020"/>
+        <geom fromto="0.0 0.0 0.0 0.06 -0.06 0.0" name="front_right_leg_geom" size="0.024" type="capsule" mass="0.058"/>
         <body name="aux_4" pos="0.06 -0.06 0">
           <joint axis="0 0 1" name="hip_fr" pos="0.0 0.0 0.0" range="-0.785 0.785" type="hinge"/>
-          <geom fromto="0.0 0.0 0.0 0.06 -0.06 0.0" name="front_right_upper_leg_geom" size="0.024" type="capsule" mass="0.080"/>
+          <geom fromto="0.0 0.0 0.0 0.06 -0.06 0.0" name="front_right_upper_leg_geom" size="0.024" type="capsule" mass="0.076"/>
           <body pos="0.06 -0.06 0">
             <joint axis="-1 -1 0" name="knee_fr" pos="0.0 0.0 0.0" range="-1.22 1.22" type="hinge"/>
             <geom fromto="0.0 0.0 0.0 0.12 -0.12 0.0" name="front_right_lower_leg_geom" size="0.024" type="capsule" mass="0.030" rgba="1 1 1 1"/>
+            <!-- <site name="front_right_leg_end" pos="0.12 -0.12 0" size="0.05" type="sphere" rgba="1 1 1 1"/> -->
           </body>
         </body>
       </body>
 
       <body name="front_left_leg" pos="0 0 0">
-        <geom fromto="0.0 0.0 0.0 0.06 0.06 0.0" name="front_left_leg_geom" size="0.024" type="capsule" mass="0.020"/>
+        <geom fromto="0.0 0.0 0.0 0.06 0.06 0.0" name="front_left_leg_geom" size="0.024" type="capsule" mass="0.058"/>
         <body name="aux_1" pos="0.06 0.06 0">
           <joint axis="0 0 1" name="hip_fl" pos="0.0 0.0 0.0" range="-0.785 0.785" type="hinge"/>
-          <geom fromto="0.0 0.0 0.0 0.06 0.06 0.0" name="front_leg_upper_leg_geom" size="0.024" type="capsule" mass="0.080"/>
+          <geom fromto="0.0 0.0 0.0 0.06 0.06 0.0" name="front_left_upper_leg_geom" size="0.024" type="capsule" mass="0.076"/>
           <body pos="0.06 0.06 0">
             <joint axis="1 -1 0" name="knee_fl" pos="0.0 0.0 0.0" range="-1.22 1.22" type="hinge"/>
             <geom fromto="0.0 0.0 0.0 0.12 0.12 0.0" name="front_left_lower_leg_geom" size="0.024" type="capsule" mass="0.030" rgba="1 0 0 1"/>
+            <!-- <site name="front_left_leg_end" pos="0.12 0.12 0" size="0.05" type="sphere" rgba="1 1 1 1"/> -->
           </body>
         </body>
       </body>
 
       <body name="rear_left_leg" pos="0 0 0">
-        <geom fromto="0.0 0.0 0.0 -0.06 0.06 0.0" name="rear_left_leg_geom" size="0.024" type="capsule" mass="0.020"/>
+        <geom fromto="0.0 0.0 0.0 -0.06 0.06 0.0" name="rear_left_leg_geom" size="0.024" type="capsule" mass="0.058"/>
         <body name="aux_2" pos="-0.06 0.06 0">
           <joint axis="0 0 1" name="hip_rl" pos="0.0 0.0 0.0" range="-0.785 0.785" type="hinge"/>
-          <geom fromto="0.0 0.0 0.0 -0.06 0.06 0.0" name="rear_leg_upper_leg_geom" size="0.024" type="capsule" mass="0.080"/>
+          <geom fromto="0.0 0.0 0.0 -0.06 0.06 0.0" name="rear_leg_upper_leg_geom" size="0.024" type="capsule" mass="0.076"/>
           <body pos="-0.06 0.06 0">
             <joint axis="1 1 0" name="knee_rl" pos="0.0 0.0 0.0" range="-1.22 1.22" type="hinge"/>
             <geom fromto="0.0 0.0 0.0 -0.12 0.12 0.0" name="rear_left_lower_leg_geom" size="0.024" type="capsule" mass="0.030" rgba="0 1 0 1"/>
+            <!-- <site name="rear_left_leg_end" pos="-0.12 0.12 0" size="0.05" type="sphere" rgba="1 1 1 1"/> -->
           </body>
         </body>
       </body>
@@ -110,17 +121,5 @@
     <motor ctrllimited="true" ctrlrange="-1.0 1.0" joint="hip_3" gear="150" name="hip_3"/>
     <motor ctrllimited="true" ctrlrange="-1.0 1.0" joint="ankle_3" gear="150" name="ankle_3"/>
   </actuator> -->
-
-    <keyframe>
-    <key name="home"
-      qpos="
-      0 0 0.3
-      1 0 0 0
-      0.0 0.7 0.0 0.7
-      0.0 0.7 0.0 0.7"
-        ctrl="
-      0.0 0.0 0.0 0.0
-      0.0 0.0 0.0 0.0"/>
-  </keyframe>
 
 </mujoco>

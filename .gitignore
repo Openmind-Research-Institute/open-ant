@@ -1,4 +1,10 @@
 .DS_Store
 *.FCBak
 __pycache__
+*.csv
+*.pdf
 *.png
+*.jpg
+*.zip
+*.log
+logs/
