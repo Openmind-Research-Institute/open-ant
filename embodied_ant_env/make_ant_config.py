@@ -18,8 +18,8 @@ def make_ant_motor_config(motor_port, baudrate=1000000):
     zero_pos = ctrl.get_feedback()[0]
     print(zero_pos)
     for i, pos in enumerate(zero_pos):
-        # find the multiple of 90deg that gets pos closest to 0
-        offset = round(pos / (math.pi / 2)) * (math.pi / 2)
+        # find the multiple of 45deg that gets pos closest to 0
+        offset = round(pos / (math.pi / 4)) * (math.pi / 4)
         motor_list[i]['offset'] += offset
 
     config = {
@@ -36,8 +36,9 @@ if __name__ == "__main__":
     file_name = f"ant{tag_id}.json"
     config = make_ant_motor_config(port)
     config['imu_port'] = "/dev/ttyUSB1"
+    config['onboard_camera_id'] = 1
     config['camera_id'] = 0
-    config['camera_fov_diagonal_deg'] = 60
+    config['camera_fov_diagonal_deg'] = 58
     config['camera_tag_sizes'] = {'origin': 0.1, 'body': 0.045}
     config['camera_tag_ids'] = {'origin': 0, 'body': int(tag_id)}
     with open(file_name, "w") as f:
