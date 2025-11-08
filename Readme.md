@@ -46,7 +46,7 @@ The hardware is designed to be easy to build and use:
 | Screw M3x8mm with socket head             | 6        | U2D2 power board mount, IMU                                                                                 | [McMaster](https://www.mcmaster.com/91290A113/)                                                    | $12.82 (pack of 100) |
 | Nut M2                                    | 16       | 3D print assembly 4 per leg                                                                                 | [McMaster](https://www.mcmaster.com/91828A111/)                                                    | $6.14 (pack of 100)  |
 | Nut M3                                    | 2        | U2D2 power board mount                                                                                      | [McMaster](https://www.mcmaster.com/91828A211/)                                                    | $4.73 (pack of 100)  |
-| 3D Printed Parts                          | -        | STL files in `hardware/rev2`                                                                                | -                                                                                                  | -                    |
+| 3D Printed Parts                          | -        | STL files in `hardware/rev2`. Print all `leg` files 4x, others 1x.                                          | -                                                                                                  | -                    |
 | **Total**                                 |          |                                                                                                             |                                                                                                    | **$497.99**          |
 
 We recommend adding a heat sink to the knee actuators, for example this [one](https://www.amazon.com/dp/B08HLZWKYN?ref_=ppx_hzsearch_conn_dt_b_fed_asin_title_1&th=1)
@@ -72,12 +72,13 @@ We recommend adding a heat sink to the knee actuators, for example this [one](ht
 | Nut M2                                    | 16       | 3D print assembly 5 per leg                                                                                 | [McMaster](https://www.mcmaster.com/91828A111/)                                                    | $6.14 (pack of 100)  |
 | Nut M3                                    | 2        | U2D2 power board mount                                                                                      | [McMaster](https://www.mcmaster.com/91828A211/)                                                    | $4.73 (pack of 100)  |
 | On-board camera                           | 1        | Logitech Brio 101                                                                                           | [Amazon](https://tinyurl.com/cameralogitech)                                                       | $29.99               |
-| 3D Printed Parts                          | -        | STL files in `hardware/rev2`                                                                                | -                                                                                                  | -                    |
+| 3D Printed Parts                          | -        | STL files in `hardware/rev2`. Print all `leg` files 4x, others 1x.                                          | -                                                                                                  | -                    |
 | **Total**                                 |          |                                                                                                             |                                                                                                    | **$1724.84**         |
 
 We recommend adding a heat sink to the knee actuators, for example this [one](https://www.amazon.com/dp/B08HLZWKYN?ref_=ppx_hzsearch_conn_dt_b_fed_asin_title_1&th=1)
 
 Note: The reason why more screws were added compared to the cheaper version is because the 3D print attachment with the expensive motors (XM430-W350) needs M2 x 3mm, not M2 x 5mm.
+
 
 ### Dynamixel Setup (before assembling the robot!)
 
