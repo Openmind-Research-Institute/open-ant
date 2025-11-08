@@ -27,51 +27,57 @@ The hardware is designed to be easy to build and use:
   <img src="./imgs/robots.png" alt="Robots" width="600"/>
 </p>
 
-
+Top camera: [Logitech Brio 101](https://www.logitech.com/en-us/shop/p/brio-100-webcam) for tracking.
 
 #### Embodied Ant
 
-| Part Name                | Quantity | Notes                        | Link                                      |
-|--------------------------|----------|------------------------------|-------------------------------------------|
-| Dynamixel XL430-W250-T   | 8        | Main actuators  (incl.  180mm cable)              | [Robotis](https://www.robotis.us/dynamixel-xl430-w250-t/) |
-| HN11-I101 Set            | 8        | Idler bearing                | [Robotis](https://www.robotis.us/hn11-i101-set/) |
-| U2D2 Starter Set         | 1        | Includes: USB to Dynamixel, Power Hub Board, 12V 5A Power Suppy    | [Robotis](https://www.robotis.us/dynamixel-starter-set-us/) |
-| Kakute H7 Mini / TBS Lucid Freestyle mini | 1 | Quadcopter flight controller used as IMU (Any Betaflight compatible autopilot with 20x20mm mouts will work) | [getfpv](https://www.getfpv.com/tbs-lucid-freestyle-f4-mini-flight-controller-icm42688-20x20.html)
-| Cable Matters Ultra Mini USB Hub | 1 | 4 Port USB Hub               | [Amazon](https://www.amazon.com/dp/B00PHPWLPA/) |
-| short USB-A to USB-C Cable | 1      | For autopilot (IMU)          | [Amazon](https://www.amazon.com/dp/B01ASXBY62) |
-| short USB-A to miro-USB cable | 1   | For Dynamixel U2D2           | [Amazon](https://www.amazon.com/dp/B08BZD66H4?th=1)
-| USB-A extension cable    | 1       | As tether for the robot       | [Amazon](https://www.amazon.com/dp/B07ZV6FHWF/)
-| Screw M2x5mm with socket head             | 64      | Output shaft, 8 per motor     | [McMaster](https://www.mcmaster.com/91290A012/)
-| Screw M2x12mm with socket head            | 24      | 3D print assembly 5 per leg + IMU | [McMaster](https://www.mcmaster.com/91290A019/)
-| Screw M2.5x16mm with socket head          | 32      | motor mount, 4 per motor      | [McMaster](https://www.mcmaster.com/91290a106/)
-| Screw M3x8mm with socket head             | 2       | U2D2 power board mount        | [McMaster](https://www.mcmaster.com/91290A113/)
-| Nut M2                   | 20      | 3D print assembly 5 per leg   | [McMaster](https://www.mcmaster.com/91828A111/)
-| Nut M3                   | 2       | U2D2 power board mount        | [McMaster](https://www.mcmaster.com/91828A211/)
-| 3D Printed Parts         | -       | STL files in `hardware/`      | -                                         |
+| Part Name                                 | Quantity | Notes                                                                                                       | Link                                                                                               | Price (Nov 2025)     |
+|-------------------------------------------|----------|-------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------|----------------------|
+| Dynamixel XL430-W250-T                    | 8        | Main actuators  (incl.  180mm cable)                                                                        | [Robotis](https://www.robotis.us/dynamixel-xl430-w250-t/)                                          | $220 (27.50 each)    |
+| HN11-I101 Set                             | 8        | Idler bearing                                                                                               | [Robotis](https://www.robotis.us/hn11-i101-set/)                                                   | $64.4 (8.05 each)    |
+| U2D2 Starter Set                          | 1        | Includes: USB to Dynamixel, Power Hub Board, 12V 5A Power Suppy                                             | [Robotis](https://www.robotis.us/dynamixel-starter-set-us/)                                        | $68.66               |
+| Kakute H7 Mini / TBS Lucid Freestyle mini | 1        | Quadcopter flight controller used as IMU (Any Betaflight compatible autopilot with 20x20mm mouts will work) | [getfpv](https://www.getfpv.com/tbs-lucid-freestyle-f4-mini-flight-controller-icm42688-20x20.html) | $51.99               |
+| Cable Matters Ultra Mini USB Hub          | 1        | 4 Port USB Hub                                                                                              | [Amazon](https://www.amazon.com/dp/B00PHPWLPA/)                                                    | $15.49               |
+| Short USB-A to USB-C Cable                | 1        | For autopilot (IMU)                                                                                         | [Amazon](https://www.amazon.com/dp/B01ASXBY62)                                                     | $9.49                |
+| Short USB-A to micro-USB cable            | 1        | For Dynamixel U2D2                                                                                          | [Amazon](https://www.amazon.com/dp/B08BZD66H4?th=1)                                                | $6.99                |
+| USB-A extension cable                     | 1        | As tether for the robot                                                                                     | [Amazon](https://www.amazon.com/dp/B07ZV6FHWF/)                                                    | $5.99                |
+| Screw M2x5mm with socket head             | 80       | Output shaft, 8 per motor, 3D print assembly                                                                | [McMaster](https://www.mcmaster.com/91290A012/)                                                    | $18.48 (pack of 100) |
+| Screw M2.5x16mm with socket head          | 32       | motor mount, 4 per motor                                                                                    | [McMaster](https://www.mcmaster.com/91290a106/)                                                    | $12.81 (pack of 50)  |
+| Screw M3x8mm with socket head             | 6        | U2D2 power board mount, IMU                                                                                 | [McMaster](https://www.mcmaster.com/91290A113/)                                                    | $12.82 (pack of 100) |
+| Nut M2                                    | 16       | 3D print assembly 4 per leg                                                                                 | [McMaster](https://www.mcmaster.com/91828A111/)                                                    | $6.14 (pack of 100)  |
+| Nut M3                                    | 2        | U2D2 power board mount                                                                                      | [McMaster](https://www.mcmaster.com/91828A211/)                                                    | $4.73 (pack of 100)  |
+| 3D Printed Parts                          | -        | STL files in `hardware/rev2`. Print all `leg` files 4x, others 1x.                                          | -                                                                                                  | -                    |
+| **Total**                                 |          |                                                                                                             |                                                                                                    | **$497.99**          |
+
+We recommend adding a heat sink to the knee actuators, for example this [one](https://www.amazon.com/dp/B08HLZWKYN?ref_=ppx_hzsearch_conn_dt_b_fed_asin_title_1&th=1)
 
 #### Embodied Ant X
 
-| Part Name                | Quantity | Notes                        | Link                                      |
-|--------------------------|----------|------------------------------|-------------------------------------------|
-| Dynamixel XM430-W350-T   | 4        | Main actuators  (incl.  180mm cable)              | [Robotis](https://www.robotis.us/dynamixel-xm430-w350-t/) |
-| Dynamixel XL430-W250-T   | 4        | Main actuators  (incl.  180mm cable)              | [Robotis](https://www.robotis.us/dynamixel-xl430-w250-t/) |
-| HN11-I101 Set            | 4        | Idler bearing                | [Robotis](https://www.robotis.us/hn11-i101-set/)|
-| HN12-I101 Set            | 4        | Idler bearing                | [Robotis](https://www.robotis.us/hn12-i101-set/)|
-| U2D2 Starter Set         | 1        | Includes: USB to Dynamixel, Power Hub Board, 12V 5A Power Suppy    | [Robotis](https://www.robotis.us/dynamixel-starter-set-us/) |
-| Kakute H7 Mini / TBS Lucid Freestyle mini | 1 | Quadcopter flight controller used as IMU (Any Betaflight compatible autopilot with 20x20mm mouts will work) | [getfpv](https://www.getfpv.com/tbs-lucid-freestyle-f4-mini-flight-controller-icm42688-20x20.html)
-| Cable Matters Ultra Mini USB Hub | 1 | 4 Port USB Hub               | [Amazon](https://www.amazon.com/dp/B00PHPWLPA/) |
-| short USB-A to USB-C Cable | 1      | For autopilot (IMU)          | [Amazon](https://www.amazon.com/dp/B01ASXBY62) |
-| short USB-A to miro-USB cable | 1   | For Dynamixel U2D2           | [Amazon](https://www.amazon.com/dp/B08BZD66H4?th=1)
-| USB-A extension cable    | 1       | As tether for the robot       | [Amazon](https://www.amazon.com/dp/B07ZV6FHWF/)
-| Screw M2x3mm with socket head |  32    | Output shaft, 8 per motor     | [McMaster](https://www.mcmaster.com/91290a010/)
-| Screw M2x5mm with socket head             | 32      | Output shaft, 8 per motor     | [McMaster](https://www.mcmaster.com/91290A012/)
-| Screw M2x12mm with socket head            | 24      | 3D print assembly 5 per leg + IMU | [McMaster](https://www.mcmaster.com/91290A019/)
-| Screw M2.5x16mm with socket head          | 32      | motor mount, 4 per motor      | [McMaster](https://www.mcmaster.com/91290a106/)
-| Screw M3x8mm with socket head     | 2       | U2D2 power board mount        | [McMaster](https://www.mcmaster.com/91290A113/)
-| Nut M2                   | 20      | 3D print assembly 5 per leg   | [McMaster](https://www.mcmaster.com/91828A111/)
-| Nut M3                   | 2       | U2D2 power board mount        | [McMaster](https://www.mcmaster.com/91828A211/)
-| 3D Printed Parts         | -       | STL files in `hardware/`      | -                                         |
+| Part Name                                 | Quantity | Notes                                                                                                       | Link                                                                                               | Price (Nov 2025)     |
+|-------------------------------------------|----------|-------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------|----------------------|
+| Dynamixel XM430-W350-T                    | 4        | Main actuators  (incl.  180mm cable)                                                                        | [Robotis](https://www.robotis.us/dynamixel-xm430-w350-t/)                                          | $1241.56 (310.39 each) |
+| Dynamixel XL430-W250-T                    | 4        | Main actuators  (incl.  180mm cable)                                                                        | [Robotis](https://www.robotis.us/dynamixel-xl430-w250-t/)                                          | $110 (27.50 each)    |
+| HN11-I101 Set                             | 4        | Idler bearing                                                                                               | [Robotis](https://www.robotis.us/hn11-i101-set/)                                                   | $32.20 (8.05 each)   |
+| HN12-I101 Set                             | 4        | Idler bearing                                                                                               | [Robotis](https://www.robotis.us/hn12-i101-set/)                                                   | $81.88 (20.47 each)  |
+| U2D2 Starter Set                          | 1        | Includes: USB to Dynamixel, Power Hub Board, 12V 5A Power Suppy                                             | [Robotis](https://www.robotis.us/dynamixel-starter-set-us/)                                        | $68.66               |
+| Kakute H7 Mini / TBS Lucid Freestyle mini | 1        | Quadcopter flight controller used as IMU (Any Betaflight compatible autopilot with 20x20mm mouts will work) | [getfpv](https://www.getfpv.com/tbs-lucid-freestyle-f4-mini-flight-controller-icm42688-20x20.html) | $51.99               |
+| Cable Matters Ultra Mini USB Hub          | 1        | 4 Port USB Hub                                                                                              | [Amazon](https://www.amazon.com/dp/B00PHPWLPA/)                                                    | $15.49               |
+| Short USB-A to USB-C Cable                | 1        | For autopilot (IMU)                                                                                         | [Amazon](https://www.amazon.com/dp/B01ASXBY62)                                                     | $9.49                |
+| Short USB-A to micro-USB cable            | 1        | For Dynamixel U2D2                                                                                          | [Amazon](https://www.amazon.com/dp/B08BZD66H4?th=1)                                                | $6.99                |
+| USB-A extension cable                     | 1        | As tether for the robot                                                                                     | [Amazon](https://www.amazon.com/dp/B07ZV6FHWF/)                                                    | $5.99                |
+| Screw M2x3mm with socket head             | 32       | Output shaft, 8 per motor                                                                                   | [McMaster](https://www.mcmaster.com/91290a010/)                                                    | $15.62 (pack of 50)  |
+| Screw M2x5mm with socket head             | 48       | Output shaft, 8 per motor, 3D print assembly                                                                | [McMaster](https://www.mcmaster.com/91290A012/)                                                    | $18.48 (pack of 100) |
+| Screw M2.5x16mm with socket head          | 32       | motor mount, 4 per motor                                                                                    | [McMaster](https://www.mcmaster.com/91290a106/)                                                    | $12.81 (pack of 50)  |
+| Screw M3x8mm with socket head             | 6        | U2D2 power board mount + IMU                                                                                | [McMaster](https://www.mcmaster.com/91290A113/)                                                    | $12.82 (pack of 100) |
+| Nut M2                                    | 16       | 3D print assembly 5 per leg                                                                                 | [McMaster](https://www.mcmaster.com/91828A111/)                                                    | $6.14 (pack of 100)  |
+| Nut M3                                    | 2        | U2D2 power board mount                                                                                      | [McMaster](https://www.mcmaster.com/91828A211/)                                                    | $4.73 (pack of 100)  |
+| On-board camera                           | 1        | Logitech Brio 101                                                                                           | [Logitech](https://www.logitech.com/en-us/shop/p/brio-100-webcam)                                                       | $29.99               |
+| 3D Printed Parts                          | -        | STL files in `hardware/rev2`. Print all `leg` files 4x, others 1x.                                          | -                                                                                                  | -                    |
+| **Total**                                 |          |                                                                                                             |                                                                                                    | **$1724.84**         |
 
+We recommend adding a heat sink to the knee actuators, for example this [one](https://www.amazon.com/dp/B08HLZWKYN?ref_=ppx_hzsearch_conn_dt_b_fed_asin_title_1&th=1)
+
+Note: The reason why more screws were added compared to the cheaper version is because the 3D print attachment with the expensive motors (XM430-W350) needs M2 x 3mm, not M2 x 5mm.
 
 
 ### Dynamixel Setup (before assembling the robot!)
@@ -98,12 +104,6 @@ When done, the following command will change the baudrate of all connected motor
 ```
 python3 embodied_ant_env/dynamixel_change_baud.py /dev/tty.usbserial-XXXXXXX 1000000
 ```
-
-Finally, use the following script to move the motors to their zero position.
-```
-python3 embodied_ant_env/dynamixel_set_zero.py /dev/tty.usbserial-XXXXXXX 1000000
-```
-
 
 ## Software Setup
 
@@ -180,6 +180,5 @@ Use the persistent device path, for example:
 ### Q: Will the screws become loose over time due to vibrations?
 
 Yes, it can happen. For this, it is recommended to use Loctite Threadlocker Blue.
-
 
 

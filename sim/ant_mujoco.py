@@ -190,7 +190,12 @@ class AntEnv(MujocoEnv, utils.EzPickle):
 
         self.step(np.zeros(self.action_space.shape[0]))
 
-        qpos = np.array(self.init_qpos) + self.np_random.uniform(low=-0.1, high=0.1)
+        qpos = np.array(self.init_qpos)
+        random_yaw = self.np_random.uniform(-np.pi, np.pi)
+        qpos[3] = np.cos(random_yaw / 2) # w
+        qpos[4] = 0 # x
+        qpos[5] = 0 # y
+        qpos[6] = np.sin(random_yaw / 2) # z
         # Normalize quaternion.
         qpos[3:7] = qpos[3:7] / np.linalg.norm(qpos[3:7])
 
