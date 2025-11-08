@@ -76,7 +76,7 @@ We recommend adding a heat sink to the knee actuators, for example this [one](ht
 
 We recommend adding a heat sink to the knee actuators, for example this [one](https://www.amazon.com/dp/B08HLZWKYN?ref_=ppx_hzsearch_conn_dt_b_fed_asin_title_1&th=1)
 
-Note: The reason why more screws were added compared to the cheaper version is because the 3D print attachment with the expensive motors (XM430-W350) need M2 x 3mm not M2 x 5mm.
+Note: The reason why more screws were added compared to the cheaper version is because the 3D print attachment with the expensive motors (XM430-W350) needs M2 x 3mm not M2 x 5mm.
 
 ### Dynamixel Setup (before assembling the robot!)
 
