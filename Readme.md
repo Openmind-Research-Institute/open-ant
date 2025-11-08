@@ -27,7 +27,7 @@ The hardware is designed to be easy to build and use:
   <img src="./imgs/robots.png" alt="Robots" width="600"/>
 </p>
 
-
+Top camera: [Logitech Brio 101](https://www.logitech.com/en-us/shop/p/brio-100-webcam) for tracking.
 
 #### Embodied Ant
 
@@ -71,7 +71,7 @@ We recommend adding a heat sink to the knee actuators, for example this [one](ht
 | Screw M3x8mm with socket head             | 6        | U2D2 power board mount + IMU                                                                                | [McMaster](https://www.mcmaster.com/91290A113/)                                                    | $12.82 (pack of 100) |
 | Nut M2                                    | 16       | 3D print assembly 5 per leg                                                                                 | [McMaster](https://www.mcmaster.com/91828A111/)                                                    | $6.14 (pack of 100)  |
 | Nut M3                                    | 2        | U2D2 power board mount                                                                                      | [McMaster](https://www.mcmaster.com/91828A211/)                                                    | $4.73 (pack of 100)  |
-| On-board camera                           | 1        | Logitech Brio 101                                                                                           | [Amazon](https://tinyurl.com/cameralogitech)                                                       | $29.99               |
+| On-board camera                           | 1        | Logitech Brio 101                                                                                           | [Logitech](https://www.logitech.com/en-us/shop/p/brio-100-webcam)                                                       | $29.99               |
 | 3D Printed Parts                          | -        | STL files in `hardware/rev2`. Print all `leg` files 4x, others 1x.                                          | -                                                                                                  | -                    |
 | **Total**                                 |          |                                                                                                             |                                                                                                    | **$1724.84**         |
 
