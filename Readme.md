@@ -38,15 +38,15 @@ The hardware is designed to be easy to build and use:
 | U2D2 Starter Set         | 1        | Includes: USB to Dynamixel, Power Hub Board, 12V 5A Power Suppy    | [Robotis](https://www.robotis.us/dynamixel-starter-set-us/) |
 | Kakute H7 Mini / TBS Lucid Freestyle mini | 1 | Quadcopter flight controller used as IMU (Any Betaflight compatible autopilot with 20x20mm mouts will work) | [getfpv](https://www.getfpv.com/tbs-lucid-freestyle-f4-mini-flight-controller-icm42688-20x20.html)
 | Cable Matters Ultra Mini USB Hub | 1 | 4 Port USB Hub               | [Amazon](https://www.amazon.com/dp/B00PHPWLPA/) |
-| short USB-A to USB-C Cable | 1      | For autopilot (IMU)          | [Amazon](https://www.amazon.com/dp/B01ASXBY62) |
-| short USB-A to miro-USB cable | 1   | For Dynamixel U2D2           | [Amazon](https://www.amazon.com/dp/B08BZD66H4?th=1)
+| Short USB-A to USB-C Cable | 1      | For autopilot (IMU)          | [Amazon](https://www.amazon.com/dp/B01ASXBY62) |
+| Short USB-A to miro-USB cable | 1   | For Dynamixel U2D2           | [Amazon](https://www.amazon.com/dp/B08BZD66H4?th=1)
 | USB-A extension cable    | 1       | As tether for the robot       | [Amazon](https://www.amazon.com/dp/B07ZV6FHWF/)
 | Screw M2x5mm with socket head | 80      | Output shaft, 8 per motor, 3D print assembly     | [McMaster](https://www.mcmaster.com/91290A012/)
 | Screw M2.5x16mm with socket head  | 32      | motor mount, 4 per motor      | [McMaster](https://www.mcmaster.com/91290a106/)
 | Screw M3x8mm with socket head      | 6       | U2D2 power board mount, IMU        | [McMaster](https://www.mcmaster.com/91290A113/)
 | Nut M2                   | 16      | 3D print assembly 4 per leg   | [McMaster](https://www.mcmaster.com/91828A111/)
 | Nut M3                   | 2       | U2D2 power board mount        | [McMaster](https://www.mcmaster.com/91828A211/)
-| 3D Printed Parts         | -       | STL files in `hardware/`      | -                                         |
+| 3D Printed Parts         | -       | STL files in `hardware/rev2`      | -                                         |
 
 We recommend adding a heat sink to the knee actuators, for example this [one](https://www.amazon.com/dp/B08HLZWKYN?ref_=ppx_hzsearch_conn_dt_b_fed_asin_title_1&th=1)
 
@@ -61,8 +61,8 @@ We recommend adding a heat sink to the knee actuators, for example this [one](ht
 | U2D2 Starter Set         | 1        | Includes: USB to Dynamixel, Power Hub Board, 12V 5A Power Suppy    | [Robotis](https://www.robotis.us/dynamixel-starter-set-us/) |
 | Kakute H7 Mini / TBS Lucid Freestyle mini | 1 | Quadcopter flight controller used as IMU (Any Betaflight compatible autopilot with 20x20mm mouts will work) | [getfpv](https://www.getfpv.com/tbs-lucid-freestyle-f4-mini-flight-controller-icm42688-20x20.html)
 | Cable Matters Ultra Mini USB Hub | 1 | 4 Port USB Hub               | [Amazon](https://www.amazon.com/dp/B00PHPWLPA/) |
-| short USB-A to USB-C Cable | 1      | For autopilot (IMU)          | [Amazon](https://www.amazon.com/dp/B01ASXBY62) |
-| short USB-A to miro-USB cable | 1   | For Dynamixel U2D2           | [Amazon](https://www.amazon.com/dp/B08BZD66H4?th=1)
+| Short USB-A to USB-C Cable | 1      | For autopilot (IMU)          | [Amazon](https://www.amazon.com/dp/B01ASXBY62) |
+| Short USB-A to miro-USB cable | 1   | For Dynamixel U2D2           | [Amazon](https://www.amazon.com/dp/B08BZD66H4?th=1)
 | USB-A extension cable    | 1       | As tether for the robot       | [Amazon](https://www.amazon.com/dp/B07ZV6FHWF/)
 | Screw M2x3mm with socket head |  32    | Output shaft, 8 per motor     | [McMaster](https://www.mcmaster.com/91290a010/)
 | Screw M2x5mm with socket head             | 48      | Output shaft, 8 per motor, 3D print assembly     | [McMaster](https://www.mcmaster.com/91290A012/)
@@ -70,7 +70,9 @@ We recommend adding a heat sink to the knee actuators, for example this [one](ht
 | Screw M3x8mm with socket head     | 6       | U2D2 power board mount + IMU        | [McMaster](https://www.mcmaster.com/91290A113/)
 | Nut M2                   | 16      | 3D print assembly 4 per leg   | [McMaster](https://www.mcmaster.com/91828A111/)
 | Nut M3                   | 2       | U2D2 power board mount        | [McMaster](https://www.mcmaster.com/91828A211/)
-| 3D Printed Parts         | -       | STL files in `hardware/`      | -                                         |
+| Nut M3                   | 2       | U2D2 power board mount        | [McMaster](https://www.mcmaster.com/91828A211/)
+| On-board camera          | 1       | Logitech Brio 101        | [Amazon](https://tinyurl.com/cameralogitech)
+| 3D Printed Parts         | -       | STL files in `hardware/rev2`      | -                                         |
 
 We recommend adding a heat sink to the knee actuators, for example this [one](https://www.amazon.com/dp/B08HLZWKYN?ref_=ppx_hzsearch_conn_dt_b_fed_asin_title_1&th=1)
 
