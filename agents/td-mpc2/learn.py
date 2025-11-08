@@ -51,6 +51,7 @@ from common.logger import Logger
 from envs.wrappers.timeout import Timeout
 from envs.mujoco import MuJoCoWrapper
 from envs.wrappers.tensor import TensorWrapper
+import gymnasium as gym
 
 torch.backends.cudnn.benchmark = True
 torch.set_float32_matmul_precision('high')
@@ -83,20 +84,22 @@ def train(cfg: dict):
 	print(colored('Work dir:', 'yellow', attrs=['bold']), cfg.work_dir)
 
 	if cfg.task == 'embodied-ant':
-		DT = 0.05
+		DT = 0.12
 		joint_config = {
 			'hip_zero': 0.0,
-			'knee_zero': 0.0,
-			'hip_range': np.radians(30),
-			'knee_range': np.radians(60),
+			'knee_zero': -np.radians(0),
+			'hip_range': np.radians(45),
+			'knee_range': np.radians(70),
 		}
 		env = AntEnv(
 				dt=DT,
 				render_mode="rgb_array",
 				joint_config=joint_config,
+				terminate_on_upside_down=True,
 		)
 	else:
 		raise ValueError('Unknown task:', cfg.task)
+	env = gym.wrappers.TransformReward(env, lambda r: r * 10) # reward scaling
 	env = MuJoCoWrapper(env, cfg)
 	env = Timeout(env, max_episode_steps=1000)
 	env = TensorWrapper(env)
