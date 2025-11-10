@@ -87,7 +87,6 @@ def train(cfg: dict):
 	print(colored('Work dir:', 'yellow', attrs=['bold']), cfg.work_dir)
 
 	if cfg.task == 'embodied-ant':
-		DT = 0.12
 		joint_config = {
 			'hip_zero': 0.0,
 			'knee_zero': -np.radians(50),
@@ -97,7 +96,7 @@ def train(cfg: dict):
 		if cfg.hw_config == 'None':
 			print('Using sim environment!')
 			env = AntEnv(
-				dt=DT,
+				dt=cfg.dt,
 				render_mode="rgb_array",
 				terminate_on_upside_down=True,
 				task=ForwardTask(),
@@ -109,7 +108,7 @@ def train(cfg: dict):
 				cfg_hw = json.load(f)
 			env = make_ant_env(cfg_hw,
 					render_mode="rgb_array",
-					dt=DT,
+					dt=cfg.dt,
 					joint_config=joint_config,
 				)
 

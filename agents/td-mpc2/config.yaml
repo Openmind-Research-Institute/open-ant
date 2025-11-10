@@ -6,6 +6,7 @@ task: embodied-ant
 obs: state
 episodic: true
 hw_config: None
+dt: 0.12
 
 # evaluation
 checkpoint: ???

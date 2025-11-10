@@ -20,7 +20,8 @@ class OnlineTrainer(Trainer):
 		self._step = 0
 		self._ep_idx = 0
 		self._start_time = time()
-		self.reward_tracker = RewardTracker(env_dt=self.env.dt, env_id=self.cfg.task,
+
+		self.reward_tracker = RewardTracker(env_dt=self.cfg.dt, env_id=self.cfg.task,
                             log_folder=self.logger._log_dir,
                             time_window=120.0)
 
