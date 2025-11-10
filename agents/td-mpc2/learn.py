@@ -33,7 +33,10 @@ import torch
 import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../sim')))
 from ant_mujoco import AntEnv
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../embodied_ant_env')))
+from embodied_ant_env import make_ant_env, ForwardTask
 import numpy as np
+import json
 
 import hydra
 from termcolor import colored
@@ -87,16 +90,29 @@ def train(cfg: dict):
 		DT = 0.12
 		joint_config = {
 			'hip_zero': 0.0,
-			'knee_zero': -np.radians(0),
+			'knee_zero': -np.radians(50),
 			'hip_range': np.radians(45),
-			'knee_range': np.radians(70),
+			'knee_range': np.radians(20),
 		}
-		env = AntEnv(
+		if cfg.hw_config == 'None':
+			print('Using sim environment!')
+			env = AntEnv(
 				dt=DT,
 				render_mode="rgb_array",
-				joint_config=joint_config,
 				terminate_on_upside_down=True,
-		)
+				task=ForwardTask(),
+				joint_config=joint_config,
+			)
+		else:
+			print('Using hw environment!')
+			with open(cfg.hw_config, 'r') as f:
+				cfg_hw = json.load(f)
+			env = make_ant_env(cfg_hw,
+					render_mode="rgb_array",
+					dt=DT,
+					joint_config=joint_config,
+				)
+
 	else:
 		raise ValueError('Unknown task:', cfg.task)
 	env = gym.wrappers.TransformReward(env, lambda r: r * 10) # reward scaling
@@ -108,7 +124,7 @@ def train(cfg: dict):
 	except: # Box
 		cfg.obs_shape = {cfg.get('obs', 'state'): env.observation_space.shape}
 	cfg.action_dim = env.action_space.shape[0]
-	cfg.seed_steps = max(1000, 5*cfg.episode_length)
+	cfg.seed_steps = max(1000, 1*cfg.episode_length)
 
 	cfg.discount_max = 0.99
 	cfg.rho = 0.7
