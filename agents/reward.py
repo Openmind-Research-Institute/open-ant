@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 
 
 class RewardTracker:
-    def __init__(self, env_dt, env_id, time_window=10.0, log_folder="."):
+    def __init__(self, env_dt, env_id, time_window=10.0, log_folder=".", plot=False):
         self.env_dt = env_dt
         self.window_size = int(time_window / env_dt)
         self.queue = deque(maxlen=self.window_size)
@@ -17,6 +17,7 @@ class RewardTracker:
         self.env_id = env_id
         self.step = 0.0
         self._average_reward_per_second = 0.0
+        self._plot = plot
 
     def update(self, reward):
         reward_per_second = reward / self.env_dt
@@ -30,7 +31,7 @@ class RewardTracker:
     def average_reward_per_second(self):
         return self._average_reward_per_second
 
-    def log(self, plot=False, every_N_steps=100):
+    def log(self, every_N_steps=100):
         # Flush buffer to DataFrame periodically.
         if self.step % every_N_steps == 0:
             if self.buffer:
@@ -40,7 +41,7 @@ class RewardTracker:
 
             self.df.to_csv(os.path.join(self.log_folder, f"{self.env_id}_average_rewards.csv"), index=False)
 
-            if plot:
+            if self._plot:
                 self.plot(os.path.join(self.log_folder, f"{self.env_id}_average_rewards.png"))
 
     def plot(self, save_path=None):
@@ -53,6 +54,7 @@ class RewardTracker:
         )
         plt.xlabel("Time [s]", fontsize=14)
         plt.ylabel("Average Reward per Second", fontsize=14)
+        plt.tight_layout()
         if save_path is not None:
             plt.savefig(save_path)
             plt.close()
