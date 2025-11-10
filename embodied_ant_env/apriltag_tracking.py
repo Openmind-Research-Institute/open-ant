@@ -178,7 +178,7 @@ def show_image(frame):
     cv2.waitKey(1)
 
 
-if __name__ == "__main__":
+def main():
     import sys
     camera_id = int(sys.argv[1]) if len(sys.argv) > 1 else 0
     tracker = VisionTracker(camera_id=camera_id,
@@ -209,3 +209,6 @@ if __name__ == "__main__":
             break
 
     cv2.destroyAllWindows()
+
+if __name__ == "__main__":
+    main()
