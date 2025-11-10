@@ -5,6 +5,7 @@ defaults:
 task: embodied-ant
 obs: state
 episodic: true
+hw_config: None
 
 # evaluation
 checkpoint: ???
@@ -72,7 +73,7 @@ save_csv: true
 
 # misc
 compile: true
-save_video: true
+save_video: false
 save_agent: true
 seed: 2
 
