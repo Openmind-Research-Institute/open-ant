@@ -22,7 +22,12 @@ WORKSPACE_LENGTH = 10.0 # m
 
 class AntEnv(MujocoEnv, utils.EzPickle):
     metadata = {
-        "render_modes": ["human", "rgb_array"],
+          "render_modes": [
+            "human",
+            "rgb_array",
+            "depth_array",
+            # "rgbd_tuple",
+        ],
     }
 
     def __init__(
@@ -30,8 +35,8 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         xml_file: str = os.path.join(os.path.dirname(__file__), "assets/ant_position.xml"),
         dt: float = 0.02,
         terminate_on_upside_down: bool = False,
-        main_body: int | str = 1,
-        joint_config: dict[str, float] | None = None,
+        main_body: int = 1,
+        joint_config: dict[str, float] = None,
         task=ForwardTask(),
         **kwargs,
     ):
@@ -94,7 +99,8 @@ class AntEnv(MujocoEnv, utils.EzPickle):
 
         # Terminate on upside down.
         quaternion_wxyz = self.data.qpos[3:7]
-        up_vector_ant_in_world = transform.Rotation.from_quat(quaternion_wxyz, scalar_first=True).as_matrix()[:, 2]
+        quat_xyzw = [quaternion_wxyz[1], quaternion_wxyz[2], quaternion_wxyz[3], quaternion_wxyz[0]]
+        up_vector_ant_in_world = transform.Rotation.from_quat(quat_xyzw).as_matrix()[:, 2]
         z_world = np.array([0, 0, 1])
         upside_down = np.dot(up_vector_ant_in_world, z_world)
         if self._terminate_on_upside_down == True:
@@ -160,7 +166,8 @@ class AntEnv(MujocoEnv, utils.EzPickle):
 
     def get_observation(self):
         quaternion_wxyz = self.data.qpos[3:7]
-        heading_vector = (transform.Rotation.from_quat(quaternion_wxyz, scalar_first=True).as_matrix() @ np.array([1, 0, 0]))[0:2]
+        quaternion_xyzw = [quaternion_wxyz[1], quaternion_wxyz[2], quaternion_wxyz[3], quaternion_wxyz[0]]
+        heading_vector = (transform.Rotation.from_quat(quaternion_xyzw).as_matrix() @ np.array([1, 0, 0]))[0:2]
         heading_vector = heading_vector / np.linalg.norm(heading_vector)
 
         imu_data = self._get_sensor_data("accelerometer")
