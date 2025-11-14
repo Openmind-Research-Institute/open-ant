@@ -249,24 +249,27 @@ if __name__ == "__main__":
     q_optimizer = optim.Adam(list(qf1.parameters()) + list(qf2.parameters()), lr=args.q_lr)
     actor_optimizer = optim.Adam(list(actor.parameters()), lr=args.policy_lr)
 
+    checkpoint = None
     if args.weights_path is not None:
-        state_dict = torch.load(os.path.join(args.weights_path, "actor.pth"), map_location=torch.device('cpu'))
-        actor.load_state_dict(state_dict)
-        state_dict = torch.load(os.path.join(args.weights_path, "qf1.pth"), map_location=torch.device('cpu'))
-        qf1.load_state_dict(state_dict)
-        state_dict = torch.load(os.path.join(args.weights_path, "qf2.pth"), map_location=torch.device('cpu'))
-        qf2.load_state_dict(state_dict)
-        state_dict = torch.load(os.path.join(args.weights_path, "qf1_target.pth"), map_location=torch.device('cpu'))
-        qf1_target.load_state_dict(state_dict)
-        state_dict = torch.load(os.path.join(args.weights_path, "qf2_target.pth"), map_location=torch.device('cpu'))
-        qf2_target.load_state_dict(state_dict)
+        checkpoint = torch.load(os.path.join(args.weights_path, "checkpoint.pth"), map_location=device)
+        actor.load_state_dict(checkpoint["actor"])
+        qf1.load_state_dict(checkpoint["qf1"])
+        qf2.load_state_dict(checkpoint["qf2"])
+        qf1_target.load_state_dict(checkpoint["qf1_target"])
+        qf2_target.load_state_dict(checkpoint["qf2_target"])
+        actor_optimizer.load_state_dict(checkpoint["actor_optimizer"])
+        q_optimizer.load_state_dict(checkpoint["q_optimizer"])
 
     if args.autotune:
         # Automatic entropy tuning.
         target_entropy = -torch.prod(torch.Tensor(envs.single_action_space.shape).to(device)).item()
         log_alpha = torch.zeros(1, requires_grad=True, device=device)
-        alpha = log_alpha.exp().item()
         a_optimizer = optim.Adam([log_alpha], lr=args.q_lr)
+
+        if checkpoint is not None:
+            a_optimizer.load_state_dict(checkpoint["a_optimizer"])
+            log_alpha = checkpoint["log_alpha"].to(device).requires_grad_()
+        alpha = log_alpha.exp().item()
     else:
         alpha = args.alpha
 
@@ -280,6 +283,14 @@ if __name__ == "__main__":
         n_envs=args.num_envs,
         handle_timeout_termination=False,
     )
+    if args.weights_path is not None:
+        # Load replay buffer
+        buffer_path = os.path.join(args.weights_path, "replay_buffer.npz")
+        if os.path.exists(buffer_path):
+            rb.load(buffer_path, device)
+            print(f"[√] Loaded replay buffer with {rb.size} transitions")
+        else:
+            print("[!] No replay buffer found, starting empty")
     start_time = time.time()
 
     obs, info = envs.reset(seed=args.seed)
@@ -405,11 +416,23 @@ if __name__ == "__main__":
             if global_step % 100 == 0:
 
                 # Save all the networks.
-                torch.save(actor.state_dict(), os.path.join(save_weights_folder, "actor.pth"))
-                torch.save(qf1.state_dict(), os.path.join(save_weights_folder, "qf1.pth"))
-                torch.save(qf2.state_dict(), os.path.join(save_weights_folder, "qf2.pth"))
-                torch.save(qf1_target.state_dict(), os.path.join(save_weights_folder, "qf1_target.pth"))
-                torch.save(qf2_target.state_dict(), os.path.join(save_weights_folder, "qf2_target.pth"))
+                checkpoint = {
+                    "actor": actor.state_dict(),
+                    "qf1": qf1.state_dict(),
+                    "qf2": qf2.state_dict(),
+                    "qf1_target": qf1_target.state_dict(),
+                    "qf2_target": qf2_target.state_dict(),
+                    "actor_optimizer": actor_optimizer.state_dict(),
+                    "q_optimizer": q_optimizer.state_dict(),
+                    "a_optimizer": a_optimizer.state_dict() if args.autotune else None,
+                    "log_alpha": log_alpha.detach().cpu(),
+                    "global_step": global_step,
+                    "random_state": random.getstate(),
+                    "numpy_state": np.random.get_state(),
+                    "torch_state": torch.get_rng_state(),
+                }
+                torch.save(checkpoint, os.path.join(WEIGHTS_FOLDER, "checkpoint.pth"))
+                rb.save(os.path.join(WEIGHTS_FOLDER, "replay_buffer.npz"))
 
                 dict_debugging['steps'].append(global_step)
                 dict_debugging['qf1_values'].append(qf1_a_values.mean().item())
