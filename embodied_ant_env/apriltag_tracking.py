@@ -176,8 +176,8 @@ if __name__ == "__main__":
     import sys
     camera_id = int(sys.argv[1]) if len(sys.argv) > 1 else 0
     tracker = VisionTracker(camera_id=camera_id,
-                            fov_diagonal_deg=58,
-                            tag_sizes={'origin': 0.072, 'body': 0.045},
+                            fov_diagonal_deg=78,
+                            tag_sizes={'origin': 0.1, 'body': 0.045},
                             tag_ids={'origin': 0, 'body': 12})
 
     plt.figure(dpi=150)
