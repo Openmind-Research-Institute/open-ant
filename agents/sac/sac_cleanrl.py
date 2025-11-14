@@ -4,28 +4,25 @@
 # Modified by Sorina Lupu, Openmind Research Institute, 2025
 
 import os
-import time
 import sys
-import tyro
 import json
+import time
 import random
-import gymnasium as gym
+import argparse
 import numpy as np
-from dataclasses import dataclass
 import pandas as pd
+from tqdm import tqdm
+import gymnasium as gym
+from datetime import datetime
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
-import wandb
+import torch.nn.functional as F
 
-from tqdm import tqdm
-from datetime import datetime
-from torch.utils.tensorboard import SummaryWriter
-from matplotlib.backends.backend_pdf import PdfPages
-import matplotlib.pyplot as plt
-
+# Import custom modules.
 from buffers import ReplayBuffer
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../sim')))
 from ant_mujoco import AntEnv
@@ -34,77 +31,71 @@ from embodied_ant_env import make_ant_env, ForwardTask, BackAndForthTask
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from reward import RewardTracker
 
-# Matplotlib font setup.
-plt.rcParams['font.family'] = 'Arial'
-plt.rcParams['font.size'] = 20
-plt.rcParams['axes.linewidth'] = 2
-plt.rcParams['axes.labelsize'] = 20
-plt.rcParams['axes.titlesize'] = 20
+def parse_args():
+    parser = argparse.ArgumentParser()
 
-@dataclass
-class Args:
-    exp_name: str = os.path.basename(__file__)[: -len(".py")]
-    """the name of this experiment"""
-    seed: int = 1
-    """seed of the experiment"""
-    torch_deterministic: bool = True
-    """if toggled, `torch.backends.cudnn.deterministic=False`"""
-    cuda: bool = True
-    """if toggled, cuda will be enabled by default"""
-    track: bool = False
-    """if toggled, this experiment will be tracked with Weights and Biases"""
-    wandb_project_name: str = "EmbodiedAnt"
-    """the wandb's project name"""
-    wandb_entity: str = None
-    """the entity (team) of wandb's project"""
-    capture_video: bool = False
-    """whether to capture videos of the agent performances (check out `videos` folder)"""
+    # General
+    parser.add_argument("--exp_name", type=str, default=os.path.basename(__file__)[:-3],
+                        help="the name of this experiment")
+    parser.add_argument("--seed", type=int, default=1,
+                        help="seed of the experiment")
+    parser.add_argument("--torch_deterministic", type=bool, default=True,
+                        help="if toggled, torch.backends.cudnn.deterministic=False")
+    parser.add_argument("--cuda", type=bool, default=True,
+                        help="if toggled, cuda will be enabled by default")
+    parser.add_argument("--capture_video", type=bool, default=False,
+                        help="capture video of agent performances")
 
-    # Algorithm specific arguments
-    env_id: str = "EmbodiedAnt"
-    """the environment id of the task"""
-    total_timesteps: int = 1000000
-    """total timesteps of the experiments"""
-    num_envs: int = 1
-    """the number of parallel environments"""
-    buffer_size: int = int(1e6)
-    """the replay memory buffer size"""
-    gamma: float = 0.99
-    """the discount factor gamma"""
-    tau: float = 0.005
-    """target smoothing coefficient"""
-    batch_size: int = 256
-    """the batch size of sample from the reply memory"""
-    learning_starts: int = 5e3
-    """timestep to start learning"""
-    policy_lr: float = 3e-4
-    """the learning rate of the policy network optimizer"""
-    q_lr: float = 1e-3
-    """the learning rate of the Q network network optimizer"""
-    policy_frequency: int = 2
-    """the frequency of learning policy (delayed update)"""
-    target_network_frequency: int = 1  # Denis Yarats' implementation delays this by 2.
-    """the frequency of updates for the target networks"""
-    alpha: float = 0.2
-    """entropy regularization coefficient"""
-    autotune: bool = True
-    """automatic tuning of the entropy coefficient"""
-    dt: float = 0.05
-    """the timestep of the environment"""
-    hw_config: str = None
-    """the hardware configuration file"""
-    render_mode: str = "human"
-    """the render mode"""
-    terminate_on_upside_down: bool = True
-    """whether to terminate the episode if the agent is upside down"""
-    weights_path: str = None
-    """previously learned weights"""
-    task_type: str = "forward"
-    """the type of task"""
-    reward_scale: float = 100.0
-    """the reward scale"""
+    # Algorithm
+    parser.add_argument("--env_id", type=str, default="EmbodiedAnt",
+                        help="environment ID")
+    parser.add_argument("--total_timesteps", type=int, default=1_000_000,
+                        help="total training timesteps")
+    parser.add_argument("--num_envs", type=int, default=1,
+                        help="number of parallel envs")
+    parser.add_argument("--buffer_size", type=int, default=int(1e6),
+                        help="replay buffer size")
+    parser.add_argument("--gamma", type=float, default=0.99,
+                        help="discount factor")
+    parser.add_argument("--tau", type=float, default=0.005,
+                        help="target smoothing coefficient")
+    parser.add_argument("--batch_size", type=int, default=256,
+                        help="batch size")
+    parser.add_argument("--learning_starts", type=int, default=5000,
+                        help="timestep to start learning")
+    parser.add_argument("--policy_lr", type=float, default=3e-4,
+                        help="policy learning rate")
+    parser.add_argument("--q_lr", type=float, default=1e-3,
+                        help="Q-network learning rate")
+    parser.add_argument("--policy_frequency", type=int, default=2,
+                        help="policy update frequency")
+    parser.add_argument("--target_network_frequency", type=int, default=1,
+                        help="target network update frequency")
+    parser.add_argument("--alpha", type=float, default=0.2,
+                        help="entropy regularization coefficient")
+    parser.add_argument("--autotune", type=bool, default=True,
+                        help="automatic entropy tuning")
 
-# ALGO LOGIC: initialize agent here:
+    # Environment
+    parser.add_argument("--dt", type=float, default=0.05,
+                        help="environment timestep")
+    parser.add_argument("--hw_config", type=str, default=None,
+                        help="hardware config file")
+    parser.add_argument("--render_mode", type=str, default="human",
+                        help="render mode")
+    parser.add_argument("--terminate_on_upside_down", type=bool, default=True,
+                        help="terminate episode if upside down")
+    parser.add_argument("--weights_path", type=str, default=None,
+                        help="load previous weights")
+    parser.add_argument("--task_type", type=str, default="forward",
+                        choices=["forward", "back_and_forth"],
+                        help="type of task")
+    parser.add_argument("--reward_scale", type=float, default=100.0,
+                        help="reward scale factor")
+
+    args = parser.parse_args()
+    return args
+
 class SoftQNetwork(nn.Module):
     def __init__(self, env):
         super().__init__()
@@ -121,7 +112,6 @@ class SoftQNetwork(nn.Module):
         x = F.relu(self.fc2(x))
         x = self.fc3(x)
         return x
-
 
 LOG_STD_MAX = 2
 LOG_STD_MIN = -5
@@ -155,15 +145,14 @@ class Actor(nn.Module):
         mean = self.fc_mean(x)
         log_std = self.fc_logstd(x)
         log_std = torch.tanh(log_std)
-        log_std = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (log_std + 1)  # From SpinUp / Denis Yarats
-
+        log_std = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (log_std + 1)
         return mean, log_std
 
     def get_action(self, x):
         mean, log_std = self(x)
         std = log_std.exp()
         normal = torch.distributions.Normal(mean, std)
-        x_t = normal.rsample()  # for reparameterization trick (mean + std * N(0,1))
+        x_t = normal.rsample() # for reparameterization trick (mean + std * N(0,1)).
         y_t = torch.tanh(x_t)
         action = y_t * self.action_scale + self.action_bias
         log_prob = normal.log_prob(x_t)
@@ -176,8 +165,12 @@ class Actor(nn.Module):
 
 if __name__ == "__main__":
 
-    args = tyro.cli(Args)
     date = datetime.now().strftime("%Y%m%d-%H%M%S")
+
+    # Args.
+    args = parse_args()
+
+    # Folders.
     RUN_NAME = f"{args.env_id}__{args.exp_name}__{args.seed}__{date}"
     WEIGHTS_FOLDER = os.path.join("runs", RUN_NAME, "weights_and_args")
     os.makedirs(WEIGHTS_FOLDER, exist_ok=True)
@@ -186,53 +179,41 @@ if __name__ == "__main__":
     with open(os.path.join(WEIGHTS_FOLDER, "args.json"), 'w') as f:
         json.dump(vars(args), f)
 
-    if args.track: # TODO: test this.
-        wandb.init(
-            project=args.wandb_project_name,
-            entity=args.wandb_entity,
-            sync_tensorboard=True,
-            config=vars(args),
-            name=RUN_NAME,
-            monitor_gym=True,
-            save_code=True,
-        )
-    writer = SummaryWriter(f"runs/{RUN_NAME}")
-    writer.add_text(
-        "hyperparameters",
-        "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
-    )
-
+    # Seed.
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
+
+    # Device.
     torch.backends.cudnn.deterministic = args.torch_deterministic
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
 
-    render = args.render_mode
+    # Task.
     if args.task_type == "forward":
         task = ForwardTask()
     elif args.task_type == "back_and_forth":
-        radius = 0.61
-        origin = np.array([0.14194049, -0.82257924])
+        # Radius and origin for the circular movement boundary.
+        RADIUS = 0.61
+        ORIGIN = np.array([0.14194049, -0.82257924])
         task = BackAndForthTask(
-            radius=radius,
-            origin=origin,
+            radius=RADIUS,
+            origin=ORIGIN,
         )
     else:
         raise ValueError(f"Invalid task type: {args.task_type}")
 
     def make_env(env_id, seed, idx, capture_video, RUN_NAME):
-        def thunk():
+        def _init():
             joint_config = {
                 'hip_zero': 0,
                 'knee_zero': -np.radians(50),
                 'hip_range': np.radians(30),
-                'knee_range': np.radians(20),
+                'knee_range': np.radians(10),
             }
             if args.hw_config is None:
                 env = AntEnv(
                     dt=args.dt,
-                    render_mode=render,
+                    render_mode=args.render_mode,
                     terminate_on_upside_down=args.terminate_on_upside_down,
                     task=task,
                     joint_config=joint_config,
@@ -240,12 +221,12 @@ if __name__ == "__main__":
             else:
                 with open(args.hw_config, 'r') as f:
                     cfg = json.load(f)
-                env = make_ant_env(cfg, render_mode=render,
+                env = make_ant_env(cfg, render_mode=args.render_mode,
                                    dt=args.dt,
                                    joint_config=joint_config,
                                    task=task,
                                    )
-            
+
             if capture_video and idx == 0:
                 print('RecordVideo')
                 env = gym.wrappers.RecordVideo(env, f"runs/{RUN_NAME}/videos/{RUN_NAME}", episode_trigger=lambda x: x % 10 == 0)
@@ -254,15 +235,15 @@ if __name__ == "__main__":
             env.action_space.seed(seed)
             return env
 
-        return thunk
+        return _init
 
+    # Vector environment.
     envs = gym.vector.SyncVectorEnv(
         [make_env(args.env_id, args.seed + i, i, args.capture_video, RUN_NAME) for i in range(args.num_envs)],
     )
     assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
 
-    max_action = float(envs.single_action_space.high[0])
-
+    # Networks.
     actor = Actor(envs).to(device)
     qf1 = SoftQNetwork(envs).to(device)
     qf2 = SoftQNetwork(envs).to(device)
@@ -273,6 +254,7 @@ if __name__ == "__main__":
     q_optimizer = optim.Adam(list(qf1.parameters()) + list(qf2.parameters()), lr=args.q_lr)
     actor_optimizer = optim.Adam(list(actor.parameters()), lr=args.policy_lr)
 
+    # Checkpoints.
     checkpoint = None
     if args.weights_path is not None:
         checkpoint = torch.load(os.path.join(args.weights_path, "checkpoint.pth"), map_location=device)
@@ -298,6 +280,7 @@ if __name__ == "__main__":
         alpha = args.alpha
 
     envs.single_observation_space.dtype = np.float32
+
     # Initialize the replay buffer.
     rb = ReplayBuffer(
         args.buffer_size,
@@ -307,46 +290,51 @@ if __name__ == "__main__":
         n_envs=args.num_envs,
         handle_timeout_termination=False,
     )
+    # Load replay buffer if there exists one.
     if args.weights_path is not None:
-        # Load replay buffer
         buffer_path = os.path.join(args.weights_path, "replay_buffer.npz")
         if os.path.exists(buffer_path):
             rb.load(buffer_path, device)
             print(f"[√] Loaded replay buffer with {rb.size} transitions")
         else:
             print("[!] No replay buffer found, starting empty")
+
     start_time = time.time()
 
+    # Reset the environment.
     obs, info = envs.reset(seed=args.seed)
 
+    # Log the information of choice.
     info_logs = open(os.path.join("runs", RUN_NAME, "info_logs.csv"), 'w')
     keys_to_record = ['step', 'roll_deg', 'pitch_deg', 'yaw_deg', 'timestamp', 'ax', 'ay', 'az', 'wx', 'wy', 'wz', 'joint_positions', 'joint_velocities', 'joint_loads', 'temperatures', 'current_x_position', 'current_y_position', 'heading_vector', 'heading_vector_x', 'heading_vector_y', 'reward_direction', 'reward_direction_x', 'reward_direction_y', 'r_b_x', 'r_b_y', 'original_reward']
-    # Record if they exist in info.
     keys_to_record_that_exist = [k for k in keys_to_record if k in info.keys()]
     info_logs.write('step, ' + ','.join(keys_to_record_that_exist) + '\n')
     info_logs.flush()
 
+    # Reward tracker.
     reward_tracker = RewardTracker(env_dt=args.dt, env_id=args.env_id,
                             log_folder=os.path.join("runs", RUN_NAME),
                             time_window=120.0)
 
-    # Debugging variables.
-    dict_debugging = {}
-    dict_debugging['episodic_returns'] = []
-    dict_debugging['episodic_lengths'] = []
-    dict_debugging['episodic_step'] = []
-    dict_debugging['steps'] = []
-    dict_debugging['qf1_values'] = []
-    dict_debugging['qf2_values'] = []
-    dict_debugging['qf1_losses'] = []
-    dict_debugging['qf2_losses'] = []
-    dict_debugging['qf_losses'] = []
-    dict_debugging['actor_losses'] = []
-    dict_debugging['alphas'] = []
-    dict_debugging['alpha_losses'] = []
-    dict_debugging['SPS'] = []
-    dict_debugging['average_reward_per_second'] = []
+    # Performance variables.
+    performance_variables = {}
+    performance_variables['episodic_returns'] = []
+    performance_variables['episodic_lengths'] = []
+    performance_variables['episodic_step'] = []
+    performance_variables['steps'] = []
+    performance_variables['qf1_values'] = []
+    performance_variables['qf2_values'] = []
+    performance_variables['qf1_losses'] = []
+    performance_variables['qf2_losses'] = []
+    performance_variables['qf_losses'] = []
+    performance_variables['actor_losses'] = []
+    performance_variables['alphas'] = []
+    performance_variables['alpha_losses'] = []
+    performance_variables['SPS'] = []
+    performance_variables['average_reward_per_second'] = []
 
+
+    # Start learning.
     for global_step in tqdm(range(args.total_timesteps)):
         # Get the action.
         if global_step < args.learning_starts and args.weights_path is None:
@@ -363,26 +351,22 @@ if __name__ == "__main__":
         for k, v in infos.items():
             # if it doesn't start with _ and is not a dict
             if k in keys_to_record_that_exist:
-                # Check if v is not empty and has the expected structure
                 v_env_idx_0 = v[0]
                 if isinstance(v_env_idx_0, (list, tuple, np.ndarray)):
-                    formatted_value = "[" + " ".join(f"{x:.6f}" for x in np.array(v_env_idx_0).flatten()) + "]"
+                    formatted_value = "[" + " ".join(f"{x:.3f}" for x in np.array(v_env_idx_0).flatten()) + "]"
                 else:
-                    formatted_value = str(v_env_idx_0)
+                    formatted_value = str(v_env_idx_0.round(3))
             infos_to_log[k] = formatted_value
         info_logs.write(f"{global_step}, " + ", ".join(infos_to_log.values()) + "\n")
         info_logs.flush()
 
-        original_rewards = infos['original_reward']
-
+        # Log the episodic return and length.
         if "episode" in infos:
             if infos["episode"] is not None:
                 print('infos["episode"]', infos["episode"])
-                writer.add_scalar("charts/episodic_return", infos["episode"]["r"], global_step)
-                writer.add_scalar("charts/episodic_length", infos["episode"]["l"], global_step)
-                dict_debugging['episodic_returns'].append(infos["episode"]["r"])
-                dict_debugging['episodic_lengths'].append(infos["episode"]["l"])
-                dict_debugging['episodic_step'].append(global_step)
+                performance_variables['episodic_returns'].append(infos["episode"]["r"])
+                performance_variables['episodic_lengths'].append(infos["episode"]["l"])
+                performance_variables['episodic_step'].append(global_step)
 
         # Add the data to the replay buffer.
         rb.add(obs, next_obs, actions, rewards, terminations, infos)
@@ -394,10 +378,12 @@ if __name__ == "__main__":
         else:
             raise ValueError("reward_tracker is only supported for single environment")
 
+        # Update the observation.
         obs = next_obs
 
-        # Learning.
+        # Learn.
         if global_step > args.learning_starts:
+            # Sample from the replay buffer.
             data = rb.sample(args.batch_size)
             with torch.no_grad():
                 next_state_actions, next_state_log_pi, _ = actor.get_action(data.next_observations)
@@ -418,9 +404,7 @@ if __name__ == "__main__":
             q_optimizer.step()
 
             if global_step % args.policy_frequency == 0:
-                for _ in range(
-                    args.policy_frequency
-                ):  # Compensate for the delay by doing 'actor_update_interval' instead of 1.
+                for _ in range(args.policy_frequency):  # Compensate for the delay by doing 'actor_update_interval' instead of 1.
                     pi, log_pi, _ = actor.get_action(data.observations)
                     qf1_pi = qf1(data.observations, pi)
                     qf2_pi = qf2(data.observations, pi)
@@ -449,8 +433,8 @@ if __name__ == "__main__":
                 for param, target_param in zip(qf2.parameters(), qf2_target.parameters()):
                     target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
 
-            if global_step % 100 == 0:
-
+            # Logging.
+            if global_step % 500 == 0:
                 # Save all the networks.
                 checkpoint = {
                     "actor": actor.state_dict(),
@@ -470,74 +454,42 @@ if __name__ == "__main__":
                 torch.save(checkpoint, os.path.join(WEIGHTS_FOLDER, "checkpoint.pth"))
                 rb.save(os.path.join(WEIGHTS_FOLDER, "replay_buffer.npz"))
 
-                dict_debugging['steps'].append(global_step)
-                dict_debugging['qf1_values'].append(qf1_a_values.mean().item())
-                dict_debugging['qf2_values'].append(qf2_a_values.mean().item())
-                dict_debugging['qf1_losses'].append(qf1_loss.item())
-                dict_debugging['qf2_losses'].append(qf2_loss.item())
-                dict_debugging['qf_losses'].append(qf_loss.item() / 2.0)
-                dict_debugging['actor_losses'].append(actor_loss.item())
-                dict_debugging['alphas'].append(alpha)
-                dict_debugging['alpha_losses'].append(alpha_loss.item())
-                dict_debugging['SPS'].append(int(global_step / (time.time() - start_time)))
-                dict_debugging['average_reward_per_second'].append(reward_tracker.average_reward_per_second)
+                performance_variables['steps'].append(global_step)
+                performance_variables['qf1_values'].append(qf1_a_values.mean().item())
+                performance_variables['qf2_values'].append(qf2_a_values.mean().item())
+                performance_variables['qf1_losses'].append(qf1_loss.item())
+                performance_variables['qf2_losses'].append(qf2_loss.item())
+                performance_variables['qf_losses'].append(qf_loss.item() / 2.0)
+                performance_variables['actor_losses'].append(actor_loss.item())
+                performance_variables['alphas'].append(alpha)
+                performance_variables['alpha_losses'].append(alpha_loss.item())
+                performance_variables['SPS'].append(int(global_step / (time.time() - start_time)))
+                performance_variables['average_reward_per_second'].append(reward_tracker.average_reward_per_second)
 
-                writer.add_scalar("losses/qf1_values", qf1_a_values.mean().item(), global_step)
-                writer.add_scalar("losses/qf2_values", qf2_a_values.mean().item(), global_step)
-                writer.add_scalar("losses/qf1_loss", qf1_loss.item(), global_step)
-                writer.add_scalar("losses/qf2_loss", qf2_loss.item(), global_step)
-                writer.add_scalar("losses/qf_loss", qf_loss.item() / 2.0, global_step)
-                writer.add_scalar("losses/actor_loss", actor_loss.item(), global_step)
-                writer.add_scalar("losses/alpha", alpha, global_step)
-                writer.add_scalar("charts/average_reward_per_second", reward_tracker.average_reward_per_second, global_step)
-                print("SPS:", int(global_step / (time.time() - start_time)))
-                writer.add_scalar(
-                    "charts/SPS",
-                    int(global_step / (time.time() - start_time)),
-                    global_step,
-                )
-                if args.autotune:
-                    writer.add_scalar("losses/alpha_loss", alpha_loss.item(), global_step)
-
+                # Plot the performance variables.
                 with PdfPages(os.path.join(REPORT_FOLDER, "report.pdf")) as pdf:
                     # Plot the average reward per second.
-                    fig = plt.figure()
-                    plt.plot(dict_debugging['steps'], dict_debugging['average_reward_per_second'], linewidth=2)
-                    plt.xlabel('Steps')
-                    plt.ylabel('Average Reward per Second')
-                    plt.title('Average Reward per Second')
-                    plt.tight_layout()
-                    pdf.savefig()
-                    plt.close()
-
-                    # Plot the episodic returns and lengths.
-                    if len(dict_debugging['episodic_returns']) > 0:
-                        fig, ax = plt.subplots(2, 1, figsize=(10, 10))
-                        ax[0].plot(dict_debugging['episodic_step'], dict_debugging['episodic_returns'])
-                        ax[0].set_xlabel('Steps')
-                        ax[0].set_ylabel('Episodic Returns')
-                        ax[0].set_title('Episodic Returns')
-                        ax[1].plot(dict_debugging['episodic_step'], dict_debugging['episodic_lengths'])
-                        ax[1].set_xlabel('Steps')
-                        ax[1].set_ylabel('Episodic Lengths')
-                        ax[1].set_title('Episodic Lengths')
-                        plt.tight_layout()
-                        pdf.savefig()
-                        plt.close()
+                    reward_tracker.plot(os.path.join(REPORT_FOLDER, "average_reward.pdf"))
 
                     # Plot the other metrics.
-                    for key, value in dict_debugging.items():
-                        if key.startswith('episodic'):
+                    for key, value in performance_variables.items():
+                        # Check if value is not empty.
+                        if len(value) == 0:
                             continue
                         fig = plt.figure()
-                        plt.plot(dict_debugging['steps'], value)
+                        plt.plot(performance_variables['steps'], value)
                         plt.xlabel('Steps')
                         plt.ylabel(key)
                         plt.title(key)
                         pdf.savefig()
                         plt.close()
 
-                    # Open the info and plot all columns.
+                    # Save the performance variables to a CSV file.
+                    # performance_logs_df = pd.DataFrame(performance_variables)
+                    # performance_logs_df.to_csv(os.path.join(REPORT_FOLDER, "performance_logs.csv"), index=False)
+
+                    # For debugging.
+                    # Plot the info logs.
                     df_logs = pd.read_csv(os.path.join("runs", RUN_NAME, "info_logs.csv"))
                     cols_to_plot = [
                         'current_x_position',
@@ -586,6 +538,5 @@ if __name__ == "__main__":
                     # pdf.savefig()
                     # plt.close()
 
-    # Close the environment and the writer.
+    # Close the environment.
     envs.close()
-    writer.close()
