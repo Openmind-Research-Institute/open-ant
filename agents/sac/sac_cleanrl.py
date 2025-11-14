@@ -12,6 +12,7 @@ import random
 import gymnasium as gym
 import numpy as np
 from dataclasses import dataclass
+import pandas as pd
 
 import torch
 import torch.nn as nn
@@ -98,6 +99,10 @@ class Args:
     """whether to terminate the episode if the agent is upside down"""
     weights_path: str = None
     """previously learned weights"""
+    task_type: str = "forward"
+    """the type of task"""
+    reward_scale: float = 100.0
+    """the reward scale"""
 
 # ALGO LOGIC: initialize agent here:
 class SoftQNetwork(nn.Module):
@@ -120,7 +125,6 @@ class SoftQNetwork(nn.Module):
 
 LOG_STD_MAX = 2
 LOG_STD_MIN = -5
-
 
 class Actor(nn.Module):
     def __init__(self, env):
@@ -174,21 +178,25 @@ if __name__ == "__main__":
 
     args = tyro.cli(Args)
     date = datetime.now().strftime("%Y%m%d-%H%M%S")
-    run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{date}"
-    save_weights_folder = os.path.join("runs", run_name, "weights")
-    os.makedirs(save_weights_folder, exist_ok=True)
+    RUN_NAME = f"{args.env_id}__{args.exp_name}__{args.seed}__{date}"
+    WEIGHTS_FOLDER = os.path.join("runs", RUN_NAME, "weights_and_args")
+    os.makedirs(WEIGHTS_FOLDER, exist_ok=True)
+    REPORT_FOLDER = os.path.join("runs", RUN_NAME, "report")
+    os.makedirs(REPORT_FOLDER, exist_ok=True)
+    with open(os.path.join(WEIGHTS_FOLDER, "args.json"), 'w') as f:
+        json.dump(vars(args), f)
 
-    if args.track:
+    if args.track: # TODO: test this.
         wandb.init(
             project=args.wandb_project_name,
             entity=args.wandb_entity,
             sync_tensorboard=True,
             config=vars(args),
-            name=run_name,
+            name=RUN_NAME,
             monitor_gym=True,
             save_code=True,
         )
-    writer = SummaryWriter(f"runs/{run_name}")
+    writer = SummaryWriter(f"runs/{RUN_NAME}")
     writer.add_text(
         "hyperparameters",
         "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
@@ -201,7 +209,19 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
 
     render = args.render_mode
-    def make_env(env_id, seed, idx, capture_video, run_name):
+    if args.task_type == "forward":
+        task = ForwardTask()
+    elif args.task_type == "back_and_forth":
+        radius = 0.61
+        origin = np.array([0.14194049, -0.82257924])
+        task = BackAndForthTask(
+            radius=radius,
+            origin=origin,
+        )
+    else:
+        raise ValueError(f"Invalid task type: {args.task_type}")
+
+    def make_env(env_id, seed, idx, capture_video, RUN_NAME):
         def thunk():
             joint_config = {
                 'hip_zero': 0,
@@ -214,26 +234,30 @@ if __name__ == "__main__":
                     dt=args.dt,
                     render_mode=render,
                     terminate_on_upside_down=args.terminate_on_upside_down,
-                    task=ForwardTask(),
+                    task=task,
                     joint_config=joint_config,
                 )
             else:
                 with open(args.hw_config, 'r') as f:
                     cfg = json.load(f)
-                env = make_ant_env(cfg, render_mode=render, dt=args.dt, joint_config=joint_config)
+                env = make_ant_env(cfg, render_mode=render,
+                                   dt=args.dt,
+                                   joint_config=joint_config,
+                                   task=task,
+                                   )
             
             if capture_video and idx == 0:
                 print('RecordVideo')
-                env = gym.wrappers.RecordVideo(env, f"runs/{run_name}/videos/{run_name}", episode_trigger=lambda x: x % 10 == 0)
+                env = gym.wrappers.RecordVideo(env, f"runs/{RUN_NAME}/videos/{RUN_NAME}", episode_trigger=lambda x: x % 10 == 0)
             env = gym.wrappers.RecordEpisodeStatistics(env)
-            env = gym.wrappers.TransformReward(env, lambda r: r * 10) # Scale the reward by 10.
+            env = gym.wrappers.TransformReward(env, lambda r: r * args.reward_scale)
             env.action_space.seed(seed)
             return env
 
         return thunk
 
     envs = gym.vector.SyncVectorEnv(
-        [make_env(args.env_id, args.seed + i, i, args.capture_video, run_name) for i in range(args.num_envs)],
+        [make_env(args.env_id, args.seed + i, i, args.capture_video, RUN_NAME) for i in range(args.num_envs)],
     )
     assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
 
@@ -294,12 +318,16 @@ if __name__ == "__main__":
     start_time = time.time()
 
     obs, info = envs.reset(seed=args.seed)
-    info_logs = open(os.path.join("runs", run_name, "info_logs.csv"), 'w')
-    info_logs.write('step, ' + ', '.join(info.keys()) + '\n')
+
+    info_logs = open(os.path.join("runs", RUN_NAME, "info_logs.csv"), 'w')
+    keys_to_record = ['step', 'roll_deg', 'pitch_deg', 'yaw_deg', 'timestamp', 'ax', 'ay', 'az', 'wx', 'wy', 'wz', 'joint_positions', 'joint_velocities', 'joint_loads', 'temperatures', 'current_x_position', 'current_y_position', 'heading_vector', 'heading_vector_x', 'heading_vector_y', 'reward_direction', 'reward_direction_x', 'reward_direction_y', 'r_b_x', 'r_b_y', 'original_reward']
+    # Record if they exist in info.
+    keys_to_record_that_exist = [k for k in keys_to_record if k in info.keys()]
+    info_logs.write('step, ' + ','.join(keys_to_record_that_exist) + '\n')
     info_logs.flush()
 
     reward_tracker = RewardTracker(env_dt=args.dt, env_id=args.env_id,
-                            log_folder=os.path.join("runs", run_name),
+                            log_folder=os.path.join("runs", RUN_NAME),
                             time_window=120.0)
 
     # Debugging variables.
@@ -329,11 +357,23 @@ if __name__ == "__main__":
 
         # Step the environment.
         next_obs, rewards, terminations, truncations, infos = envs.step(actions)
-        original_rewards = infos['original_reward']
 
-        # Log the information.
-        info_logs.write(f"{global_step}, " + ", ".join(map(str, infos.values())) + "\n")
+        # Log the information for a single environment. Ignore those that start with _
+        infos_to_log = {}
+        for k, v in infos.items():
+            # if it doesn't start with _ and is not a dict
+            if k in keys_to_record_that_exist:
+                # Check if v is not empty and has the expected structure
+                v_env_idx_0 = v[0]
+                if isinstance(v_env_idx_0, (list, tuple, np.ndarray)):
+                    formatted_value = "[" + " ".join(f"{x:.6f}" for x in np.array(v_env_idx_0).flatten()) + "]"
+                else:
+                    formatted_value = str(v_env_idx_0)
+            infos_to_log[k] = formatted_value
+        info_logs.write(f"{global_step}, " + ", ".join(infos_to_log.values()) + "\n")
         info_logs.flush()
+
+        original_rewards = infos['original_reward']
 
         if "episode" in infos:
             if infos["episode"] is not None:
@@ -350,13 +390,10 @@ if __name__ == "__main__":
         # Update the reward tracker.
         if args.num_envs == 1:
             reward_tracker.update(rewards.item())
-            reward_tracker.log(plot=True, every_N_steps=100)
+            reward_tracker.log()
         else:
             raise ValueError("reward_tracker is only supported for single environment")
 
-        # Update the observation.
-        if any(truncations):
-            obs, _ = envs.reset()
         obs = next_obs
 
         # Learning.
@@ -367,9 +404,8 @@ if __name__ == "__main__":
                 qf1_next_target = qf1_target(data.next_observations, next_state_actions)
                 qf2_next_target = qf2_target(data.next_observations, next_state_actions)
                 min_qf_next_target = torch.min(qf1_next_target, qf2_next_target) - alpha * next_state_log_pi
-                next_q_value = data.rewards.flatten() + (1 - data.dones.flatten()) * args.gamma * (min_qf_next_target).view(-1)
-                # next_q_value = data.rewards.flatten() * args.dt + (1 - data.dones.flatten()) * (args.gamma ** args.dt) * (min_qf_next_target).view(-1)
-                # TODO: add the dt here (see K. de Asis, R. Sutton, "An Idiosyncrasy of Time-discretization in RL").
+                next_q_value = data.rewards.flatten() * args.dt + (1 - data.dones.flatten()) * (args.gamma ** args.dt) * (min_qf_next_target).view(-1)
+                # see K. de Asis, R. Sutton, "An Idiosyncrasy of Time-discretization in RL").
             qf1_a_values = qf1(data.observations, data.actions).view(-1)
             qf2_a_values = qf2(data.observations, data.actions).view(-1)
             qf1_loss = F.mse_loss(qf1_a_values, next_q_value)
@@ -463,7 +499,7 @@ if __name__ == "__main__":
                 if args.autotune:
                     writer.add_scalar("losses/alpha_loss", alpha_loss.item(), global_step)
 
-                with PdfPages(f"runs/{run_name}/report.pdf") as pdf:
+                with PdfPages(os.path.join(REPORT_FOLDER, "report.pdf")) as pdf:
                     # Plot the average reward per second.
                     fig = plt.figure()
                     plt.plot(dict_debugging['steps'], dict_debugging['average_reward_per_second'], linewidth=2)
@@ -500,6 +536,55 @@ if __name__ == "__main__":
                         plt.title(key)
                         pdf.savefig()
                         plt.close()
+
+                    # Open the info and plot all columns.
+                    df_logs = pd.read_csv(os.path.join("runs", RUN_NAME, "info_logs.csv"))
+                    cols_to_plot = [
+                        'current_x_position',
+                        'current_y_position',
+                        'heading_vector_x',
+                        'heading_vector_y',
+                        'original_reward',
+                        'r_b_x',
+                        'r_b_y',
+                    ]
+                    for col in cols_to_plot:
+                        # Check if cols exists in df_logs
+                        if col not in df_logs.columns:
+                            continue
+                        fig = plt.figure()
+                        plt.plot(df_logs['step'], df_logs[col])
+                        plt.xlabel('Steps')
+                        plt.ylabel(col)
+                        plt.title(col)
+                        pdf.savefig()
+                        plt.close()
+
+                    # Create an arena plot with the heading vector and the reward direction.
+                    # fig = plt.figure()
+                    # duration = 20 # seconds
+                    # length_plot = int(duration/args.dt)
+                    # if 'current_x_position' in df_logs.columns and 'current_y_position' in df_logs.columns:
+                    #     plt.plot(df_logs['current_x_position'][-length_plot:], df_logs['current_y_position'][-length_plot:])
+                    # selected_indices = np.arange(len(df_logs) - length_plot, len(df_logs))[::10]
+                    # if 'current_x_position' in df_logs.columns and 'current_y_position' in df_logs.columns and 'heading_vector_x' in df_logs.columns and 'heading_vector_y' in df_logs.columns:
+                    #     plt.quiver(df_logs['current_x_position'][selected_indices], df_logs['current_y_position'][selected_indices], df_logs['heading_vector_x'][selected_indices], df_logs['heading_vector_y'][selected_indices], color='black', width=0.01, scale=30, zorder=3)
+                    # if 'reward_direction_x' in df_logs.columns and 'reward_direction_y' in df_logs.columns:
+                    #     plt.quiver(df_logs['current_x_position'][selected_indices], df_logs['current_y_position'][selected_indices], df_logs['reward_direction_x'][selected_indices], df_logs['reward_direction_y'][selected_indices], color='red', width=0.01, scale=30, zorder=2)
+
+                    # # Draw a circle if the task is back and forth
+                    # if args.task_type == "back_and_forth":
+                    #     plt.plot(origin[0], origin[1], 'ro')
+                    #     plt.plot(origin[0] + radius*np.cos(np.linspace(0, 2*np.pi, 100)), origin[1] + radius*np.sin(np.linspace(0, 2*np.pi, 100)))
+                    # plt.xlabel('X')
+                    # plt.ylabel('Y')
+                    # plt.gca().set_aspect('equal', adjustable='box')
+                    # plt.title('Current Position')
+                    # folder_arena_plots = os.path.join("runs", RUN_NAME, "arena_plots")
+                    # os.makedirs(folder_arena_plots, exist_ok=True)
+                    # plt.savefig(os.path.join(folder_arena_plots, f"arena_plot_{global_step}.png"), dpi=300)
+                    # pdf.savefig()
+                    # plt.close()
 
     # Close the environment and the writer.
     envs.close()
