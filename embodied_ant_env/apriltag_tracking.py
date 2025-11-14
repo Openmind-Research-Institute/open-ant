@@ -20,7 +20,7 @@ class VisionTracker:
 
     def __init__(self, camera_id=0, fov_diagonal_deg=60, K=None, tag_sizes={}, tag_ids={}, flip_z_up=True):
         self.cap = cv2.VideoCapture(camera_id)
-        self.detector = Detector(families='tagCircle21h7', nthreads=1, quad_decimate=2)
+        self.detector = Detector(families='tagCircle21h7', nthreads=1, quad_decimate=1)
         if K is None:
             width = self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)
             height = self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
