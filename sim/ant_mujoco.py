@@ -174,6 +174,8 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         info["joint_positions"] = self.data.qpos[7:]
         info["joint_velocities"] = self.data.qvel[6:]
         info["heading_vector"] = heading_vector
+        info["heading_vector_x"] = heading_vector[0]
+        info["heading_vector_y"] = heading_vector[1]
         info["ax"] = noisy_accelerations[0]
         info["ay"] = noisy_accelerations[1]
         info["az"] = noisy_accelerations[2]
