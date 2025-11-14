@@ -13,18 +13,23 @@ from gymnasium.spaces import Box
 class ForwardTask:
     def __init__(self, action_cost_weight=0.0):
         self.action_cost_weight = action_cost_weight
-        self.last_pos = np.array([0, 0])
+        self.last_pos = None
         self.last_action = np.zeros(8)
         self.reward_direction = np.array([1, 0])
         self.observation_space = spaces.Box(low=-1.5, high=1.5, shape=(24,), dtype=np.float32)
-        print('Using ForwardTask')
 
     def reset(self, info):
+        self.last_pos = None
         return self(info, np.zeros(8))
 
     def __call__(self, info, action):
         pos = np.array([info['current_x_position'], info['current_y_position']])
-        progress = (pos - self.last_pos)[0]
+        if self.last_pos is None:
+            self.last_pos = pos
+            progress = 0.0
+        else:
+            progress = (pos - self.last_pos)[0]
+
         cost_action = np.sum(np.square(self.last_action - action)) * self.action_cost_weight
         self.last_pos = pos
         self.last_action = action.copy()
@@ -48,29 +53,33 @@ class ForwardTask:
         return observation, reward, terminated, truncated
 
 class BackAndForthTask:
-    def __init__(self, action_cost_weight=0.0):
+    def __init__(self, action_cost_weight=0.0, radius=1.0, origin=np.array([0, 0])):
         self.action_cost_weight = action_cost_weight
-        self.last_pos = np.array([0, 0])
+        self.last_pos = None
         self.reward_direction = np.array([1, 0])
         self.last_action = np.zeros(8)
-        self.observation_space = spaces.Box(low=-1.5, high=1.5, shape=(26,), dtype=np.float32)
-        print('Using BackAndForthTask')
+        self.observation_space = spaces.Box(low=-1.5, high=1.5, shape=(24,), dtype=np.float32)
+        self.radius = radius
+        self.origin = origin
 
     def reset(self, info):
+        self.last_pos = None
         th = np.random.uniform(-np.pi, np.pi)
         self.reward_direction = np.array([np.cos(th), np.sin(th)])
         return self(info, np.zeros(8))
 
     def __call__(self, info, action):
         pos = np.array([info['current_x_position'], info['current_y_position']])
-        origin = np.array([0, 0]) # todo get from camera
-        radius = 1
-        # bounce back on the circle edge
-        if np.dot(pos - origin, self.reward_direction) > 0 and np.linalg.norm(pos - origin) > radius:
-            self.reward_direction = origin - pos
+        # Bounce back on the circle edge.
+        if np.dot(pos - self.origin, self.reward_direction) > 0 and np.linalg.norm(pos - self.origin) > self.radius:
+            self.reward_direction = self.origin - pos
             self.reward_direction /= np.linalg.norm(self.reward_direction)
 
-        progress = np.dot(pos - self.last_pos, self.reward_direction)
+        if self.last_pos is None:
+            self.last_pos = pos
+            progress = 0.0
+        else:
+            progress = np.dot(pos - self.last_pos, self.reward_direction)
 
         cost_action = np.sum(np.square(self.last_action - action)) * self.action_cost_weight
         self.last_pos = pos
@@ -79,14 +88,21 @@ class BackAndForthTask:
         truncated = False
 
         reward = progress - cost_action
-
         info['reward_direction'] = self.reward_direction
+        info['reward_direction_x'] = self.reward_direction[0]
+        info['reward_direction_y'] = self.reward_direction[1]
+
+        heading_perp = np.array([-info['heading_vector'][1], info['heading_vector'][0]])
+        r_b = np.array([np.dot(info['reward_direction'], info['heading_vector']),
+                        np.dot(info['reward_direction'], heading_perp)])
+
+        info['r_b_x'] = r_b[0]
+        info['r_b_y'] = r_b[1]
         info['original_reward'] = reward
         observation = np.concatenate([
             info['joint_positions'],
             info['joint_velocities'],
-            info['heading_vector'],
-            info['reward_direction'],
+            r_b,
             info['ax'],
             info['ay'],
             info['az'],
@@ -213,10 +229,7 @@ class EmbodiedAnt(gym.Env):
         if self.render_mode == 'human':
             self.i += 1
             if self.i % 10 == 0:
-                show_image(info['vis_frame'])
-                self.vis_frame = info['vis_frame']
-        elif self.render_mode == 'rgb_array':
-            self.vis_frame = info['vis_frame']
+                show_image(self.vis_frame)
 
         return observation, reward, terminated, truncated, info
 
@@ -245,8 +258,8 @@ class EmbodiedAnt(gym.Env):
         info['temperatures'] = temperatures
         info['bodies'] = bodies
 
-        info['frame'] = frame
-        info['vis_frame'] = vis_frame
+        # info['frame'] = frame
+        self.vis_frame = vis_frame
 
         if 'body' in bodies:
             info['current_x_position'] = bodies['body']['position'][0]
@@ -265,6 +278,9 @@ class EmbodiedAnt(gym.Env):
         else:
             heading_vector = self.last_heading_vector
         info['heading_vector'] = heading_vector
+        if heading_vector is not None:
+            info['heading_vector_x'] = heading_vector[0]
+            info['heading_vector_y'] = heading_vector[1]
         return info
 
     def tracker_lost(self, info):
