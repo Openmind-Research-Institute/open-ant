@@ -4,12 +4,20 @@
 # Modified by Sorina Lupu, Openmind Research Institute, 2025
 
 import os
+
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["BLIS_NUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+
 import csv
 import sys
 import json
 import time
 import random
 import argparse
+import itertools
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -170,21 +178,62 @@ class Actor(nn.Module):
         return action, log_prob, mean
 
 
+class Experiment:
+    def __init__(self, json_path):
+        with open(json_path, "r") as f:
+            self.params = json.load(f)
+
+        # Separate keys and value lists
+        keys = list(self.params.keys())
+        values = [v if isinstance(v, list) else [v] for v in self.params.values()]
+
+        # Compute cross product of hyper-parameters
+        self.configs = []
+        for combo in itertools.product(*values):
+            self.configs.append(dict(zip(keys, combo)))
+
+        print("Total experiment configurations:", len(self.configs))
+
+    def get_params(self, idx):
+        return self.configs[idx]
+
+
 if __name__ == "__main__":
 
     date = datetime.now().strftime("%Y%m%d-%H%M%S")
 
-    # Args.
-    args = parse_args()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", type=str, help="Path to config file")
+    parser.add_argument("--run", type=int, default=1, help="Run number (int)")
+
+    args_experiment = parser.parse_args()
+    if not args_experiment.config:
+        print("--config parameter must be passed")
+        exit(1)
+
+    my_exp = Experiment(args_experiment.config)
+    hyper_parameters = my_exp.get_params(args_experiment.run)
+    print("Total experiment configurations:", len(my_exp.configs))
+    print(hyper_parameters)
+
+    # Retain old-style namespace object for backward compatibility:
+    class ArgsObject:
+        def __init__(self, d):
+            self.__dict__.update(d)
+    # Combine loaded hyperparameters and the parser CLI args (expt/run).
+    args_dict = dict(hyper_parameters)
+    args_dict.update(vars(args_experiment))
+    args = ArgsObject(args_dict)
+    print(args)
 
     # Folders.
-    RUN_NAME = f"{args.env_id}__{args.exp_name}__{args.seed}__{date}"
+    RUN_NAME = f"{hyper_parameters['env_id']}__{hyper_parameters['exp_name']}__{hyper_parameters['seed']}__autotune_{args.autotune}__dt_{args.dt}__date_{date}"
     WEIGHTS_FOLDER = os.path.join("runs", RUN_NAME, "weights_and_args")
     os.makedirs(WEIGHTS_FOLDER, exist_ok=True)
     REPORT_FOLDER = os.path.join("runs", RUN_NAME, "report")
     os.makedirs(REPORT_FOLDER, exist_ok=True)
     with open(os.path.join(WEIGHTS_FOLDER, "args.json"), 'w') as f:
-        json.dump(vars(args), f)
+        json.dump(args.__dict__, f)
 
     # Seed.
     random.seed(args.seed)
@@ -433,7 +482,7 @@ if __name__ == "__main__":
                     "actor_optimizer": actor_optimizer.state_dict(),
                     "q_optimizer": q_optimizer.state_dict(),
                     "a_optimizer": a_optimizer.state_dict() if args.autotune else None,
-                    "log_alpha": log_alpha.detach().cpu(),
+                    "log_alpha": log_alpha.detach().cpu() if args.autotune else None,
                     "global_step": global_step,
                     "random_state": random.getstate(),
                     "numpy_state": np.random.get_state(),
@@ -445,7 +494,16 @@ if __name__ == "__main__":
                 rb.save(os.path.join(WEIGHTS_FOLDER, "replay_buffer.npz"))
 
                 # Log performance.
-                writer_perf.writerow({"step": global_step, "qf1_values": qf1_a_values.mean().item(), "qf2_values": qf2_a_values.mean().item(), "qf1_losses": qf1_loss.item(), "qf2_losses": qf2_loss.item(), "qf_losses": qf_loss.item() / 2.0, "actor_losses": actor_loss.item(), "alphas": alpha, "alpha_losses": alpha_loss.item(), "SPS": int(global_step / (time.time() - start_time)), "average_reward_per_second": reward_tracker.average_reward_per_second})
+                writer_perf.writerow({"step": global_step,
+                                      "qf1_values": qf1_a_values.mean().item(),
+                                      "qf2_values": qf2_a_values.mean().item(),
+                                      "qf1_losses": qf1_loss.item(),
+                                      "qf2_losses": qf2_loss.item(),
+                                      "qf_losses": qf_loss.item() / 2.0,
+                                      "actor_losses": actor_loss.item(),
+                                      "alphas": alpha,
+                                      "alpha_losses": alpha_loss.item() if args.autotune else None,
+                                      "SPS": int(global_step / (time.time() - start_time)), "average_reward_per_second": reward_tracker.average_reward_per_second})
                 csv_perf_file.flush()
 
                 # Plot the performance variables.
