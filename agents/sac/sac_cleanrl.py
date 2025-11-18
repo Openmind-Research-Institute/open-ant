@@ -4,6 +4,7 @@
 # Modified by Sorina Lupu, Openmind Research Institute, 2025
 
 import os
+import csv
 import sys
 import json
 import time
@@ -30,6 +31,12 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../.
 from embodied_ant_env import make_ant_env, ForwardTask, BackAndForthTask
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from reward import RewardTracker
+
+# For logging.
+def arr_to_str(x):
+    if isinstance(x, np.ndarray):
+        return "[" + " ".join(map(str, x.tolist())) + "]"
+    return x
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -305,11 +312,10 @@ if __name__ == "__main__":
     obs, info = envs.reset(seed=args.seed)
 
     # Log the information of choice.
-    info_logs = open(os.path.join("runs", RUN_NAME, "info_logs.csv"), 'w')
-    keys_to_record = ['step', 'roll_deg', 'pitch_deg', 'yaw_deg', 'timestamp', 'ax', 'ay', 'az', 'wx', 'wy', 'wz', 'joint_positions', 'joint_velocities', 'joint_loads', 'temperatures', 'current_x_position', 'current_y_position', 'heading_vector', 'heading_vector_x', 'heading_vector_y', 'reward_direction', 'reward_direction_x', 'reward_direction_y', 'r_b_x', 'r_b_y', 'original_reward']
-    keys_to_record_that_exist = [k for k in keys_to_record if k in info.keys()]
-    info_logs.write('step, ' + ','.join(keys_to_record_that_exist) + '\n')
-    info_logs.flush()
+    csv_file = open(os.path.join("runs", RUN_NAME, "info_logs.csv"), "w", newline="")
+    keys_info = list(info.keys())
+    writer = csv.DictWriter(csv_file, fieldnames=["step"] + keys_info)
+    writer.writeheader()
 
     # Reward tracker.
     reward_tracker = RewardTracker(env_dt=args.dt, env_id=args.env_id,
@@ -317,22 +323,10 @@ if __name__ == "__main__":
                             time_window=120.0)
 
     # Performance variables.
-    performance_variables = {}
-    performance_variables['episodic_returns'] = []
-    performance_variables['episodic_lengths'] = []
-    performance_variables['episodic_step'] = []
-    performance_variables['steps'] = []
-    performance_variables['qf1_values'] = []
-    performance_variables['qf2_values'] = []
-    performance_variables['qf1_losses'] = []
-    performance_variables['qf2_losses'] = []
-    performance_variables['qf_losses'] = []
-    performance_variables['actor_losses'] = []
-    performance_variables['alphas'] = []
-    performance_variables['alpha_losses'] = []
-    performance_variables['SPS'] = []
-    performance_variables['average_reward_per_second'] = []
-
+    keys_perf_variables = ['episodic_returns', 'episodic_lengths', 'episodic_step', 'steps', 'qf1_values', 'qf2_values', 'qf1_losses', 'qf2_losses', 'qf_losses', 'actor_losses', 'alphas', 'alpha_losses', 'SPS', 'average_reward_per_second']
+    csv_perf_file = open(os.path.join("runs", RUN_NAME, "performance_variables.csv"), "w", newline="")
+    writer_perf = csv.DictWriter(csv_perf_file, fieldnames=["step"] + keys_perf_variables)
+    writer_perf.writeheader()
 
     # Start learning.
     for global_step in tqdm(range(args.total_timesteps)):
@@ -346,27 +340,12 @@ if __name__ == "__main__":
         # Step the environment.
         next_obs, rewards, terminations, truncations, infos = envs.step(actions)
 
-        # Log the information for a single environment. Ignore those that start with _
-        infos_to_log = {}
-        for k, v in infos.items():
-            # if it doesn't start with _ and is not a dict
-            if k in keys_to_record_that_exist:
-                v_env_idx_0 = v[0]
-                if isinstance(v_env_idx_0, (list, tuple, np.ndarray)):
-                    formatted_value = "[" + " ".join(f"{x:.3f}" for x in np.array(v_env_idx_0).flatten()) + "]"
-                else:
-                    formatted_value = str(v_env_idx_0.round(3))
-            infos_to_log[k] = formatted_value
-        info_logs.write(f"{global_step}, " + ", ".join(infos_to_log.values()) + "\n")
-        info_logs.flush()
-
         # Log the episodic return and length.
         if "episode" in infos:
             if infos["episode"] is not None:
                 print('infos["episode"]', infos["episode"])
-                performance_variables['episodic_returns'].append(infos["episode"]["r"])
-                performance_variables['episodic_lengths'].append(infos["episode"]["l"])
-                performance_variables['episodic_step'].append(global_step)
+                writer_perf.writerow({"step": global_step, "episodic_returns": infos["episode"]["r"][0], "episodic_lengths": infos["episode"]["l"][0], "episodic_step": global_step})
+                csv_perf_file.flush()
 
         # Add the data to the replay buffer.
         rb.add(obs, next_obs, actions, rewards, terminations, infos)
@@ -381,6 +360,15 @@ if __name__ == "__main__":
         # Update the observation.
         obs = next_obs
 
+        # Log the infos.
+        infos_to_log = {}
+        for k, v in infos.items():
+            if k in keys_info:
+                infos_to_log[k] = arr_to_str(v[0])
+        row = {"step": global_step, **infos_to_log}
+        writer.writerow(row)
+        csv_file.flush()
+
         # Learn.
         if global_step > args.learning_starts:
             # Sample from the replay buffer.
@@ -390,8 +378,7 @@ if __name__ == "__main__":
                 qf1_next_target = qf1_target(data.next_observations, next_state_actions)
                 qf2_next_target = qf2_target(data.next_observations, next_state_actions)
                 min_qf_next_target = torch.min(qf1_next_target, qf2_next_target) - alpha * next_state_log_pi
-                next_q_value = data.rewards.flatten() * args.dt + (1 - data.dones.flatten()) * (args.gamma ** args.dt) * (min_qf_next_target).view(-1)
-                # see K. de Asis, R. Sutton, "An Idiosyncrasy of Time-discretization in RL").
+                next_q_value = data.rewards.flatten() * args.dt + (1 - data.dones.flatten()) * (args.gamma ** args.dt) * (min_qf_next_target).view(-1) # see K. de Asis, R. Sutton, "An Idiosyncrasy of Time-discretization in RL").
             qf1_a_values = qf1(data.observations, data.actions).view(-1)
             qf2_a_values = qf2(data.observations, data.actions).view(-1)
             qf1_loss = F.mse_loss(qf1_a_values, next_q_value)
@@ -433,8 +420,9 @@ if __name__ == "__main__":
                 for param, target_param in zip(qf2.parameters(), qf2_target.parameters()):
                     target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
 
+            # ==== Everything below is for logging and saving. ====
             # Logging.
-            if global_step % 500 == 0:
+            if global_step % 100 == 0:
                 # Save all the networks.
                 checkpoint = {
                     "actor": actor.state_dict(),
@@ -452,44 +440,44 @@ if __name__ == "__main__":
                     "torch_state": torch.get_rng_state(),
                 }
                 torch.save(checkpoint, os.path.join(WEIGHTS_FOLDER, "checkpoint.pth"))
+
+                # Save the replay buffer.
                 rb.save(os.path.join(WEIGHTS_FOLDER, "replay_buffer.npz"))
 
-                performance_variables['steps'].append(global_step)
-                performance_variables['qf1_values'].append(qf1_a_values.mean().item())
-                performance_variables['qf2_values'].append(qf2_a_values.mean().item())
-                performance_variables['qf1_losses'].append(qf1_loss.item())
-                performance_variables['qf2_losses'].append(qf2_loss.item())
-                performance_variables['qf_losses'].append(qf_loss.item() / 2.0)
-                performance_variables['actor_losses'].append(actor_loss.item())
-                performance_variables['alphas'].append(alpha)
-                performance_variables['alpha_losses'].append(alpha_loss.item())
-                performance_variables['SPS'].append(int(global_step / (time.time() - start_time)))
-                performance_variables['average_reward_per_second'].append(reward_tracker.average_reward_per_second)
+                # Log performance.
+                writer_perf.writerow({"step": global_step, "qf1_values": qf1_a_values.mean().item(), "qf2_values": qf2_a_values.mean().item(), "qf1_losses": qf1_loss.item(), "qf2_losses": qf2_loss.item(), "qf_losses": qf_loss.item() / 2.0, "actor_losses": actor_loss.item(), "alphas": alpha, "alpha_losses": alpha_loss.item(), "SPS": int(global_step / (time.time() - start_time)), "average_reward_per_second": reward_tracker.average_reward_per_second})
+                csv_perf_file.flush()
 
                 # Plot the performance variables.
                 with PdfPages(os.path.join(REPORT_FOLDER, "report.pdf")) as pdf:
                     # Plot the average reward per second.
                     reward_tracker.plot(os.path.join(REPORT_FOLDER, "average_reward.pdf"))
 
-                    # Plot the other metrics.
-                    for key, value in performance_variables.items():
-                        # Check if value is not empty.
-                        if len(value) == 0:
+                    # Plot the writer_perf data.
+                    df_perf = pd.read_csv(os.path.join("runs", RUN_NAME, "performance_variables.csv"))
+                    # Extract all the episodic variables and plot them.
+                    df_episodic = df_perf[df_perf['step'].isin(df_perf['episodic_step'])]
+                    for key in keys_perf_variables:
+                        if key.startswith('episodic_'):
+                            fig = plt.figure()
+                            plt.plot(df_episodic['episodic_step'], df_episodic[key])
+                            plt.xlabel('Episodic Step')
+                            plt.ylabel(key)
+                            plt.title(key)
+                            pdf.savefig()
+                            plt.close()
+
+                    for key in keys_perf_variables:
+                        if key not in df_perf.columns or key.startswith('episodic_'):
                             continue
                         fig = plt.figure()
-                        plt.plot(performance_variables['steps'], value)
+                        plt.plot(df_perf['step'], df_perf[key])
                         plt.xlabel('Steps')
                         plt.ylabel(key)
                         plt.title(key)
                         pdf.savefig()
                         plt.close()
 
-                    # Save the performance variables to a CSV file.
-                    # performance_logs_df = pd.DataFrame(performance_variables)
-                    # performance_logs_df.to_csv(os.path.join(REPORT_FOLDER, "performance_logs.csv"), index=False)
-
-                    # For debugging.
-                    # Plot the info logs.
                     df_logs = pd.read_csv(os.path.join("runs", RUN_NAME, "info_logs.csv"))
                     cols_to_plot = [
                         'current_x_position',
