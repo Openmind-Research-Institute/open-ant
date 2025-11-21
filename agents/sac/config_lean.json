@@ -21,7 +21,7 @@
       10
     ],
     "env_id": [
-      "EmbodiedAnt"
+      "EAnt"
     ],
     "total_timesteps": [
       150000
@@ -82,9 +82,6 @@
     "terminate_on_upside_down": [
       true
     ],
-    "store_weights": [
-      false
-    ],
     "torch_deterministic":
     [
         true
@@ -95,7 +92,7 @@
     ],
     "capture_video":
     [
-        false
+        true
     ],
     "hw_config":
     [
