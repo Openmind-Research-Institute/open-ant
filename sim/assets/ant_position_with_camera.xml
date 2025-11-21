@@ -1,17 +1,16 @@
 <mujoco model="ant">
   <compiler angle="radian" coordinate="local" inertiafromgeom="true"/>
-  <option iterations="3" ls_iterations="5" timestep="0.001" integrator="Euler">
-    <flag eulerdamp="disable"/>
+  <option timestep="0.001" integrator="implicitfast">
   </option>
   <default>
-    <joint limited="true" damping="0.1"/>
-    <geom friction="0.4 0.2 0.001" rgba="0.4 0.33 0.26 1.0"/>
+    <joint limited="true"/>
+    <geom friction="0.6 0.001 0.001" rgba="0.4 0.33 0.26 1.0"/>
   </default>
   <asset>
     <texture builtin="gradient" height="100" rgb1="1 1 1" rgb2="0 0 0" type="skybox" width="100"/>
     <texture builtin="flat" height="1278" mark="cross" markrgb="1 1 1" name="texgeom" random="0.01" rgb1="0.8 0.6 0.4" rgb2="0.8 0.6 0.4" type="cube" width="127"/>
-    <texture builtin="checker" height="100" name="texplane" rgb1="0 0 0" rgb2="0.8 0.8 0.8" type="2d" width="100"/>
-    <material name="MatPlane" reflectance="0.5" shininess="1" specular="1" texrepeat="60 60" texture="texplane"/>
+    <texture builtin="checker" height="100" name="texplane" rgb1="0 0 0" rgb2="0.1 0.1 0.1" type="2d" width="100"/>
+    <material name="MatPlane" texrepeat="60 60" texture="texplane"/>
     <material name="geom" texture="texgeom" texuniform="true"/>
   </asset>
   <sensor>
@@ -28,8 +27,17 @@
     <geom name="x_axis" type="cylinder" fromto="0 0 0 0.3 0 0" size="0.01" rgba="1 0 0 1" contype="0" conaffinity="0"/>
     <geom name="y_axis" type="cylinder" fromto="0 0 0 0 0.3 0" size="0.01" rgba="0 1 0 1" contype="0" conaffinity="0"/>
     <geom name="z_axis" type="cylinder" fromto="0 0 0 0 0 0.3" size="0.01" rgba="0 0 1 1" contype="0" conaffinity="0"/>
+    
+    <!-- Arena boundary walls -->
+    <geom name="north_wall" type="box" pos="0 5.5 0.5" size="5.5 0.05 0.5" rgba="0.7 0.7 0.7 1"/>
+    <geom name="south_wall" type="box" pos="0 -5.5 0.5" size="5.5 0.05 0.5" rgba="0.7 0.7 0.7 1"/>
+    <geom name="east_wall" type="box" pos="5.5 0 0.5" size="0.05 5.5 0.5" rgba="0.7 0.7 0.7 1"/>
+    <geom name="west_wall" type="box" pos="-5.5 0 0.5" size="0.05 5.5 0.5" rgba="0.7 0.7 0.7 1"/>
+
+    <geom name="boundary" type="cylinder" pos="0 0 0.01" size="1 0.01" rgba="0 0 1 0.5" contype="0" conaffinity="0"/>
+
     <body name="torso" pos="0 0 0.4">
-      <camera name="track" mode="trackcom" pos="0 -1.5 0.3" xyaxes="1 0 0 0 0 1"/>
+      <camera name="track" mode="trackcom" pos="0 -4.0 0.6" xyaxes="1 0 0 0 0 1"/>
       <geom name="torso_geom" pos="0 0 0" size="0.075" type="sphere" mass="0.324"/>
       <joint armature="0" damping="0" limited="false" margin="0.01" name="root" pos="0 0 0" type="free"/>
       <site name="imu_location" pos="0 0 0" euler="0 0 0" size="0.01" type="sphere" rgba="1 0 0 1"/>
@@ -92,16 +100,30 @@
 
     </body>
   </worldbody>
+
   <actuator>
-    <position joint="hip_rr" kp="3.0" kv="0.1"/>
-    <position joint="knee_rr" kp="3.0" kv="0.1"/>
-    <position joint="hip_fr" kp="3.0" kv="0.1"/>
-    <position joint="knee_fr" kp="3.0" kv="0.1"/>
-    <position joint="hip_fl" kp="3.0" kv="0.1"/>
-    <position joint="knee_fl" kp="3.0" kv="0.1"/>
-    <position joint="hip_rl" kp="3.0" kv="0.1"/>
-    <position joint="knee_rl" kp="3.0" kv="0.1"/>
+    <position joint="hip_rr" kp="3.2" kv="0.235" timeconst="0.12" />
+    <position joint="knee_rr" kp="10.0" kv="0.852" />
+    <position joint="hip_fr" kp="3.2" kv="0.235" timeconst="0.12" />
+    <position joint="knee_fr" kp="10.0" kv="0.852" />
+    <position joint="hip_fl" kp="3.2" kv="0.235" timeconst="0.12" />
+    <position joint="knee_fl" kp="10.0" kv="0.852" />
+    <position joint="hip_rl" kp="3.2" kv="0.235" timeconst="0.12" />
+    <position joint="knee_rl" kp="10.0" kv="0.852" />
   </actuator>
+
+  <!-- From measurement: -->
+    <!-- <actuator>
+    <position joint="hip_rr" kp="7.2" kv="0.235"/>
+    <position joint="knee_rr" kp="4.9" kv="0.852"/>
+    <position joint="hip_fr" kp="7.2" kv="0.235"/>
+    <position joint="knee_fr" kp="4.9" kv="0.852"/>
+    <position joint="hip_fl" kp="7.2" kv="0.235"/>
+    <position joint="knee_fl" kp="4.9" kv="0.852"/>
+    <position joint="hip_rl" kp="7.2" kv="0.235"/>
+    <position joint="knee_rl" kp="4.9" kv="0.852"/>
+  </actuator> -->
+
   <!-- <actuator>
     <motor ctrllimited="true" ctrlrange="-1.0 1.0" joint="hip_4" gear="150" name="hip_4"/>
     <motor ctrllimited="true" ctrlrange="-1.0 1.0" joint="ankle_4" gear="150" name="ankle_4"/>
@@ -112,17 +134,5 @@
     <motor ctrllimited="true" ctrlrange="-1.0 1.0" joint="hip_3" gear="150" name="hip_3"/>
     <motor ctrllimited="true" ctrlrange="-1.0 1.0" joint="ankle_3" gear="150" name="ankle_3"/>
   </actuator> -->
-
-    <keyframe>
-    <key name="home"
-      qpos="
-      0 0 0.3
-      1 0 0 0
-      0.0 -0.7 0.0 -0.7
-      0.0 -0.7 0.0 -0.7"
-        ctrl="
-      0.0 0.0 0.0 0.0
-      0.0 0.0 0.0 0.0"/>
-  </keyframe>
 
 </mujoco>
