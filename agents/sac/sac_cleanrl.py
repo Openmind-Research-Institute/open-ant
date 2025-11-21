@@ -56,7 +56,7 @@ def parse_args():
                         help="capture video of agent performances")
 
     # Algorithm
-    parser.add_argument("--env_id", type=str, default="EmbodiedAnt",
+    parser.add_argument("--env_id", type=str, default="EAnt",
                         help="environment ID")
     parser.add_argument("--total_timesteps", type=int, default=1_000_000,
                         help="total training timesteps")
@@ -221,10 +221,14 @@ if __name__ == "__main__":
     print(args)
 
     # Folders.
-    RUN_NAME = f"{hyper_parameters['env_id']}__{hyper_parameters['exp_name']}__{hyper_parameters['seed']}__autotune_{args.autotune}__dt_{args.dt}__date_{date}"
-    WEIGHTS_FOLDER = os.path.join("/mnt/ramdisk/runs", RUN_NAME, "weights_and_args")
+    # disk_folder = '/mnt/ramdisk/'
+    disk_folder = ''
+    # Make RUN_NAME unique by including process PID.
+    this_pid = os.getpid()
+    RUN_NAME = f"{hyper_parameters['env_id']}__{hyper_parameters['exp_name']}_{date}__pid_{this_pid}"
+    WEIGHTS_FOLDER = os.path.join(disk_folder, "runs", RUN_NAME, "weights_and_args")
     os.makedirs(WEIGHTS_FOLDER, exist_ok=True)
-    REPORT_FOLDER = os.path.join("/mnt/ramdisk/runs", RUN_NAME, "report")
+    REPORT_FOLDER = os.path.join(disk_folder, "runs", RUN_NAME, "report")
     os.makedirs(REPORT_FOLDER, exist_ok=True)
     with open(os.path.join(WEIGHTS_FOLDER, "args.json"), 'w') as f:
         json.dump(args.__dict__, f)
@@ -267,6 +271,7 @@ if __name__ == "__main__":
                     terminate_on_upside_down=args.terminate_on_upside_down,
                     task=task,
                     joint_config=joint_config,
+                    xml_file=os.path.join(os.path.dirname(__file__), '../../sim/assets/ant_position_with_camera.xml'),
                 )
             else:
                 with open(args.hw_config, 'r') as f:
@@ -279,7 +284,7 @@ if __name__ == "__main__":
 
             if capture_video and idx == 0:
                 print('RecordVideo')
-                env = gym.wrappers.RecordVideo(env, f"/mnt/ramdisk/runs/{RUN_NAME}/videos/{RUN_NAME}", episode_trigger=lambda x: x % 10 == 0)
+                env = gym.wrappers.RecordVideo(env, os.path.join(disk_folder, "runs", RUN_NAME, "videos", RUN_NAME), episode_trigger=lambda x: x % 50 == 0)
             env = gym.wrappers.RecordEpisodeStatistics(env)
             env = gym.wrappers.TransformReward(env, lambda r: r * args.reward_scale)
             env.action_space.seed(seed)
@@ -355,19 +360,19 @@ if __name__ == "__main__":
     obs, info = envs.reset(seed=args.seed)
 
     # Log the information of choice.
-    csv_file = open(os.path.join("/mnt/ramdisk/runs", RUN_NAME, "info_logs.csv"), "w", newline="")
+    csv_file = open(os.path.join(disk_folder, "runs", RUN_NAME, "info_logs.csv"), "w", newline="")
     keys_info = list(info.keys())
     writer = csv.DictWriter(csv_file, fieldnames=["step"] + keys_info)
     writer.writeheader()
 
     # Reward tracker.
     reward_tracker = RewardTracker(env_dt=args.dt, env_id=args.env_id,
-                            log_folder=os.path.join("/mnt/ramdisk/runs", RUN_NAME),
+                            log_folder=os.path.join(disk_folder, "runs", RUN_NAME),
                             time_window=120.0)
 
     # Performance variables.
     keys_perf_variables = ['episodic_returns', 'episodic_lengths', 'episodic_step', 'steps', 'qf1_values', 'qf2_values', 'qf1_losses', 'qf2_losses', 'qf_losses', 'actor_losses', 'alphas', 'alpha_losses', 'SPS', 'average_reward_per_second']
-    csv_perf_file = open(os.path.join("/mnt/ramdisk/runs", RUN_NAME, "performance_variables.csv"), "w", newline="")
+    csv_perf_file = open(os.path.join(disk_folder, "runs", RUN_NAME, "performance_variables.csv"), "w", newline="")
     writer_perf = csv.DictWriter(csv_perf_file, fieldnames=["step"] + keys_perf_variables)
     writer_perf.writeheader()
 
@@ -404,13 +409,13 @@ if __name__ == "__main__":
         obs = next_obs
 
         # Log the infos.
-        # infos_to_log = {}
-        # for k, v in infos.items():
-        #    if k in keys_info:
-        #        infos_to_log[k] = arr_to_str(v[0])
-        # row = {"step": global_step, **infos_to_log}
-        # writer.writerow(row)
-        # csv_file.flush()
+        infos_to_log = {}
+        for k, v in infos.items():
+           if k in keys_info:
+               infos_to_log[k] = arr_to_str(v[0])
+        row = {"step": global_step, **infos_to_log}
+        writer.writerow(row)
+        csv_file.flush()
 
         # Learn.
         if global_step > args.learning_starts:
@@ -482,23 +487,23 @@ if __name__ == "__main__":
                     "numpy_state": np.random.get_state(),
                     "torch_state": torch.get_rng_state(),
                 }
-                # torch.save(checkpoint, os.path.join(WEIGHTS_FOLDER, "checkpoint.pth"))
+                torch.save(checkpoint, os.path.join(WEIGHTS_FOLDER, "checkpoint.pth"))
 
                 # Save the replay buffer.
-                # rb.save(os.path.join(WEIGHTS_FOLDER, "replay_buffer.npz"))
+                rb.save(os.path.join(WEIGHTS_FOLDER, "replay_buffer.npz"))
 
                 # Log performance.
-                #writer_perf.writerow({"step": global_step,
-                #                      "qf1_values": qf1_a_values.mean().item(),
-                #                      "qf2_values": qf2_a_values.mean().item(),
-                #                      "qf1_losses": qf1_loss.item(),
-                #                      "qf2_losses": qf2_loss.item(),
-                #                      "qf_losses": qf_loss.item() / 2.0,
-                #                      "actor_losses": actor_loss.item(),
-                #                      "alphas": alpha,
-                #                      "alpha_losses": alpha_loss.item() if args.autotune else None,
-                #                      "SPS": int(global_step / (time.time() - start_time)), "average_reward_per_second": reward_tracker.average_reward_per_second})
-                # csv_perf_file.flush()
+                writer_perf.writerow({"step": global_step,
+                                     "qf1_values": qf1_a_values.mean().item(),
+                                     "qf2_values": qf2_a_values.mean().item(),
+                                     "qf1_losses": qf1_loss.item(),
+                                     "qf2_losses": qf2_loss.item(),
+                                     "qf_losses": qf_loss.item() / 2.0,
+                                     "actor_losses": actor_loss.item(),
+                                     "alphas": alpha,
+                                     "alpha_losses": alpha_loss.item() if args.autotune else None,
+                                     "SPS": int(global_step / (time.time() - start_time)), "average_reward_per_second": reward_tracker.average_reward_per_second})
+                csv_perf_file.flush()
 
                 # Plot the performance variables.
                 with PdfPages(os.path.join(REPORT_FOLDER, "report.pdf")) as pdf:
@@ -506,51 +511,51 @@ if __name__ == "__main__":
                     reward_tracker.plot(os.path.join(REPORT_FOLDER, "average_reward.pdf"))
 
                     # Plot the writer_perf data.
-                    # df_perf = pd.read_csv(os.path.join("/mnt/ramdisk/runs", RUN_NAME, "performance_variables.csv"))
+                    df_perf = pd.read_csv(os.path.join(disk_folder, "runs", RUN_NAME, "performance_variables.csv"))
                     # Extract all the episodic variables and plot them.
-                    # df_episodic = df_perf[df_perf['step'].isin(df_perf['episodic_step'])]
-                    #for key in keys_perf_variables:
-                    #    if key.startswith('episodic_'):
-                    #        fig = plt.figure()
-                    #        plt.plot(df_episodic['episodic_step'], df_episodic[key])
-                    #        plt.xlabel('Episodic Step')
-                    #        plt.ylabel(key)
-                    #        plt.title(key)
-                    #        pdf.savefig()
-                    #        plt.close()
+                    df_episodic = df_perf[df_perf['step'].isin(df_perf['episodic_step'])]
+                    for key in keys_perf_variables:
+                       if key.startswith('episodic_'):
+                           fig = plt.figure()
+                           plt.plot(df_episodic['episodic_step'], df_episodic[key])
+                           plt.xlabel('Episodic Step')
+                           plt.ylabel(key)
+                           plt.title(key)
+                           pdf.savefig()
+                           plt.close()
 
-                    # for key in keys_perf_variables:
-                    #    if key not in df_perf.columns or key.startswith('episodic_'):
-                    #        continue
-                    #    fig = plt.figure()
-                    #    plt.plot(df_perf['step'], df_perf[key])
-                    #    plt.xlabel('Steps')
-                    #    plt.ylabel(key)
-                    #    plt.title(key)
-                    #    pdf.savefig()
-                    #    plt.close()
+                    for key in keys_perf_variables:
+                       if key not in df_perf.columns or key.startswith('episodic_'):
+                           continue
+                       fig = plt.figure()
+                       plt.plot(df_perf['step'], df_perf[key])
+                       plt.xlabel('Steps')
+                       plt.ylabel(key)
+                       plt.title(key)
+                       pdf.savefig()
+                       plt.close()
 
-                    # df_logs = pd.read_csv(os.path.join("/mnt/ramdisk/runs", RUN_NAME, "info_logs.csv"))
-                    # cols_to_plot = [
-                    #    'current_x_position',
-                    #    'current_y_position',
-                    #    'heading_vector_x',
-                    #    'heading_vector_y',
-                    #    'original_reward',
-                    #    'r_b_x',
-                    #    'r_b_y',
-                    #]
-                    #for col in cols_to_plot:
-                    #    # Check if cols exists in df_logs
-                    #    if col not in df_logs.columns:
-                    #        continue
-                    #    fig = plt.figure()
-                    #    plt.plot(df_logs['step'], df_logs[col])
-                    #    plt.xlabel('Steps')
-                    #    plt.ylabel(col)
-                    #    plt.title(col)
-                    #    pdf.savefig()
-                    #    plt.close()
+                    df_logs = pd.read_csv(os.path.join(disk_folder, "runs", RUN_NAME, "info_logs.csv"))
+                    cols_to_plot = [
+                       'current_x_position',
+                       'current_y_position',
+                       'heading_vector_x',
+                       'heading_vector_y',
+                       'original_reward',
+                       'r_b_x',
+                       'r_b_y',
+                    ]
+                    for col in cols_to_plot:
+                       # Check if cols exists in df_logs
+                       if col not in df_logs.columns:
+                           continue
+                       fig = plt.figure()
+                       plt.plot(df_logs['step'], df_logs[col])
+                       plt.xlabel('Steps')
+                       plt.ylabel(col)
+                       plt.title(col)
+                       pdf.savefig()
+                       plt.close()
 
                     # Create an arena plot with the heading vector and the reward direction.
                     # fig = plt.figure()
