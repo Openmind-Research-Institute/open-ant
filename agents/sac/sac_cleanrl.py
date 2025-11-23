@@ -196,29 +196,32 @@ if __name__ == "__main__":
 
     date = datetime.now().strftime("%Y%m%d-%H%M%S")
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str, help="Path to config file")
-    parser.add_argument("--run", type=int, default=1, help="Run number (int)")
+    # parser = argparse.ArgumentParser()
+    # parser.add_argument("--config", type=str, help="Path to config file")
+    # parser.add_argument("--run", type=int, default=1, help="Run number (int)")
 
-    args_experiment = parser.parse_args()
-    if not args_experiment.config:
-        print("--config parameter must be passed")
-        exit(1)
+    # args_experiment = parser.parse_args()
+    # if not args_experiment.config:
+    #     print("--config parameter must be passed")
+    #     exit(1)
 
-    my_exp = Experiment(args_experiment.config)
-    hyper_parameters = my_exp.get_params(args_experiment.run)
-    print("Total experiment configurations:", len(my_exp.configs))
-    print(hyper_parameters)
+    # my_exp = Experiment(args_experiment.config)
+    # hyper_parameters = my_exp.get_params(args_experiment.run)
+    # print("Total experiment configurations:", len(my_exp.configs))
+    # print(hyper_parameters)
 
-    # Retain old-style namespace object for backward compatibility:
-    class ArgsObject:
-        def __init__(self, d):
-            self.__dict__.update(d)
-    # Combine loaded hyperparameters and the parser CLI args (expt/run).
-    args_dict = dict(hyper_parameters)
-    args_dict.update(vars(args_experiment))
-    args = ArgsObject(args_dict)
-    print(args)
+    # # Retain old-style namespace object for backward compatibility:
+    # class ArgsObject:
+    #     def __init__(self, d):
+    #         self.__dict__.update(d)
+    # # Combine loaded hyperparameters and the parser CLI args (expt/run).
+    # args_dict = dict(hyper_parameters)
+    # args_dict.update(vars(args_experiment))
+    # args = ArgsObject(args_dict)
+    # print(args)
+    
+    args = parse_args()
+    hyper_parameters = args.__dict__
 
     # Folders.
     # disk_folder = '/mnt/ramdisk/'
@@ -247,8 +250,8 @@ if __name__ == "__main__":
         task = ForwardTask()
     elif args.task_type == "back_and_forth":
         # Radius and origin for the circular movement boundary.
-        RADIUS = 0.61
-        ORIGIN = np.array([0.14194049, -0.82257924])
+        RADIUS = 0.55
+        ORIGIN = np.array([-1.05668516,  0.00237455])
         task = BackAndForthTask(
             radius=RADIUS,
             origin=ORIGIN,
@@ -262,7 +265,7 @@ if __name__ == "__main__":
                 'hip_zero': 0,
                 'knee_zero': -np.radians(50),
                 'hip_range': np.radians(30),
-                'knee_range': np.radians(10),
+                'knee_range': np.radians(20),
             }
             if args.hw_config is None:
                 env = AntEnv(
@@ -309,6 +312,8 @@ if __name__ == "__main__":
     q_optimizer = optim.Adam(list(qf1.parameters()) + list(qf2.parameters()), lr=args.q_lr)
     actor_optimizer = optim.Adam(list(actor.parameters()), lr=args.policy_lr)
 
+    LEARNING_STARTS = args.learning_starts
+
     # Checkpoints.
     checkpoint = None
     if args.weights_path is not None:
@@ -320,6 +325,8 @@ if __name__ == "__main__":
         qf2_target.load_state_dict(checkpoint["qf2_target"])
         actor_optimizer.load_state_dict(checkpoint["actor_optimizer"])
         q_optimizer.load_state_dict(checkpoint["q_optimizer"])
+        LEARNING_STARTS = 0.0 # Start learning from the checkpoint.
+        print(f"[√] Loaded checkpoint with {LEARNING_STARTS} learning starts")
 
     if args.autotune:
         # Automatic entropy tuning.
@@ -362,6 +369,8 @@ if __name__ == "__main__":
     # Log the information of choice.
     csv_file = open(os.path.join(disk_folder, "runs", RUN_NAME, "info_logs.csv"), "w", newline="")
     keys_info = list(info.keys())
+    # remove the keys start have bodies
+    keys_info = [k for k in keys_info if not k.startswith("bodies")]
     writer = csv.DictWriter(csv_file, fieldnames=["step"] + keys_info)
     writer.writeheader()
 
@@ -379,7 +388,7 @@ if __name__ == "__main__":
     # Start learning.
     for global_step in tqdm(range(args.total_timesteps)):
         # Get the action.
-        if global_step < args.learning_starts and args.weights_path is None:
+        if global_step < LEARNING_STARTS:
             actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
         else:
             actions, _, _ = actor.get_action(torch.Tensor(obs).to(device))
@@ -411,14 +420,14 @@ if __name__ == "__main__":
         # Log the infos.
         infos_to_log = {}
         for k, v in infos.items():
-           if k in keys_info:
+            if k in keys_info:
                infos_to_log[k] = arr_to_str(v[0])
         row = {"step": global_step, **infos_to_log}
         writer.writerow(row)
         csv_file.flush()
 
         # Learn.
-        if global_step > args.learning_starts:
+        if global_step >= LEARNING_STARTS:
             # Sample from the replay buffer.
             data = rb.sample(args.batch_size)
             with torch.no_grad():
@@ -471,7 +480,7 @@ if __name__ == "__main__":
             # ==== Everything below is for logging and saving. ====
             # Logging.
             if global_step % 1000 == 0:
-                # Save all the networks.
+                # # Save all the networks.
                 checkpoint = {
                     "actor": actor.state_dict(),
                     "qf1": qf1.state_dict(),
@@ -489,10 +498,10 @@ if __name__ == "__main__":
                 }
                 torch.save(checkpoint, os.path.join(WEIGHTS_FOLDER, "checkpoint.pth"))
 
-                # Save the replay buffer.
+                # # Save the replay buffer.
                 rb.save(os.path.join(WEIGHTS_FOLDER, "replay_buffer.npz"))
 
-                # Log performance.
+                # # Log performance.
                 writer_perf.writerow({"step": global_step,
                                      "qf1_values": qf1_a_values.mean().item(),
                                      "qf2_values": qf2_a_values.mean().item(),
@@ -510,9 +519,9 @@ if __name__ == "__main__":
                     # Plot the average reward per second.
                     reward_tracker.plot(os.path.join(REPORT_FOLDER, "average_reward.pdf"))
 
-                    # Plot the writer_perf data.
+                    # # Plot the writer_perf data.
                     df_perf = pd.read_csv(os.path.join(disk_folder, "runs", RUN_NAME, "performance_variables.csv"))
-                    # Extract all the episodic variables and plot them.
+                    # # Extract all the episodic variables and plot them.
                     df_episodic = df_perf[df_perf['step'].isin(df_perf['episodic_step'])]
                     for key in keys_perf_variables:
                        if key.startswith('episodic_'):
@@ -558,30 +567,31 @@ if __name__ == "__main__":
                        plt.close()
 
                     # Create an arena plot with the heading vector and the reward direction.
-                    # fig = plt.figure()
-                    # duration = 20 # seconds
-                    # length_plot = int(duration/args.dt)
-                    # if 'current_x_position' in df_logs.columns and 'current_y_position' in df_logs.columns:
-                    #     plt.plot(df_logs['current_x_position'][-length_plot:], df_logs['current_y_position'][-length_plot:])
-                    # selected_indices = np.arange(len(df_logs) - length_plot, len(df_logs))[::10]
-                    # if 'current_x_position' in df_logs.columns and 'current_y_position' in df_logs.columns and 'heading_vector_x' in df_logs.columns and 'heading_vector_y' in df_logs.columns:
-                    #     plt.quiver(df_logs['current_x_position'][selected_indices], df_logs['current_y_position'][selected_indices], df_logs['heading_vector_x'][selected_indices], df_logs['heading_vector_y'][selected_indices], color='black', width=0.01, scale=30, zorder=3)
-                    # if 'reward_direction_x' in df_logs.columns and 'reward_direction_y' in df_logs.columns:
-                    #     plt.quiver(df_logs['current_x_position'][selected_indices], df_logs['current_y_position'][selected_indices], df_logs['reward_direction_x'][selected_indices], df_logs['reward_direction_y'][selected_indices], color='red', width=0.01, scale=30, zorder=2)
+                    fig = plt.figure()
+                    duration = 20 # seconds
+                    length_plot = int(duration/args.dt)
+                    if 'current_x_position' in df_logs.columns and 'current_y_position' in df_logs.columns:
+                        plt.plot(df_logs['current_x_position'][-length_plot:], df_logs['current_y_position'][-length_plot:])
+                    selected_indices = np.arange(len(df_logs) - length_plot, len(df_logs))[::10]
+                    if 'current_x_position' in df_logs.columns and 'current_y_position' in df_logs.columns and 'heading_vector_x' in df_logs.columns and 'heading_vector_y' in df_logs.columns:
+                        plt.quiver(df_logs['current_x_position'][selected_indices], df_logs['current_y_position'][selected_indices], df_logs['heading_vector_x'][selected_indices], df_logs['heading_vector_y'][selected_indices], color='black', width=0.01, scale=30, zorder=3)
+                    if 'reward_direction_x' in df_logs.columns and 'reward_direction_y' in df_logs.columns:
+                        plt.quiver(df_logs['current_x_position'][selected_indices], df_logs['current_y_position'][selected_indices], df_logs['reward_direction_x'][selected_indices], df_logs['reward_direction_y'][selected_indices], color='red', width=0.01, scale=30, zorder=2)
 
-                    # # Draw a circle if the task is back and forth
-                    # if args.task_type == "back_and_forth":
-                    #     plt.plot(origin[0], origin[1], 'ro')
-                    #     plt.plot(origin[0] + radius*np.cos(np.linspace(0, 2*np.pi, 100)), origin[1] + radius*np.sin(np.linspace(0, 2*np.pi, 100)))
-                    # plt.xlabel('X')
-                    # plt.ylabel('Y')
-                    # plt.gca().set_aspect('equal', adjustable='box')
-                    # plt.title('Current Position')
-                    # folder_arena_plots = os.path.join("runs", RUN_NAME, "arena_plots")
-                    # os.makedirs(folder_arena_plots, exist_ok=True)
-                    # plt.savefig(os.path.join(folder_arena_plots, f"arena_plot_{global_step}.png"), dpi=300)
-                    # pdf.savefig()
-                    # plt.close()
+                    # Draw a circle if the task is back and forth
+                    if args.task_type == "back_and_forth":
+                        plt.plot(ORIGIN[0], ORIGIN[1], 'ro')
+                        plt.plot(ORIGIN[0] + RADIUS*np.cos(np.linspace(0, 2*np.pi, 100)),
+                                 ORIGIN[1] + RADIUS*np.sin(np.linspace(0, 2*np.pi, 100)))
+                    plt.xlabel('X')
+                    plt.ylabel('Y')
+                    plt.gca().set_aspect('equal', adjustable='box')
+                    plt.title('Current Position')
+                    folder_arena_plots = os.path.join("runs", RUN_NAME, "arena_plots")
+                    os.makedirs(folder_arena_plots, exist_ok=True)
+                    plt.savefig(os.path.join(folder_arena_plots, f"arena_plot_{global_step}.png"), dpi=300)
+                    pdf.savefig()
+                    plt.close()
 
     # Close the environment.
     envs.close()
