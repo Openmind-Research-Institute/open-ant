@@ -196,7 +196,7 @@ if __name__ == "__main__":
 
         # Plot a circle with the radius of the task
         radius = 0.61
-        origin = np.array([0.14194049, -0.82257924])
+        origin = np.array([-1.05668516,  0.00237455])
         plt.plot(origin[0], origin[1], 'o', color='red')
         plt.plot(origin[0] + radius*np.cos(np.linspace(0, 2*np.pi, 100)), origin[1] + radius*np.sin(np.linspace(0, 2*np.pi, 100)), color='red')
         plt.plot(0, 0, 'o', color='black')
