@@ -168,7 +168,7 @@ cd agents/sac/
 The ArUco system is designed to be quite robust. If you encounter problems, make sure the markers are clearly visible and the camera exposure is configured properly (you can adjust exposure using LogiTune).
 Depending on your environment, you may need to disable auto-exposure for more consistent detection. Also, for the best performance, you should have the camera looking down at the playground.
 
-Lastly, make sure to plot all system inputs and outputs to verify that the signals are clean, learning from noisy or faulty signals can lead to poor results.
+Lastly, make sure to plot all system inputs and outputs to verify that the signals are clean. Learning from noisy or faulty signals can lead to poor results.
 
 ### Q: What’s the recommended way to specify a /dev/ device path in a JSON file on Ubuntu?
 
@@ -180,5 +180,9 @@ Use the persistent device path, for example:
 ### Q: Will the screws become loose over time due to vibrations?
 
 Yes, it can happen. For this, it is recommended to use Loctite Threadlocker Blue.
+
+### Q: How can we increase the friction on the lower legs?
+
+We recommend dipping the lower portion of the legs into Plasti Dip rubber coating 2–3 times.
 
 
