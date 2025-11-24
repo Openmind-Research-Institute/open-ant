@@ -64,8 +64,6 @@ def parse_args():
                         help="number of parallel envs")
     parser.add_argument("--buffer_size", type=int, default=int(1e6),
                         help="replay buffer size")
-    parser.add_argument("--gamma", type=float, default=0.99,
-                        help="discount factor")
     parser.add_argument("--tau", type=float, default=0.005,
                         help="target smoothing coefficient")
     parser.add_argument("--batch_size", type=int, default=256,
@@ -252,6 +250,14 @@ class SAC:
 
         self.learning_starts = args.learning_starts
 
+        # Gamma (discount factor) by problem definition, not a hyperparameter.
+        # After 5 seconds, future rewards contribute less than 1/e (timeconstant) of their original weight.
+        H_seconds = 5
+        gamma_continous = np.log(1/(1/np.e)) / H_seconds
+        print(f"Gamma continuous: {gamma_continous} for a DT of {args.dt}")
+        self.gamma_discrete = np.exp(-gamma_continous * args.dt)
+        print(f"Gamma discrete: {self.gamma_discrete} for a DT of {args.dt}")
+
         # Load checkpoint if provided
         checkpoint = None
         if args.weights_path is not None:
@@ -359,7 +365,7 @@ class SAC:
             qf1_next_target = self.qf1_target(data.next_observations, next_state_actions)
             qf2_next_target = self.qf2_target(data.next_observations, next_state_actions)
             min_qf_next_target = torch.min(qf1_next_target, qf2_next_target) - self.alpha * next_state_log_pi
-            next_q_value = data.rewards.flatten() * self.args.dt + (1 - data.dones.flatten()) * (self.args.gamma ** self.args.dt) * (min_qf_next_target).view(-1)
+            next_q_value = data.rewards.flatten() * self.args.dt + (1 - data.dones.flatten()) * self.gamma_discrete * (min_qf_next_target).view(-1)
         qf1_a_values = self.qf1(data.observations, data.actions).view(-1)
         qf2_a_values = self.qf2(data.observations, data.actions).view(-1)
         qf1_loss = F.mse_loss(qf1_a_values, next_q_value)
