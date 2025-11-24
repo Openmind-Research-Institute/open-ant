@@ -19,6 +19,7 @@ class RewardTracker:
         self._average_reward_per_second = 0.0
         self._plot = plot
         self._frequency_of_logging = frequency_of_logging
+        self._save_path = log_folder
 
     def update(self, reward):
         reward_per_second = reward / self.env_dt
@@ -42,7 +43,7 @@ class RewardTracker:
 
             self.df.to_csv(os.path.join(self.log_folder, f"{self.env_id}_average_rewards.csv"), index=False)
 
-    def plot(self, save_path=None):
+    def plot(self):
         plt.figure(figsize=(10, 5))
         plt.plot(
             self.df["step"][self.window_size:] * self.env_dt,
@@ -52,6 +53,6 @@ class RewardTracker:
         )
         plt.xlabel("Time [s]", fontsize=14)
         plt.ylabel("Average Reward per Second", fontsize=14)
-        if save_path is not None:
-            plt.savefig(save_path)
+        if self._save_path is not None:
+            plt.savefig(os.path.join(self._save_path, f"{self.env_id}_average_rewards.png"))
             plt.close()
