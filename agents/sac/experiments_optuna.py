@@ -94,24 +94,11 @@ def parse_args():
     return args
 
 
-def train_sac(trial, args):
-    """Train SAC agent and return average reward for Optuna optimization."""
-    
-    # Suggest hyperparameters from Appendix D in SAC paper https://arxiv.org/pdf/1801.01290
-    if trial is not None:
-        args.policy_lr = trial.suggest_float("policy_lr", 1e-5, 1e-2, log=True)
-        args.q_lr = trial.suggest_float("q_lr", 1e-5, 1e-2, log=True)
-        args.batch_size = trial.suggest_int("batch_size", 64, 512, step=64)
-        args.gamma = trial.suggest_float("gamma", 0.9, 0.999)
-        args.tau = trial.suggest_float("tau", 0.001, 0.1, log=True)
-        args.autotune = trial.suggest_categorical("autotune", [True, False])
-        # args.gradient_updates = trial.suggest_int("gradient_updates", 1, 4, step=1)
-        if not args.autotune:
-            args.alpha = trial.suggest_float("alpha", 0.01, 1.0, log=True)
+def train_sac_single_seed(trial, args, seed, trial_id, seed_idx):
+    """Train SAC agent with a single seed and return average reward and intermediate metrics."""
     
     date = datetime.now().strftime("%Y%m%d-%H%M%S")
-    trial_id = trial.number if trial is not None else 0
-    run_name = f"{args.env_id}__{args.exp_name}_{date}__trial_{trial_id}"
+    run_name = f"{args.env_id}__{args.exp_name}_{date}__trial_{trial_id}_seed_{seed_idx}"
     
     # Folders.
     disk_folder = ''
@@ -136,13 +123,16 @@ def train_sac(trial, args):
     agent._update_hyperparams(args)
     
     # Reset the environment.
-    obs, info = envs.reset(seed=args.seed)
+    obs, info = envs.reset(seed=seed)
     
     # Initialize logging.
     agent.initialize_logging(info)
 
+    # Store intermediate metrics at reporting steps
+    intermediate_metrics = {}
+
     # Start learning with manual control for Optuna reporting.
-    for global_step in tqdm(range(args.total_timesteps), desc=f"Trial {trial_id}"):
+    for global_step in tqdm(range(args.total_timesteps), desc=f"Trial {trial_id} Seed {seed_idx}"):
         agent.global_step = global_step
 
         # Get the action.
@@ -177,32 +167,83 @@ def train_sac(trial, args):
         # Update the observation.
         obs = next_obs
 
-        # Report intermediate value to Optuna
+        # Collect intermediate metrics at reporting steps
         if trial is not None and global_step % 10000 == 0:
             metrics = agent.get_metrics()
             if metrics is not None:
-                trial.report(metrics["average_reward_per_second"], global_step)
-                if trial.should_prune():
-                    agent.cleanup()
-                    raise optuna.TrialPruned()
+                intermediate_metrics[global_step] = metrics["average_reward_per_second"]
 
     # Get final average reward
     metrics = agent.get_metrics()
     final_average_reward = metrics["average_reward_per_second"] if metrics is not None else 0.0
-    
+
     # Cleanup.
     agent.cleanup()
+
+    return final_average_reward, intermediate_metrics
+
+
+def train_sac(trial, args):
+    """Train SAC agent and return average reward for Optuna optimization.
+    Runs training with 10 different seeds and averages the results.
+    Optuna decisions are based on the average across all seeds."""
+
+    # Suggest hyperparameters from Appendix D in SAC paper https://arxiv.org/pdf/1801.01290
+    if trial is not None:
+        args.policy_lr = trial.suggest_float("policy_lr", 1e-5, 1e-2, log=True)
+        args.q_lr = trial.suggest_float("q_lr", 1e-5, 1e-2, log=True)
+        args.batch_size = trial.suggest_int("batch_size", 64, 512, step=64)
+        args.tau = trial.suggest_float("tau", 0.001, 0.1, log=True)
+        args.autotune = trial.suggest_categorical("autotune", [True, False])
+        args.policy_frequency = trial.suggest_int("policy_frequency", 1, 4, step=1)
+        args.target_network_frequency = trial.suggest_int("target_network_frequency", 1, 4, step=1)
+        # args.gradient_updates = trial.suggest_int("gradient_updates", 1, 4, step=1)
+        if not args.autotune:
+            args.alpha = trial.suggest_float("alpha", 0.01, 1.0, log=True)
+
+    trial_id = trial.number if trial is not None else 0
+
+    # Run training with 10 different seeds
+    num_seeds = 10
+    seeds = [args.seed + i for i in range(num_seeds)]
+    rewards = []
+    all_intermediate_metrics = {}  # step -> list of rewards from all seeds
+
+    for seed_idx, seed in enumerate(seeds):
+        reward, intermediate_metrics = train_sac_single_seed(trial, args, seed, trial_id, seed_idx)
+        rewards.append(reward)
+        print(f"Seed {seed_idx} (seed={seed}) final reward: {reward}")
+
+        # Collect intermediate metrics from this seed.
+        for step, metric_value in intermediate_metrics.items():
+            if step not in all_intermediate_metrics:
+                all_intermediate_metrics[step] = []
+            all_intermediate_metrics[step].append(metric_value)
+
+    # Report averaged intermediate metrics to Optuna.
+    if trial is not None:
+        for step in sorted(all_intermediate_metrics.keys()):
+            avg_metric = np.mean(all_intermediate_metrics[step])
+            trial.report(avg_metric, step)
+            # Check for pruning based on averaged metrics
+            # if trial.should_prune():
+            #     print(f"Trial {trial_id} pruned at step {step} based on average metric: {avg_metric:.4f}")
+            #     raise optuna.TrialPruned()
+
+    # Return average reward across all seeds.
+    average_reward = np.mean(rewards)
+    print(f"Average reward across {num_seeds} seeds: {average_reward:.4f} (std: {np.std(rewards):.4f})")
     
-    return final_average_reward
+    return average_reward
 
 
 if __name__ == "__main__":
     args = parse_args()
-    
+
     # Define Optuna objective function
     def objective(trial):
         return train_sac(trial, args)
-    
+
     # Set up Optuna study
     if args.optuna_study_name:
         study = optuna.create_study(
