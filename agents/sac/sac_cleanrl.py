@@ -43,7 +43,7 @@ def arr_to_str(x):
 def parse_args():
     parser = argparse.ArgumentParser()
 
-    # General
+    # General.
     parser.add_argument("--exp_name", type=str, default=os.path.basename(__file__)[:-3],
                         help="the name of this experiment")
     parser.add_argument("--seed", type=int, default=1,
@@ -55,7 +55,7 @@ def parse_args():
     parser.add_argument("--capture_video", type=bool, default=False,
                         help="capture video of agent performances")
 
-    # Algorithm
+    # Algorithm.
     parser.add_argument("--env_id", type=str, default="EAnt",
                         help="environment ID")
     parser.add_argument("--total_timesteps", type=int, default=1_000_000,
@@ -85,7 +85,7 @@ def parse_args():
     parser.add_argument("--autotune", type=bool, default=True,
                         help="automatic entropy tuning")
 
-    # Environment
+    # Environment.
     parser.add_argument("--dt", type=float, default=0.05,
                         help="environment timestep")
     parser.add_argument("--hw_config", type=str, default=None,
@@ -172,94 +172,9 @@ class Actor(nn.Module):
         return action, log_prob, mean
 
 
-class Experiment:
-    def __init__(self, json_path):
-        with open(json_path, "r") as f:
-            self.params = json.load(f)
-
-        # Separate keys and value lists
-        keys = list(self.params.keys())
-        values = [v if isinstance(v, list) else [v] for v in self.params.values()]
-
-        # Compute cross product of hyper-parameters
-        self.configs = []
-        for combo in itertools.product(*values):
-            self.configs.append(dict(zip(keys, combo)))
-
-        print("Total experiment configurations:", len(self.configs))
-
-    def get_params(self, idx):
-        return self.configs[idx]
-
-
-if __name__ == "__main__":
-
-    date = datetime.now().strftime("%Y%m%d-%H%M%S")
-
-    # parser = argparse.ArgumentParser()
-    # parser.add_argument("--config", type=str, help="Path to config file")
-    # parser.add_argument("--run", type=int, default=1, help="Run number (int)")
-
-    # args_experiment = parser.parse_args()
-    # if not args_experiment.config:
-    #     print("--config parameter must be passed")
-    #     exit(1)
-
-    # my_exp = Experiment(args_experiment.config)
-    # hyper_parameters = my_exp.get_params(args_experiment.run)
-    # print("Total experiment configurations:", len(my_exp.configs))
-    # print(hyper_parameters)
-
-    # # Retain old-style namespace object for backward compatibility:
-    # class ArgsObject:
-    #     def __init__(self, d):
-    #         self.__dict__.update(d)
-    # # Combine loaded hyperparameters and the parser CLI args (expt/run).
-    # args_dict = dict(hyper_parameters)
-    # args_dict.update(vars(args_experiment))
-    # args = ArgsObject(args_dict)
-    # print(args)
-    
-    args = parse_args()
-    hyper_parameters = args.__dict__
-
-    # Folders.
-    # disk_folder = '/mnt/ramdisk/'
-    disk_folder = ''
-    # Make RUN_NAME unique by including process PID.
-    this_pid = os.getpid()
-    RUN_NAME = f"{hyper_parameters['env_id']}__{hyper_parameters['exp_name']}_{date}__pid_{this_pid}"
-    WEIGHTS_FOLDER = os.path.join(disk_folder, "runs", RUN_NAME, "weights_and_args")
-    os.makedirs(WEIGHTS_FOLDER, exist_ok=True)
-    REPORT_FOLDER = os.path.join(disk_folder, "runs", RUN_NAME, "report")
-    os.makedirs(REPORT_FOLDER, exist_ok=True)
-    with open(os.path.join(WEIGHTS_FOLDER, "args.json"), 'w') as f:
-        json.dump(args.__dict__, f)
-
-    # Seed.
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
-
-    # Device.
-    torch.backends.cudnn.deterministic = args.torch_deterministic
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    # Task.
-    if args.task_type == "forward":
-        task = ForwardTask()
-    elif args.task_type == "back_and_forth":
-        # Radius and origin for the circular movement boundary.
-        RADIUS = 0.55
-        ORIGIN = np.array([-1.05668516,  0.00237455])
-        task = BackAndForthTask(
-            radius=RADIUS,
-            origin=ORIGIN,
-        )
-    else:
-        raise ValueError(f"Invalid task type: {args.task_type}")
-
-    def make_env(env_id, seed, idx, capture_video, RUN_NAME):
+def make_ant_envs(args, task, disk_folder, run_name):
+    """Create the vectorized environment outside the SAC class."""
+    def make_env(env_id, seed, idx, capture_video, run_name):
         def _init():
             joint_config = {
                 'hip_zero': 0,
@@ -287,311 +202,387 @@ if __name__ == "__main__":
 
             if capture_video and idx == 0:
                 print('RecordVideo')
-                env = gym.wrappers.RecordVideo(env, os.path.join(disk_folder, "runs", RUN_NAME, "videos", RUN_NAME), episode_trigger=lambda x: x % 50 == 0)
+                env = gym.wrappers.RecordVideo(env, os.path.join(disk_folder, "runs", run_name, "videos", run_name),
+                                               episode_trigger=lambda x: x % 10 == 0)
             env = gym.wrappers.RecordEpisodeStatistics(env)
             env = gym.wrappers.TransformReward(env, lambda r: r * args.reward_scale)
             env.action_space.seed(seed)
             return env
-
         return _init
 
-    # Vector environment.
     envs = gym.vector.SyncVectorEnv(
-        [make_env(args.env_id, args.seed + i, i, args.capture_video, RUN_NAME) for i in range(args.num_envs)],
+        [make_env(args.env_id, args.seed + i, i, args.capture_video, run_name) for i in range(args.num_envs)],
     )
-    assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
-
-    # Networks.
-    actor = Actor(envs).to(device)
-    qf1 = SoftQNetwork(envs).to(device)
-    qf2 = SoftQNetwork(envs).to(device)
-    qf1_target = SoftQNetwork(envs).to(device)
-    qf2_target = SoftQNetwork(envs).to(device)
-    qf1_target.load_state_dict(qf1.state_dict())
-    qf2_target.load_state_dict(qf2.state_dict())
-    q_optimizer = optim.Adam(list(qf1.parameters()) + list(qf2.parameters()), lr=args.q_lr)
-    actor_optimizer = optim.Adam(list(actor.parameters()), lr=args.policy_lr)
-
-    LEARNING_STARTS = args.learning_starts
-
-    # Checkpoints.
-    checkpoint = None
-    if args.weights_path is not None:
-        checkpoint = torch.load(os.path.join(args.weights_path, "checkpoint.pth"), map_location=device)
-        actor.load_state_dict(checkpoint["actor"])
-        qf1.load_state_dict(checkpoint["qf1"])
-        qf2.load_state_dict(checkpoint["qf2"])
-        qf1_target.load_state_dict(checkpoint["qf1_target"])
-        qf2_target.load_state_dict(checkpoint["qf2_target"])
-        actor_optimizer.load_state_dict(checkpoint["actor_optimizer"])
-        q_optimizer.load_state_dict(checkpoint["q_optimizer"])
-        LEARNING_STARTS = 0.0 # Start learning from the checkpoint.
-        print(f"[√] Loaded checkpoint with {LEARNING_STARTS} learning starts")
-
-    if args.autotune:
-        # Automatic entropy tuning.
-        target_entropy = -torch.prod(torch.Tensor(envs.single_action_space.shape).to(device)).item()
-        log_alpha = torch.zeros(1, requires_grad=True, device=device)
-        a_optimizer = optim.Adam([log_alpha], lr=args.q_lr)
-
-        if checkpoint is not None:
-            a_optimizer.load_state_dict(checkpoint["a_optimizer"])
-            log_alpha = checkpoint["log_alpha"].to(device).requires_grad_()
-        alpha = log_alpha.exp().item()
-    else:
-        alpha = args.alpha
-
     envs.single_observation_space.dtype = np.float32
+    assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
+    print(f"[√] Created environment with {envs.num_envs} environments.")
+    return envs
 
-    # Initialize the replay buffer.
-    rb = ReplayBuffer(
-        args.buffer_size,
-        envs.single_observation_space,
-        envs.single_action_space,
-        device,
-        n_envs=args.num_envs,
-        handle_timeout_termination=False,
-    )
-    # Load replay buffer if there exists one.
-    if args.weights_path is not None:
-        buffer_path = os.path.join(args.weights_path, "replay_buffer.npz")
-        if os.path.exists(buffer_path):
-            rb.load(buffer_path, device)
-            print(f"[√] Loaded replay buffer with {rb.size} transitions")
+
+class SAC:
+    def __init__(self, args, envs, disk_folder='', run_name=None):
+        self.args = args
+        self.envs = envs
+        self.device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
+
+        # Set up folders.
+        self.disk_folder = disk_folder
+        self.run_name = run_name
+        self.weights_folder = os.path.join(self.disk_folder, "runs", self.run_name, "weights_and_args")
+        os.makedirs(self.weights_folder, exist_ok=True)
+        with open(os.path.join(self.weights_folder, "args.json"), 'w') as f:
+            json.dump(args.__dict__, f)
+
+        # Seed
+        random.seed(args.seed)
+        np.random.seed(args.seed)
+        torch.manual_seed(args.seed)
+        torch.backends.cudnn.deterministic = args.torch_deterministic
+
+        # Networks
+        self.actor = Actor(self.envs).to(self.device)
+        self.qf1 = SoftQNetwork(self.envs).to(self.device)
+        self.qf2 = SoftQNetwork(self.envs).to(self.device)
+        self.qf1_target = SoftQNetwork(self.envs).to(self.device)
+        self.qf2_target = SoftQNetwork(self.envs).to(self.device)
+        self.qf1_target.load_state_dict(self.qf1.state_dict())
+        self.qf2_target.load_state_dict(self.qf2.state_dict())
+        self.q_optimizer = optim.Adam(list(self.qf1.parameters()) + list(self.qf2.parameters()), lr=args.q_lr)
+        self.actor_optimizer = optim.Adam(list(self.actor.parameters()), lr=args.policy_lr)
+
+        self.learning_starts = args.learning_starts
+
+        # Load checkpoint if provided
+        checkpoint = None
+        if args.weights_path is not None:
+            checkpoint = torch.load(os.path.join(args.weights_path, "checkpoint.pth"), map_location=self.device)
+            self.actor.load_state_dict(checkpoint["actor"])
+            self.qf1.load_state_dict(checkpoint["qf1"])
+            self.qf2.load_state_dict(checkpoint["qf2"])
+            self.qf1_target.load_state_dict(checkpoint["qf1_target"])
+            self.qf2_target.load_state_dict(checkpoint["qf2_target"])
+            self.actor_optimizer.load_state_dict(checkpoint["actor_optimizer"])
+            self.q_optimizer.load_state_dict(checkpoint["q_optimizer"])
+            self.learning_starts = 0.0
+            print(f"[√] Loaded checkpoint! Learning starts set to 0.")
+
+        # Alpha (entropy coefficient).
+        if args.autotune:
+            target_entropy = -torch.prod(torch.Tensor(self.envs.single_action_space.shape).to(self.device)).item()
+            self.log_alpha = torch.zeros(1, requires_grad=True, device=self.device)
+            self.a_optimizer = optim.Adam([self.log_alpha], lr=args.q_lr)
+
+            if checkpoint is not None:
+                self.a_optimizer.load_state_dict(checkpoint["a_optimizer"])
+                self.log_alpha = checkpoint["log_alpha"].to(self.device).requires_grad_()
+                print(f"[√] Loaded checkpoint! Alpha loaded.")
+            self.alpha = self.log_alpha.exp().item()
         else:
-            print("[!] No replay buffer found, starting empty")
+            self.alpha = args.alpha
+            self.log_alpha = None
+            self.a_optimizer = None
 
-    start_time = time.time()
+        # Replay buffer
+        self.rb = ReplayBuffer(
+            args.buffer_size,
+            self.envs.single_observation_space,
+            self.envs.single_action_space,
+            self.device,
+            n_envs=args.num_envs,
+            handle_timeout_termination=False,
+        )
+        if args.weights_path is not None:
+            buffer_path = os.path.join(args.weights_path, "replay_buffer.npz")
+            if os.path.exists(buffer_path):
+                self.rb.load(buffer_path, self.device)
+                print(f"[√] Loaded replay buffer with {self.rb.size} transitions")
+            else:
+                print("[!] No replay buffer found, starting empty")
 
-    # Reset the environment.
-    obs, info = envs.reset(seed=args.seed)
+        # Initialize tracking variables for external control
+        self.global_step = 0
+        self.start_time = None
+        self.reward_tracker = None
+        self.csv_file_info = None
+        self.csv_file_agent_vars= None
+        self.writer_info = None
+        self.writer_agent_vars = None
+        self.keys_info = None
+        self.keys_agent_vars = ['episodic_returns', 'episodic_lengths', 'episodic_step', 'steps', 'qf1_values', 'qf2_values', 'qf1_losses', 'qf2_losses', 'qf_losses', 'actor_losses', 'alphas', 'alpha_losses', 'SPS', 'average_reward_per_second']
 
-    # Log the information of choice.
-    csv_file = open(os.path.join(disk_folder, "runs", RUN_NAME, "info_logs.csv"), "w", newline="")
-    keys_info = list(info.keys())
-    # remove the keys start have bodies
-    keys_info = [k for k in keys_info if not k.startswith("bodies")]
-    writer = csv.DictWriter(csv_file, fieldnames=["step"] + keys_info)
-    writer.writeheader()
+        # For Optuna: allow hyperparameter updates
+        self._update_hyperparams(args)
 
-    # Reward tracker.
-    reward_tracker = RewardTracker(env_dt=args.dt, env_id=args.env_id,
-                            log_folder=os.path.join(disk_folder, "runs", RUN_NAME),
-                            time_window=120.0)
+    def _update_hyperparams(self, args):
+        """Update hyperparameters (useful for Optuna)."""
+        # Update learning rates if changed
+        for param_group in self.q_optimizer.param_groups:
+            param_group['lr'] = args.q_lr
+        for param_group in self.actor_optimizer.param_groups:
+            param_group['lr'] = args.policy_lr
+        if self.a_optimizer is not None:
+            for param_group in self.a_optimizer.param_groups:
+                param_group['lr'] = args.q_lr
 
-    # Performance variables.
-    keys_perf_variables = ['episodic_returns', 'episodic_lengths', 'episodic_step', 'steps', 'qf1_values', 'qf2_values', 'qf1_losses', 'qf2_losses', 'qf_losses', 'actor_losses', 'alphas', 'alpha_losses', 'SPS', 'average_reward_per_second']
-    csv_perf_file = open(os.path.join(disk_folder, "runs", RUN_NAME, "performance_variables.csv"), "w", newline="")
-    writer_perf = csv.DictWriter(csv_perf_file, fieldnames=["step"] + keys_perf_variables)
-    writer_perf.writeheader()
+    def get_action(self, obs, global_step=None):
+        """Get action from observation."""
+        if global_step is None:
+            global_step = self.global_step
 
-    # Start learning.
-    for global_step in tqdm(range(args.total_timesteps)):
-        # Get the action.
-        if global_step < LEARNING_STARTS:
-            actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
+        if global_step < self.learning_starts:
+            actions = np.array([self.envs.single_action_space.sample() for _ in range(self.envs.num_envs)])
         else:
-            actions, _, _ = actor.get_action(torch.Tensor(obs).to(device))
+            actions, _, _ = self.actor.get_action(torch.Tensor(obs).to(self.device))
             actions = actions.detach().cpu().numpy()
+        return actions
 
-        # Step the environment.
-        next_obs, rewards, terminations, truncations, infos = envs.step(actions)
+    def add_transition(self, obs, next_obs, actions, rewards, terminations, infos):
+        """Add transition to replay buffer."""
+        self.rb.add(obs, next_obs, actions, rewards, terminations, infos)
 
-        # Log the episodic return and length.
+    def learn(self, global_step=None):
+        """Perform one learning step."""
+        if global_step is None:
+            global_step = self.global_step
+
+        if global_step < self.learning_starts:
+            return None, None, None, None, None, None, None
+
+        # Initialize variables for logging.
+        actor_loss = None
+        alpha_loss = None
+
+        # Sample from the replay buffer.
+        data = self.rb.sample(self.args.batch_size)
+        with torch.no_grad():
+            next_state_actions, next_state_log_pi, _ = self.actor.get_action(data.next_observations)
+            qf1_next_target = self.qf1_target(data.next_observations, next_state_actions)
+            qf2_next_target = self.qf2_target(data.next_observations, next_state_actions)
+            min_qf_next_target = torch.min(qf1_next_target, qf2_next_target) - self.alpha * next_state_log_pi
+            next_q_value = data.rewards.flatten() * self.args.dt + (1 - data.dones.flatten()) * (self.args.gamma ** self.args.dt) * (min_qf_next_target).view(-1)
+        qf1_a_values = self.qf1(data.observations, data.actions).view(-1)
+        qf2_a_values = self.qf2(data.observations, data.actions).view(-1)
+        qf1_loss = F.mse_loss(qf1_a_values, next_q_value)
+        qf2_loss = F.mse_loss(qf2_a_values, next_q_value)
+        qf_loss = qf1_loss + qf2_loss
+
+        # Optimize the Action-Value networks.
+        self.q_optimizer.zero_grad()
+        qf_loss.backward()
+        self.q_optimizer.step()
+
+        if global_step % self.args.policy_frequency == 0:
+            for _ in range(self.args.policy_frequency):
+                pi, log_pi, _ = self.actor.get_action(data.observations)
+                qf1_pi = self.qf1(data.observations, pi)
+                qf2_pi = self.qf2(data.observations, pi)
+                min_qf_pi = torch.min(qf1_pi, qf2_pi)
+                actor_loss = ((self.alpha * log_pi) - min_qf_pi).mean()
+
+                # Optimize the Actor network.
+                self.actor_optimizer.zero_grad()
+                actor_loss.backward()
+                self.actor_optimizer.step()
+
+                if self.args.autotune:
+                    with torch.no_grad():
+                        _, log_pi, _ = self.actor.get_action(data.observations)
+                    target_entropy = -torch.prod(torch.Tensor(self.envs.single_action_space.shape).to(self.device)).item()
+                    alpha_loss = (-self.log_alpha.exp() * (log_pi + target_entropy)).mean()
+
+                    self.a_optimizer.zero_grad()
+                    alpha_loss.backward()
+                    self.a_optimizer.step()
+                    self.alpha = self.log_alpha.exp().item()
+
+        # Update the target networks.
+        if global_step % self.args.target_network_frequency == 0:
+            for param, target_param in zip(self.qf1.parameters(), self.qf1_target.parameters()):
+                target_param.data.copy_(self.args.tau * param.data + (1 - self.args.tau) * target_param.data)
+            for param, target_param in zip(self.qf2.parameters(), self.qf2_target.parameters()):
+                target_param.data.copy_(self.args.tau * param.data + (1 - self.args.tau) * target_param.data)
+
+        return qf1_a_values, qf2_a_values, qf1_loss, qf2_loss, qf_loss, actor_loss, alpha_loss
+
+    def initialize_logging(self, info):
+        """Initialize logging files and trackers."""
+        self.start_time = time.time()
+
+        # Log the information of choice.
+        self.csv_file_info = open(os.path.join(self.disk_folder, "runs", self.run_name, "info_logs.csv"), "w", newline="")
+        self.keys_info = list(info.keys())
+        self.keys_info = [k for k in self.keys_info if not k.startswith("bodies")]
+        self.writer_info = csv.DictWriter(self.csv_file_info, fieldnames=["step"] + self.keys_info)
+        self.writer_info.writeheader()
+
+        # Reward tracker.
+        self.reward_tracker = RewardTracker(env_dt=self.args.dt, env_id=self.args.env_id,
+                                    log_folder=os.path.join(self.disk_folder, "runs", self.run_name),
+                                    time_window=120.0)
+
+        # Performance variables.
+        self.csv_file_agent_vars = open(os.path.join(self.disk_folder, "runs", self.run_name, "performance_variables.csv"), "w", newline="")
+        self.writer_agent_vars = csv.DictWriter(self.csv_file_agent_vars, fieldnames=["step"] + self.keys_agent_vars)
+        self.writer_agent_vars.writeheader()
+
+    def log_step(self, global_step, infos, rewards, qf1_a_values=None, qf2_a_values=None,
+                 qf1_loss=None, qf2_loss=None, qf_loss=None, actor_loss=None, alpha_loss=None):
+        """Log step information."""
+        if self.writer_info is None or self.writer_agent_vars is None:
+            return
+
+        # Log episodic return and length.
         if "episode" in infos:
             if infos["episode"] is not None:
                 print('infos["episode"]', infos["episode"])
-                writer_perf.writerow({"step": global_step, "episodic_returns": infos["episode"]["r"][0], "episodic_lengths": infos["episode"]["l"][0], "episodic_step": global_step})
-                csv_perf_file.flush()
-
-        # Add the data to the replay buffer.
-        rb.add(obs, next_obs, actions, rewards, terminations, infos)
+                self.writer_agent_vars.writerow({"step": global_step,
+                                         "episodic_returns": infos["episode"]["r"][0],
+                                         "episodic_lengths": infos["episode"]["l"][0],
+                                         "episodic_step": global_step})
+                self.csv_file_agent_vars.flush()
 
         # Update the reward tracker.
-        if args.num_envs == 1:
-            reward_tracker.update(rewards.item())
-            reward_tracker.log()
+        if self.args.num_envs == 1:
+            self.reward_tracker.update(rewards.item())
+            self.reward_tracker.log()
+            if global_step % 1000 == 0:
+                self.reward_tracker.plot()
         else:
             raise ValueError("reward_tracker is only supported for single environment")
-
-        # Update the observation.
-        obs = next_obs
 
         # Log the infos.
         infos_to_log = {}
         for k, v in infos.items():
-            if k in keys_info:
+            if k in self.keys_info:
                infos_to_log[k] = arr_to_str(v[0])
         row = {"step": global_step, **infos_to_log}
-        writer.writerow(row)
-        csv_file.flush()
+        self.writer_info.writerow(row)
+        self.csv_file_info.flush()
 
-        # Learn.
-        if global_step >= LEARNING_STARTS:
-            # Sample from the replay buffer.
-            data = rb.sample(args.batch_size)
-            with torch.no_grad():
-                next_state_actions, next_state_log_pi, _ = actor.get_action(data.next_observations)
-                qf1_next_target = qf1_target(data.next_observations, next_state_actions)
-                qf2_next_target = qf2_target(data.next_observations, next_state_actions)
-                min_qf_next_target = torch.min(qf1_next_target, qf2_next_target) - alpha * next_state_log_pi
-                next_q_value = data.rewards.flatten() * args.dt + (1 - data.dones.flatten()) * (args.gamma ** args.dt) * (min_qf_next_target).view(-1) # see K. de Asis, R. Sutton, "An Idiosyncrasy of Time-discretization in RL").
-            qf1_a_values = qf1(data.observations, data.actions).view(-1)
-            qf2_a_values = qf2(data.observations, data.actions).view(-1)
-            qf1_loss = F.mse_loss(qf1_a_values, next_q_value)
-            qf2_loss = F.mse_loss(qf2_a_values, next_q_value)
-            qf_loss = qf1_loss + qf2_loss
+        # Log performance metrics.
+        if global_step % 1000 == 0 and qf1_a_values is not None:
+            self.writer_agent_vars.writerow({"step": global_step,
+                                     "qf1_values": qf1_a_values.mean().item() if qf1_a_values is not None else None,
+                                     "qf2_values": qf2_a_values.mean().item() if qf2_a_values is not None else None,
+                                     "qf1_losses": qf1_loss.item() if qf1_loss is not None else None,
+                                     "qf2_losses": qf2_loss.item() if qf2_loss is not None else None,
+                                     "qf_losses": qf_loss.item() / 2.0 if qf_loss is not None else None,
+                                     "actor_losses": actor_loss.item() if actor_loss is not None else None,
+                                     "alphas": self.alpha,
+                                     "alpha_losses": alpha_loss.item() if alpha_loss is not None else None,
+                                     "SPS": int(global_step / (time.time() - self.start_time)) if self.start_time else 0,
+                                     "average_reward_per_second": self.reward_tracker.average_reward_per_second})
+            self.csv_file_agent_vars.flush()
 
-            # Optimize the Action-Value networks.
-            q_optimizer.zero_grad()
-            qf_loss.backward()
-            q_optimizer.step()
+    def get_metrics(self):
+        """Get current metrics (useful for Optuna reporting)."""
+        if self.reward_tracker is None:
+            return None
+        return {
+            "average_reward_per_second": self.reward_tracker.average_reward_per_second,
+            "global_step": self.global_step,
+        }
 
-            if global_step % args.policy_frequency == 0:
-                for _ in range(args.policy_frequency):  # Compensate for the delay by doing 'actor_update_interval' instead of 1.
-                    pi, log_pi, _ = actor.get_action(data.observations)
-                    qf1_pi = qf1(data.observations, pi)
-                    qf2_pi = qf2(data.observations, pi)
-                    min_qf_pi = torch.min(qf1_pi, qf2_pi)
-                    actor_loss = ((alpha * log_pi) - min_qf_pi).mean()
+    def save_checkpoint(self, global_step):
+        if global_step % 1000 != 0:
+            return
 
-                    # Optimize the Actor network.
-                    actor_optimizer.zero_grad()
-                    actor_loss.backward()
-                    actor_optimizer.step()
+        # Save all the networks.
+        checkpoint = {
+            "actor": self.actor.state_dict(),
+            "qf1": self.qf1.state_dict(),
+            "qf2": self.qf2.state_dict(),
+            "qf1_target": self.qf1_target.state_dict(),
+            "qf2_target": self.qf2_target.state_dict(),
+            "actor_optimizer": self.actor_optimizer.state_dict(),
+            "q_optimizer": self.q_optimizer.state_dict(),
+            "a_optimizer": self.a_optimizer.state_dict() if self.args.autotune else None,
+            "log_alpha": self.log_alpha.detach().cpu() if self.args.autotune else None,
+            "global_step": global_step,
+            "random_state": random.getstate(),
+            "numpy_state": np.random.get_state(),
+            "torch_state": torch.get_rng_state(),
+        }
+        torch.save(checkpoint, os.path.join(self.weights_folder, "checkpoint.pth"))
 
-                    if args.autotune:
-                        with torch.no_grad():
-                            _, log_pi, _ = actor.get_action(data.observations)
-                        alpha_loss = (-log_alpha.exp() * (log_pi + target_entropy)).mean()
+        # Save the replay buffer
+        self.rb.save(os.path.join(self.weights_folder, "replay_buffer.npz"))
 
-                        a_optimizer.zero_grad()
-                        alpha_loss.backward()
-                        a_optimizer.step()
-                        alpha = log_alpha.exp().item()
+    def cleanup(self):
+        """Clean up resources."""
+        if self.csv_file_info:
+            self.csv_file_info.close()
+        if self.csv_file_agent_vars:
+            self.csv_file_agent_vars.close()
+        if self.envs:
+            self.envs.close()
 
-            # Update the target networks.
-            if global_step % args.target_network_frequency == 0:
-                for param, target_param in zip(qf1.parameters(), qf1_target.parameters()):
-                    target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
-                for param, target_param in zip(qf2.parameters(), qf2_target.parameters()):
-                    target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
+    def run_policy(self):
+        """Main training loop - runs the SAC policy."""
+        # Reset the environment.
+        obs, info = self.envs.reset(seed=self.args.seed)
 
-            # ==== Everything below is for logging and saving. ====
-            # Logging.
-            if global_step % 1000 == 0:
-                # # Save all the networks.
-                checkpoint = {
-                    "actor": actor.state_dict(),
-                    "qf1": qf1.state_dict(),
-                    "qf2": qf2.state_dict(),
-                    "qf1_target": qf1_target.state_dict(),
-                    "qf2_target": qf2_target.state_dict(),
-                    "actor_optimizer": actor_optimizer.state_dict(),
-                    "q_optimizer": q_optimizer.state_dict(),
-                    "a_optimizer": a_optimizer.state_dict() if args.autotune else None,
-                    "log_alpha": log_alpha.detach().cpu() if args.autotune else None,
-                    "global_step": global_step,
-                    "random_state": random.getstate(),
-                    "numpy_state": np.random.get_state(),
-                    "torch_state": torch.get_rng_state(),
-                }
-                torch.save(checkpoint, os.path.join(WEIGHTS_FOLDER, "checkpoint.pth"))
+        # Initialize logging.
+        self.initialize_logging(info)
 
-                # # Save the replay buffer.
-                rb.save(os.path.join(WEIGHTS_FOLDER, "replay_buffer.npz"))
+        # Start learning.
+        for global_step in tqdm(range(self.args.total_timesteps)):
+            self.global_step = global_step
 
-                # # Log performance.
-                writer_perf.writerow({"step": global_step,
-                                     "qf1_values": qf1_a_values.mean().item(),
-                                     "qf2_values": qf2_a_values.mean().item(),
-                                     "qf1_losses": qf1_loss.item(),
-                                     "qf2_losses": qf2_loss.item(),
-                                     "qf_losses": qf_loss.item() / 2.0,
-                                     "actor_losses": actor_loss.item(),
-                                     "alphas": alpha,
-                                     "alpha_losses": alpha_loss.item() if args.autotune else None,
-                                     "SPS": int(global_step / (time.time() - start_time)), "average_reward_per_second": reward_tracker.average_reward_per_second})
-                csv_perf_file.flush()
+            # Get the action.
+            actions = self.get_action(obs, global_step)
 
-                # Plot the performance variables.
-                with PdfPages(os.path.join(REPORT_FOLDER, "report.pdf")) as pdf:
-                    # Plot the average reward per second.
-                    reward_tracker.plot(os.path.join(REPORT_FOLDER, "average_reward.pdf"))
+            # Step the environment.
+            next_obs, rewards, terminations, truncations, infos = self.envs.step(actions)
 
-                    # # Plot the writer_perf data.
-                    df_perf = pd.read_csv(os.path.join(disk_folder, "runs", RUN_NAME, "performance_variables.csv"))
-                    # # Extract all the episodic variables and plot them.
-                    df_episodic = df_perf[df_perf['step'].isin(df_perf['episodic_step'])]
-                    for key in keys_perf_variables:
-                       if key.startswith('episodic_'):
-                           fig = plt.figure()
-                           plt.plot(df_episodic['episodic_step'], df_episodic[key])
-                           plt.xlabel('Episodic Step')
-                           plt.ylabel(key)
-                           plt.title(key)
-                           pdf.savefig()
-                           plt.close()
+            # Add transition to buffer.
+            self.add_transition(obs, next_obs, actions, rewards, terminations, infos)
 
-                    for key in keys_perf_variables:
-                       if key not in df_perf.columns or key.startswith('episodic_'):
-                           continue
-                       fig = plt.figure()
-                       plt.plot(df_perf['step'], df_perf[key])
-                       plt.xlabel('Steps')
-                       plt.ylabel(key)
-                       plt.title(key)
-                       pdf.savefig()
-                       plt.close()
+            # Learn.
+            qf1_a_values, qf2_a_values, qf1_loss, qf2_loss, qf_loss, actor_loss, alpha_loss = self.learn(global_step)
 
-                    df_logs = pd.read_csv(os.path.join(disk_folder, "runs", RUN_NAME, "info_logs.csv"))
-                    cols_to_plot = [
-                       'current_x_position',
-                       'current_y_position',
-                       'heading_vector_x',
-                       'heading_vector_y',
-                       'original_reward',
-                       'r_b_x',
-                       'r_b_y',
-                    ]
-                    for col in cols_to_plot:
-                       # Check if cols exists in df_logs
-                       if col not in df_logs.columns:
-                           continue
-                       fig = plt.figure()
-                       plt.plot(df_logs['step'], df_logs[col])
-                       plt.xlabel('Steps')
-                       plt.ylabel(col)
-                       plt.title(col)
-                       pdf.savefig()
-                       plt.close()
+            # Log step.
+            self.log_step(global_step, infos, rewards, qf1_a_values, qf2_a_values,
+                         qf1_loss, qf2_loss, qf_loss, actor_loss, alpha_loss)
 
-                    # Create an arena plot with the heading vector and the reward direction.
-                    fig = plt.figure()
-                    duration = 20 # seconds
-                    length_plot = int(duration/args.dt)
-                    if 'current_x_position' in df_logs.columns and 'current_y_position' in df_logs.columns:
-                        plt.plot(df_logs['current_x_position'][-length_plot:], df_logs['current_y_position'][-length_plot:])
-                    selected_indices = np.arange(len(df_logs) - length_plot, len(df_logs))[::10]
-                    if 'current_x_position' in df_logs.columns and 'current_y_position' in df_logs.columns and 'heading_vector_x' in df_logs.columns and 'heading_vector_y' in df_logs.columns:
-                        plt.quiver(df_logs['current_x_position'][selected_indices], df_logs['current_y_position'][selected_indices], df_logs['heading_vector_x'][selected_indices], df_logs['heading_vector_y'][selected_indices], color='black', width=0.01, scale=30, zorder=3)
-                    if 'reward_direction_x' in df_logs.columns and 'reward_direction_y' in df_logs.columns:
-                        plt.quiver(df_logs['current_x_position'][selected_indices], df_logs['current_y_position'][selected_indices], df_logs['reward_direction_x'][selected_indices], df_logs['reward_direction_y'][selected_indices], color='red', width=0.01, scale=30, zorder=2)
+            # Save checkpoint.
+            self.save_checkpoint(global_step)
 
-                    # Draw a circle if the task is back and forth
-                    if args.task_type == "back_and_forth":
-                        plt.plot(ORIGIN[0], ORIGIN[1], 'ro')
-                        plt.plot(ORIGIN[0] + RADIUS*np.cos(np.linspace(0, 2*np.pi, 100)),
-                                 ORIGIN[1] + RADIUS*np.sin(np.linspace(0, 2*np.pi, 100)))
-                    plt.xlabel('X')
-                    plt.ylabel('Y')
-                    plt.gca().set_aspect('equal', adjustable='box')
-                    plt.title('Current Position')
-                    folder_arena_plots = os.path.join("runs", RUN_NAME, "arena_plots")
-                    os.makedirs(folder_arena_plots, exist_ok=True)
-                    plt.savefig(os.path.join(folder_arena_plots, f"arena_plot_{global_step}.png"), dpi=300)
-                    pdf.savefig()
-                    plt.close()
+            # Update the observation.
+            obs = next_obs
 
-    # Close the environment.
-    envs.close()
+        # Cleanup.
+        self.cleanup()
+
+def main():
+    args = parse_args()
+
+    # Set up folders for environment creation.
+    date = datetime.now().strftime("%Y%m%d-%H%M%S")
+    disk_folder = ''
+    run_name = f"{args.env_id}__{args.exp_name}_{date}"
+
+    # Create task.
+    if args.task_type == "forward":
+        task = ForwardTask()
+    elif args.task_type == "back_and_forth":
+        RADIUS = 0.55
+        ORIGIN = np.array([-1.05668516,  0.00237455]) # Measured in the environment.
+        task = BackAndForthTask(
+            radius=RADIUS,
+            origin=ORIGIN,
+        )
+    else:
+        raise ValueError(f"Invalid task type: {args.task_type}")
+
+    # Create environment.
+    envs = make_ant_envs(args, task, disk_folder, run_name)
+
+    # Create SAC agent.
+    agent = SAC(args, envs, disk_folder=disk_folder, run_name=run_name)
+
+    # Run the policy.
+    agent.run_policy()
+
+if __name__ == "__main__":
+    main()
