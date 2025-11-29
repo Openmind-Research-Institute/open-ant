@@ -347,7 +347,7 @@ if __name__ == "__main__":
         obs = next_obs
 
         # Learning.
-        if global_step > args.learning_starts:
+        if global_step >= args.learning_starts:
             data = rb.sample(args.batch_size)
             with torch.no_grad():
                 next_state_actions, next_state_log_pi, _ = actor.get_action(data.next_observations)
