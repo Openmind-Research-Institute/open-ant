@@ -344,8 +344,6 @@ if __name__ == "__main__":
             raise ValueError("reward_tracker is only supported for single environment")
 
         # Update the observation.
-        if any(truncations):
-            obs, _ = envs.reset()
         obs = next_obs
 
         # Learning.
