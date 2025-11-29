@@ -1,88 +1,34 @@
 #!/bin/bash
 
 # learn in sim (single run, no Optuna)
+if [ "$1" == "sim_old" ]; then
+    # Run several experiments in parallel using GNU parallel.
+    # Requires the `parallel` command: sudo apt-get install parallel
+    parallel -j 10 --halt soon,fail=1 --joblog parallel_sac.log '
+        python3 sac_cleanrl_old.py \
+            --render_mode rgb_array \
+            --dt 0.12 \
+            --env_id SimEmbodiedAnt \
+            --learning_starts 2000 \
+            --seed {1} \
+            --batch_size 256 \
+            --total_timesteps 30000 \
+            --capture_video \
+            > "run_seed_{1}.log" 2>&1
+        # --capture_video \
+    ' ::: 1 2 3 4 5 6 7 8 9 10
+fi
+
 if [ "$1" == "sim" ]; then
     python3 sac_cleanrl.py \
         --render_mode rgb_array \
         --dt 0.12 \
         --env_id SimEmbodiedAnt \
         --learning_starts 2000 \
-        --task_type back_and_forth \
         --seed 1 \
-        --total_timesteps 35000
-
-    python3 sac_cleanrl.py \
-        --render_mode rgb_array \
-        --dt 0.12 \
-        --env_id SimEmbodiedAnt \
-        --learning_starts 2000 \
-        --task_type back_and_forth \
-        --seed 2
-
-    python3 sac_cleanrl.py \
-        --render_mode rgb_array \
-        --dt 0.12 \
-        --env_id SimEmbodiedAnt \
-        --learning_starts 2000 \
-        --task_type back_and_forth \
-        --seed 3
-    
-    python3 sac_cleanrl.py \
-        --render_mode rgb_array \
-        --dt 0.12 \
-        --env_id SimEmbodiedAnt \
-        --learning_starts 2000 \
-        --task_type back_and_forth \
-        --seed 4
-
-    python3 sac_cleanrl.py \
-        --render_mode rgb_array \
-        --dt 0.12 \
-        --env_id SimEmbodiedAnt \
-        --learning_starts 2000 \
-        --task_type back_and_forth \
-        --seed 5
-
-    python3 sac_cleanrl.py \
-        --render_mode rgb_array \
-        --dt 0.12 \
-        --env_id SimEmbodiedAnt \
-        --learning_starts 2000 \
-        --task_type back_and_forth \
-        --seed 6
-
-    python3 sac_cleanrl.py \
-        --render_mode rgb_array \
-        --dt 0.12 \
-        --env_id SimEmbodiedAnt \
-        --learning_starts 2000 \
-        --task_type back_and_forth \
-        --seed 7
-
-    python3 sac_cleanrl.py \
-        --render_mode rgb_array \
-        --dt 0.12 \
-        --env_id SimEmbodiedAnt \
-        --learning_starts 2000 \
-        --task_type back_and_forth \
-        --seed 8
-
-    python3 sac_cleanrl.py \
-        --render_mode rgb_array \
-        --dt 0.12 \
-        --env_id SimEmbodiedAnt \
-        --learning_starts 2000 \
-        --task_type back_and_forth \
-        --seed 9
-
-    python3 sac_cleanrl.py \
-        --render_mode rgb_array \
-        --dt 0.12 \
-        --env_id SimEmbodiedAnt \
-        --learning_starts 2000 \
-        --task_type back_and_forth \
-        --seed 10
-
+        --batch_size 256 \
+        --task_type forward
+        # --capture_video \
 fi
 
 # learn in sim with Optuna optimization
