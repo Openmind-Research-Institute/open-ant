@@ -52,7 +52,7 @@ def parse_args():
                         help="if toggled, torch.backends.cudnn.deterministic=False")
     parser.add_argument("--cuda", type=bool, default=True,
                         help="if toggled, cuda will be enabled by default")
-    parser.add_argument("--capture_video", type=bool, default=False,
+    parser.add_argument("--capture_video", action="store_true",
                         help="capture video of agent performances")
 
     # Algorithm.
