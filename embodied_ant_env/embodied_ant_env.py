@@ -17,6 +17,7 @@ class ForwardTask:
         self.last_action = np.zeros(8)
         self.reward_direction = np.array([1, 0])
         self.observation_space = spaces.Box(low=-1.5, high=1.5, shape=(24,), dtype=np.float32)
+        print('ForwardTask initialized')
 
     def reset(self, info):
         self.last_pos = None
@@ -61,6 +62,7 @@ class BackAndForthTask:
         self.observation_space = spaces.Box(low=-1.5, high=1.5, shape=(24,), dtype=np.float32)
         self.radius = radius
         self.origin = origin
+        print('BackAndForthTask initialized for radius: ', radius, 'and origin: ', origin)
 
     def reset(self, info):
         self.last_pos = None
