@@ -217,7 +217,6 @@ class EmbodiedAnt(gym.Env):
                 print(error[2])
             truncated = True
             self.motor_controller.recover_from_error()
-
         if self.tracker_lost(info):
             truncated = True
 
@@ -261,21 +260,16 @@ class EmbodiedAnt(gym.Env):
             info['current_y_position'] = bodies['body']['position'][1]
             self.last_pos = bodies['body']['position']
             self.last_seen = time.time()
-        else:
-            info['current_x_position'] = self.last_pos[0] if self.last_pos is not None else 0.0
-            info['current_y_position'] = self.last_pos[1] if self.last_pos is not None else 0.0
-
-        if 'body' in bodies:
             heading_vector = (bodies['body']['orientation'] @ np.array([1, 0, 0]))[:2]
             heading_vector /= np.linalg.norm(heading_vector)
 
             self.last_heading_vector = heading_vector
         else:
+            info['current_x_position'] = self.last_pos[0] if self.last_pos is not None else 0.0
+            info['current_y_position'] = self.last_pos[1] if self.last_pos is not None else 0.0
             heading_vector = self.last_heading_vector
+
         info['heading_vector'] = heading_vector
-        if heading_vector is not None:
-            info['heading_vector_x'] = heading_vector[0]
-            info['heading_vector_y'] = heading_vector[1]
         return info
 
     def tracker_lost(self, info):
