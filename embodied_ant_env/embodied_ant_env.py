@@ -188,6 +188,7 @@ class EmbodiedAnt(gym.Env):
         self.motor_controller.set_positions(action)
 
         sleep_duration = self.dt
+        time_since_last_step = 0.0
         if self.last_step_time is not None:
             time_since_last_step = time.time() - self.last_step_time
             sleep_duration = self.dt - time_since_last_step
@@ -200,6 +201,7 @@ class EmbodiedAnt(gym.Env):
 
         info = self.get_observation()
         observation, reward, terminated, truncated = self.task(info, action)
+        info['sleep_duration'] = sleep_duration + time_since_last_step
 
         self.temperature_log.write(f"{time.time()}, " + ", ".join(map(str, info['temperatures'])) + "\n")
         self.temperature_log.flush()
