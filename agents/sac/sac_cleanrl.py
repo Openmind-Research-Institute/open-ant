@@ -88,7 +88,7 @@ def parse_args():
                         help="environment timestep")
     parser.add_argument("--hw_config", type=str, default=None,
                         help="hardware config file")
-    parser.add_argument("--render_mode", type=str, default="human",
+    parser.add_argument("--render_mode", type=str, default="rgb_array",
                         help="render mode")
     parser.add_argument("--terminate_on_upside_down", type=bool, default=True,
                         help="terminate episode if upside down")
