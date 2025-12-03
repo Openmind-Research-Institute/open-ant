@@ -1,4 +1,5 @@
 import os
+import csv
 import pandas as pd
 from collections import deque
 import matplotlib.pyplot as plt
@@ -17,9 +18,9 @@ class RewardTracker:
         self.env_id = env_id
         self.step = 0.0
         self._average_reward_per_second = 0.0
-        self._plot = plot
         self._frequency_of_logging = frequency_of_logging
-        self._save_path = log_folder
+        self.csv_path = os.path.join(self.log_folder, f"{self.env_id}_average_rewards.csv")
+
 
     def update(self, reward):
         reward_per_second = reward / self.env_dt
@@ -34,14 +35,14 @@ class RewardTracker:
         return self._average_reward_per_second
 
     def log(self):
-        # Flush buffer to DataFrame periodically.
-        if self.step % self._frequency_of_logging == 0:
-            if self.buffer:
-                new_df = pd.DataFrame(self.buffer, columns=["step", "reward"])
-                self.df = pd.concat([self.df, new_df], ignore_index=True)
-                self.buffer.clear()
-
-            self.df.to_csv(os.path.join(self.log_folder, f"{self.env_id}_average_rewards.csv"), index=False)
+        if self.buffer and self.step % self._frequency_of_logging == 0:
+            file_exists = os.path.exists(self.csv_path)
+            with open(self.csv_path, "a", newline='') as csvfile:
+                writer = csv.writer(csvfile)
+                if not file_exists:
+                    writer.writerow(["step", "reward"])
+                writer.writerows(self.buffer)
+            self.buffer.clear()
 
     def plot(self):
         plt.figure(figsize=(10, 5))
@@ -53,6 +54,6 @@ class RewardTracker:
         )
         plt.xlabel("Time [s]", fontsize=14)
         plt.ylabel("Average Reward per Second", fontsize=14)
-        if self._save_path is not None:
-            plt.savefig(os.path.join(self._save_path, f"{self.env_id}_average_rewards.png"))
+        if self.log_folder is not None:
+            plt.savefig(os.path.join(self.log_folder, f"{self.env_id}_average_rewards.png"))
             plt.close()
