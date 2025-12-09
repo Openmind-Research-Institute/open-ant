@@ -21,4 +21,4 @@ skrl
 tyro
 pandas
 mediapy
-
+wandb

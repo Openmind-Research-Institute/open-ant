@@ -181,7 +181,7 @@ Use the persistent device path, for example:
 
 ### Q: Will the screws become loose over time due to vibrations?
 
-Yes, it can happen. For this, it is recommended to use Loctite Threadlocker Blue.
+Yes, it can happen. For this, it is recommended to use Loctite Threadlocker 222. Ensure you don't apply too much because it can leak under the motor head and cause clogging.
 
 ### Q: How can we increase the friction on the lower legs?
 

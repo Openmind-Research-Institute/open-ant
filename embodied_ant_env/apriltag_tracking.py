@@ -19,11 +19,17 @@ class VisionTracker:
             [0, 0, 1]], dtype=np.float32)
 
     def __init__(self, camera_id=0, fov_diagonal_deg=60, K=None, tag_sizes={}, tag_ids={}, flip_z_up=True):
-        self.cap = cv2.VideoCapture(camera_id)
+        self.cap = cv2.VideoCapture(camera_id, cv2.CAP_V4L2)
+        width, height =  1920, 1080
+        self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
         self.detector = Detector(families='tagCircle21h7', nthreads=1, quad_decimate=1)
         if K is None:
-            width = self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)
-            height = self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+            # Fall back to what camera supports if unable to set the best
+            if width == 0 or height == 0:
+                width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             self.K = self.camera_matrix_from_fov((width, height), np.deg2rad(fov_diagonal_deg))
         else:
             self.K = K

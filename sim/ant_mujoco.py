@@ -8,10 +8,6 @@ import os
 import time
 import matplotlib.pyplot as plt
 import mujoco
-import imageio
-from typing import Sequence, Callable
-import mediapy as media
-import tqdm
 import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../embodied_ant_env')))
 from embodied_ant_env import ForwardTask, BackAndForthTask
