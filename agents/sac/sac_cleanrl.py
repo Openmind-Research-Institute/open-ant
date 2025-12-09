@@ -82,6 +82,8 @@ def parse_args():
                         help="entropy regularization coefficient")
     parser.add_argument("--autotune", type=bool, default=True,
                         help="automatic entropy tuning")
+    parser.add_argument("--gamma_discrete", type=float, default=0.99,
+                        help="discount factor")
 
     # Environment.
     parser.add_argument("--dt", type=float, default=0.05,
