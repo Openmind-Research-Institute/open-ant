@@ -6,6 +6,7 @@
 import os
 import time
 import sys
+import csv
 import tyro
 import json
 import random
@@ -98,6 +99,8 @@ class Args:
     """whether to terminate the episode if the agent is upside down"""
     weights_path: str = None
     """previously learned weights"""
+    xml_file: str = 'None'
+    """XML file to use for the environment"""
 
 # ALGO LOGIC: initialize agent here:
 class SoftQNetwork(nn.Module):
@@ -205,6 +208,8 @@ if __name__ == "__main__":
     render = args.render_mode
     def make_env(env_id, seed, idx, capture_video, run_name):
         def thunk():
+            origin = np.array([0.87199133, 0.18970581])
+            radius = 0.45
             joint_config = {
                 'hip_zero': 0,
                 'knee_zero': -np.radians(50),
@@ -216,14 +221,14 @@ if __name__ == "__main__":
                     dt=args.dt,
                     render_mode=render,
                     terminate_on_upside_down=args.terminate_on_upside_down,
-                    task=ForwardTask(),
+                    task=BackAndForthTask(radius=radius, origin=origin),
                     joint_config=joint_config,
-                    xml_file=os.path.join(os.path.dirname(__file__), "../../sim/assets/ant_position.xml"),
+                    xml_file=os.path.join(os.path.dirname(__file__), args.xml_file),
                 )
             else:
                 with open(args.hw_config, 'r') as f:
                     cfg = json.load(f)
-                env = make_ant_env(cfg, render_mode=render, dt=args.dt, joint_config=joint_config, task=BackAndForthTask())
+                env = make_ant_env(cfg, render_mode=render, dt=args.dt, joint_config=joint_config, task=BackAndForthTask(radius=radius, origin=origin))
             
             if capture_video and idx == 0:
                 print('RecordVideo')
@@ -293,24 +298,27 @@ if __name__ == "__main__":
                             log_folder=os.path.join("runs", run_name),
                             time_window=120.0)
 
+    # Performance variables CSV logging.
+    keys_agent_vars = [
+        'qf1_values',
+        'qf2_values',
+        'qf1_losses',
+        'qf2_losses',
+        'qf_losses',
+        'actor_losses',
+        'alphas',
+        'alpha_losses',
+        'SPS',
+        'average_reward_per_second']
+    csv_file_agent_vars = open(os.path.join("runs", run_name, "performance_variables.csv"), "w", newline="")
+    writer_agent_vars = csv.DictWriter(csv_file_agent_vars, fieldnames=["step"] + keys_agent_vars)
+    writer_agent_vars.writeheader()
+
     # Debugging variables.
-    dict_debugging = {}
-    dict_debugging['episodic_returns'] = []
-    dict_debugging['episodic_lengths'] = []
-    dict_debugging['episodic_step'] = []
-    dict_debugging['steps'] = []
-    dict_debugging['qf1_values'] = []
-    dict_debugging['qf2_values'] = []
-    dict_debugging['qf1_losses'] = []
-    dict_debugging['qf2_losses'] = []
-    dict_debugging['qf_losses'] = []
-    dict_debugging['actor_losses'] = []
-    dict_debugging['alphas'] = []
-    dict_debugging['alpha_losses'] = []
-    dict_debugging['SPS'] = []
-    dict_debugging['average_reward_per_second'] = []
+    agent_vars_buffer = []
 
     for global_step in tqdm(range(args.total_timesteps)):
+        # time_now = time.time()
         # Get the action.
         if global_step < args.learning_starts and args.weights_path is None:
             actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
@@ -324,15 +332,6 @@ if __name__ == "__main__":
         # Log the information.
         # info_logs.write(f"{global_step}, " + ", ".join(map(str, infos.values())) + "\n")
         # info_logs.flush()
-
-        # if "episode" in infos:
-        #     if infos["episode"] is not None:
-        #         print('infos["episode"]', infos["episode"])
-        #         writer.add_scalar("charts/episodic_return", infos["episode"]["r"], global_step)
-        #         writer.add_scalar("charts/episodic_length", infos["episode"]["l"], global_step)
-        #         dict_debugging['episodic_returns'].append(infos["episode"]["r"])
-        #         dict_debugging['episodic_lengths'].append(infos["episode"]["l"])
-        #         dict_debugging['episodic_step'].append(global_step)
 
         # Add the data to the replay buffer.
         rb.add(obs, next_obs, actions, rewards, terminations, infos)
@@ -403,6 +402,27 @@ if __name__ == "__main__":
                     target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
                 for param, target_param in zip(qf2.parameters(), qf2_target.parameters()):
                     target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
+
+            if qf1_a_values is not None:
+                agent_vars_buffer.append({"step": global_step,
+                                        "qf1_values": qf1_a_values.mean().item() if qf1_a_values is not None else None,
+                                        "qf2_values": qf2_a_values.mean().item() if qf2_a_values is not None else None,
+                                        "qf1_losses": qf1_loss.item() if qf1_loss is not None else None,
+                                        "qf2_losses": qf2_loss.item() if qf2_loss is not None else None,
+                                        "qf_losses": qf_loss.item() / 2.0 if qf_loss is not None else None,
+                                        "actor_losses": actor_loss.item() if actor_loss is not None else None,
+                                        "alphas": alpha,
+                                        "alpha_losses": alpha_loss.item() if alpha_loss is not None else None,
+                                        "SPS": int(global_step / (time.time() - start_time)) if start_time else 0,
+                                        "average_reward_per_second": reward_tracker.average_reward_per_second})
+
+            # Write to CSV every 500 steps.
+            if global_step % 500 == 0:
+                # Write all buffered agent vars.
+                for row in agent_vars_buffer:
+                    writer_agent_vars.writerow(row)
+                csv_file_agent_vars.flush()
+                agent_vars_buffer = []
 
             # print('qf1_a_values', qf1_a_values)
             # print('qf2_a_values', qf2_a_values)
@@ -492,6 +512,19 @@ if __name__ == "__main__":
             #             plt.title(key)
             #             pdf.savefig()
             #             plt.close()
+
+        # time_end = time.time()
+        # print(f"Time taken to complete step: {time_end - time_now} seconds")
+
+    # Write any remaining buffered data before closing.
+    if agent_vars_buffer:
+        for row in agent_vars_buffer:
+            writer_agent_vars.writerow(row)
+        csv_file_agent_vars.flush()
+        agent_vars_buffer = []
+
+    # Close the CSV file.
+    csv_file_agent_vars.close()
 
     # Close the environment and the writer.
     # envs.close()
