@@ -101,6 +101,10 @@ def parse_args():
                         help="type of task")
     parser.add_argument("--reward_scale", type=float, default=10.0,
                         help="reward scale factor")
+    parser.add_argument("--xml_file", type=str, default='None',
+                        help="XML file to use for the environment")
+    parser.add_argument("--eval", type=bool, default=False,
+                        help="evaluate the agent")
 
     args = parser.parse_args()
     return args
@@ -189,7 +193,7 @@ def make_ant_envs(args, task, disk_folder, run_name):
                     terminate_on_upside_down=args.terminate_on_upside_down,
                     task=task,
                     joint_config=joint_config,
-                    xml_file=os.path.join(os.path.dirname(__file__), '../../sim/assets/ant_position_with_camera.xml'),
+                    xml_file=os.path.join(os.path.dirname(__file__), args.xml_file),
                 )
             else:
                 with open(args.hw_config, 'r') as f:
@@ -203,7 +207,7 @@ def make_ant_envs(args, task, disk_folder, run_name):
             if capture_video and idx == 0:
                 print('RecordVideo')
                 env = gym.wrappers.RecordVideo(env, os.path.join(disk_folder, "runs", run_name, "videos", run_name),
-                                               step_trigger=lambda x: x % 5000 == 0)
+                                               step_trigger=lambda x: x % 10000 == 0)
             env = gym.wrappers.RecordEpisodeStatistics(env)
             env = gym.wrappers.TransformReward(env, lambda r: r * args.reward_scale)
             env.action_space.seed(seed)
@@ -213,8 +217,7 @@ def make_ant_envs(args, task, disk_folder, run_name):
     envs = gym.vector.SyncVectorEnv(
         [make_env(args.env_id, args.seed + i, i, args.capture_video, run_name) for i in range(args.num_envs)],
     )
-    envs.single_observation_space.dtype = np.float32
-    assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
+    assert isinstance(envs.single_action_space, gym.spaces.Box), "[!] Only continuous action space is supported."
     print(f"[√] Created environment with {envs.num_envs} environments.")
     return envs
 
@@ -233,13 +236,15 @@ class SAC:
         with open(os.path.join(self.weights_folder, "args.json"), 'w') as f:
             json.dump(args.__dict__, f)
 
-        # Seed
+        # Set seeds for reproducibility.
         random.seed(args.seed)
         np.random.seed(args.seed)
         torch.manual_seed(args.seed)
+        torch.cuda.manual_seed_all(args.seed)
         torch.backends.cudnn.deterministic = args.torch_deterministic
+        torch.backends.cudnn.benchmark = not args.torch_deterministic
 
-        # Networks
+        # Networks.
         self.actor = Actor(self.envs).to(self.device)
         self.qf1 = SoftQNetwork(self.envs).to(self.device)
         self.qf2 = SoftQNetwork(self.envs).to(self.device)
@@ -259,11 +264,13 @@ class SAC:
         print(f"Gamma continuous: {gamma_continous} for a DT of {args.dt}")
         self.gamma_discrete = np.exp(-gamma_continous * args.dt)
         print(f"Gamma discrete: {self.gamma_discrete} for a DT of {args.dt}")
+        self.gamma_discrete = args.gamma_discrete
 
-        # Load checkpoint if provided
+        # Load checkpoint if provided.
         checkpoint = None
-        if args.weights_path is not None:
-            checkpoint = torch.load(os.path.join(args.weights_path, "checkpoint.pth"), map_location=self.device)
+        self.weights_path = args.weights_path
+        if self.weights_path is not None:
+            checkpoint = torch.load(os.path.join(self.weights_path, "checkpoint.pth"), map_location=self.device)
             self.actor.load_state_dict(checkpoint["actor"])
             self.qf1.load_state_dict(checkpoint["qf1"])
             self.qf2.load_state_dict(checkpoint["qf2"])
@@ -273,6 +280,12 @@ class SAC:
             self.q_optimizer.load_state_dict(checkpoint["q_optimizer"])
             self.learning_starts = 0.0
             print(f"[√] Loaded checkpoint! Learning starts set to 0.")
+
+        self.eval = args.eval
+        if self.eval == True and self.weights_path is None:
+            raise ValueError("[!] Cannot evaluate without weights path")
+        if self.eval:
+            self.learning_starts = args.total_timesteps
 
         # Alpha (entropy coefficient).
         if args.autotune:
@@ -290,7 +303,9 @@ class SAC:
             self.log_alpha = None
             self.a_optimizer = None
 
-        # Replay buffer
+        self.envs.single_observation_space.dtype = np.float32
+
+        # Replay buffer.
         self.rb = ReplayBuffer(
             args.buffer_size,
             self.envs.single_observation_space,
@@ -299,15 +314,15 @@ class SAC:
             n_envs=args.num_envs,
             handle_timeout_termination=False,
         )
-        if args.weights_path is not None:
-            buffer_path = os.path.join(args.weights_path, "replay_buffer.npz")
+        if self.weights_path is not None:
+            buffer_path = os.path.join(self.weights_path, "replay_buffer.npz")
             if os.path.exists(buffer_path):
                 self.rb.load(buffer_path, self.device)
                 print(f"[√] Loaded replay buffer with {self.rb.size} transitions")
             else:
-                print("[!] No replay buffer found, starting empty")
+                print("[!] No replay buffer found, starting empty.")
 
-        # Initialize tracking variables for external control
+        # Initialize tracking variables for external control.
         self.global_step = 0
         self.start_time = None
         self.reward_tracker = None
@@ -316,10 +331,23 @@ class SAC:
         self.writer_info = None
         self.writer_agent_vars = None
         self.keys_info = None
-        self.keys_agent_vars = ['episodic_returns', 'episodic_lengths', 'episodic_step', 'steps', 'qf1_values', 'qf2_values', 'qf1_losses', 'qf2_losses', 'qf_losses', 'actor_losses', 'alphas', 'alpha_losses', 'SPS', 'average_reward_per_second']
+        self.keys_agent_vars = [
+                                'qf1_values',
+                                'qf2_values',
+                                'qf1_losses',
+                                'qf2_losses',
+                                'qf_losses',
+                                'actor_losses',
+                                'alphas',
+                                'alpha_losses',
+                                'SPS',
+                                'average_reward_per_second']
+        # Buffers for CSV data
+        self.info_log_buffer = []
+        self.agent_vars_buffer = []
 
-        # For Optuna: allow hyperparameter updates
-        self._update_hyperparams(args)
+        # For Optuna: allow hyperparameter updates.
+        # self._update_hyperparams(args)
 
     def _update_hyperparams(self, args):
         """Update hyperparameters (useful for Optuna)."""
@@ -337,11 +365,12 @@ class SAC:
         if global_step is None:
             global_step = self.global_step
 
-        if global_step < self.learning_starts:
+        if global_step < self.learning_starts and self.weights_path is None: # if no weights path, start from random actions
             actions = np.array([self.envs.single_action_space.sample() for _ in range(self.envs.num_envs)])
         else:
             actions, _, _ = self.actor.get_action(torch.Tensor(obs).to(self.device))
             actions = actions.detach().cpu().numpy()
+
         return actions
 
     def add_transition(self, obs, next_obs, actions, rewards, terminations, infos):
@@ -420,7 +449,7 @@ class SAC:
         # Log the information of choice.
         self.csv_file_info = open(os.path.join(self.disk_folder, "runs", self.run_name, "info_logs.csv"), "w", newline="")
         self.keys_info = list(info.keys())
-        self.keys_info = [k for k in self.keys_info if not k.startswith("bodies")]
+        self.keys_info = [k for k in self.keys_info if not (k.startswith("bodies") or k.startswith("_"))]
         self.writer_info = csv.DictWriter(self.csv_file_info, fieldnames=["step"] + self.keys_info)
         self.writer_info.writeheader()
 
@@ -434,21 +463,15 @@ class SAC:
         self.writer_agent_vars = csv.DictWriter(self.csv_file_agent_vars, fieldnames=["step"] + self.keys_agent_vars)
         self.writer_agent_vars.writeheader()
 
+        # Initialize buffers
+        self.info_log_buffer = []
+        self.agent_vars_buffer = []
+
     def log_step(self, global_step, infos, rewards, qf1_a_values=None, qf2_a_values=None,
                  qf1_loss=None, qf2_loss=None, qf_loss=None, actor_loss=None, alpha_loss=None):
         """Log step information."""
         if self.writer_info is None or self.writer_agent_vars is None:
             return
-
-        # Log episodic return and length.
-        if "episode" in infos:
-            if infos["episode"] is not None:
-                print('infos["episode"]', infos["episode"])
-                self.writer_agent_vars.writerow({"step": global_step,
-                                         "episodic_returns": infos["episode"]["r"][0],
-                                         "episodic_lengths": infos["episode"]["l"][0],
-                                         "episodic_step": global_step})
-                self.csv_file_agent_vars.flush()
 
         # Update the reward tracker.
         if self.args.num_envs == 1:
@@ -459,18 +482,17 @@ class SAC:
         else:
             raise ValueError("reward_tracker is only supported for single environment")
 
-        # Log the infos.
+        # Log the infos - add to buffer instead of writing directly.
         infos_to_log = {}
         for k, v in infos.items():
             if k in self.keys_info:
                infos_to_log[k] = arr_to_str(v[0])
         row = {"step": global_step, **infos_to_log}
-        self.writer_info.writerow(row)
-        self.csv_file_info.flush()
+        self.info_log_buffer.append(row)
 
-        # Log performance metrics.
-        if global_step % 1000 == 0 and qf1_a_values is not None:
-            self.writer_agent_vars.writerow({"step": global_step,
+        # Log performance metrics - add to buffer.
+        if qf1_a_values is not None:
+            self.agent_vars_buffer.append({"step": global_step,
                                      "qf1_values": qf1_a_values.mean().item() if qf1_a_values is not None else None,
                                      "qf2_values": qf2_a_values.mean().item() if qf2_a_values is not None else None,
                                      "qf1_losses": qf1_loss.item() if qf1_loss is not None else None,
@@ -481,10 +503,22 @@ class SAC:
                                      "alpha_losses": alpha_loss.item() if alpha_loss is not None else None,
                                      "SPS": int(global_step / (time.time() - self.start_time)) if self.start_time else 0,
                                      "average_reward_per_second": self.reward_tracker.average_reward_per_second})
+
+        # Write to CSV every 1000 steps.
+        if global_step % 500 == 0:
+            # Write all buffered info logs.
+            for row in self.info_log_buffer:
+                self.writer_info.writerow(row)
+            self.csv_file_info.flush()
+            self.info_log_buffer = []
+
+            # Write all buffered agent vars.
+            for row in self.agent_vars_buffer:
+                self.writer_agent_vars.writerow(row)
             self.csv_file_agent_vars.flush()
+            self.agent_vars_buffer = []
 
     def get_metrics(self):
-        """Get current metrics (useful for Optuna reporting)."""
         if self.reward_tracker is None:
             return None
         return {
@@ -508,17 +542,27 @@ class SAC:
             "a_optimizer": self.a_optimizer.state_dict() if self.args.autotune else None,
             "log_alpha": self.log_alpha.detach().cpu() if self.args.autotune else None,
             "global_step": global_step,
-            "random_state": random.getstate(),
-            "numpy_state": np.random.get_state(),
-            "torch_state": torch.get_rng_state(),
         }
         torch.save(checkpoint, os.path.join(self.weights_folder, "checkpoint.pth"))
 
-        # Save the replay buffer
+        # Save the replay buffer.
         self.rb.save(os.path.join(self.weights_folder, "replay_buffer.npz"))
 
     def cleanup(self):
         """Clean up resources."""
+        # Write any remaining buffered data before closing.
+        if self.writer_info is not None and self.info_log_buffer:
+            for row in self.info_log_buffer:
+                self.writer_info.writerow(row)
+            self.csv_file_info.flush()
+            self.info_log_buffer = []
+
+        if self.writer_agent_vars is not None and self.agent_vars_buffer:
+            for row in self.agent_vars_buffer:
+                self.writer_agent_vars.writerow(row)
+            self.csv_file_agent_vars.flush()
+            self.agent_vars_buffer = []
+
         if self.csv_file_info:
             self.csv_file_info.close()
         if self.csv_file_agent_vars:
@@ -547,6 +591,9 @@ class SAC:
             # Add transition to buffer.
             self.add_transition(obs, next_obs, actions, rewards, terminations, infos)
 
+            # Update the observation.
+            obs = next_obs
+
             # Learn.
             qf1_a_values, qf2_a_values, qf1_loss, qf2_loss, qf_loss, actor_loss, alpha_loss = self.learn(global_step)
 
@@ -556,9 +603,6 @@ class SAC:
 
             # Save checkpoint.
             self.save_checkpoint(global_step)
-
-            # Update the observation.
-            obs = next_obs
 
         # Cleanup.
         self.cleanup()
