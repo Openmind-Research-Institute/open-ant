@@ -19,4 +19,5 @@ skrl
 
 # others
 tyro
-
+wandb
+pandas
