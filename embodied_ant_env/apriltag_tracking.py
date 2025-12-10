@@ -91,7 +91,7 @@ class VisionTracker:
         cv2.line(frame, origin, tuple(pts_2D[2]), (0, 255, 0), 2)  # Y - green
         cv2.line(frame, origin, tuple(pts_2D[3]), (255, 0, 0), 2)  # Z - blue
 
-    def draw_detections(self, frame, detections, detection_time, draw_axes=False, draw_text=False):
+    def draw_detections(self, frame, detections, detection_time, draw_axes=True, draw_text=False):
         for det in detections:
             for i in range(4):
                 pt1 = tuple(det.corners[i].astype(int))
