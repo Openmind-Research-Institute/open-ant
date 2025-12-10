@@ -17,7 +17,7 @@ class ForwardTask:
         self.last_action = np.zeros(8)
         self.reward_direction = np.array([1, 0])
         self.observation_space = spaces.Box(low=-1.5, high=1.5, shape=(24,), dtype=np.float32)
-        print('Using ForwardTask')
+        print('ForwardTask initialized')
 
     def reset(self, info):
         self.last_pos = None
@@ -26,12 +26,12 @@ class ForwardTask:
     def __call__(self, info, action):
         pos = np.array([info['current_x_position'], info['current_y_position']])
         if self.last_pos is None:
-            self.last_pos = pos
+            self.last_pos = pos.copy()
             progress = 0.0
         else:
             progress = (pos - self.last_pos)[0]
         cost_action = np.sum(np.square(self.last_action - action)) * self.action_cost_weight
-        self.last_pos = pos
+        self.last_pos = pos.copy()
         self.last_action = action.copy()
         terminated = False
         truncated = False
@@ -53,15 +53,18 @@ class ForwardTask:
         return observation, reward, terminated, truncated
 
 class BackAndForthTask:
-    def __init__(self, action_cost_weight=0.0):
+    def __init__(self, action_cost_weight=0.0, radius=1.0, origin=np.array([0, 0])):
         self.action_cost_weight = action_cost_weight
         self.last_pos = None
         self.reward_direction = np.array([1, 0])
         self.last_action = np.zeros(8)
-        self.observation_space = spaces.Box(low=-1.5, high=1.5, shape=(26,), dtype=np.float32)
-        print('Using BackAndForthTask')
+        self.observation_space = spaces.Box(low=-1.5, high=1.5, shape=(24,), dtype=np.float32)
+        self.radius = radius
+        self.origin = origin
+        print('BackAndForthTask initialized for radius: ', radius, 'and origin: ', origin)
 
     def reset(self, info):
+        self.last_pos = None
         th = np.random.uniform(-np.pi, np.pi)
         self.last_pos = None
         self.reward_direction = np.array([np.cos(th), np.sin(th)])
@@ -69,34 +72,39 @@ class BackAndForthTask:
 
     def __call__(self, info, action):
         pos = np.array([info['current_x_position'], info['current_y_position']])
-        origin = np.array([0, 0]) # todo get from camera
-        radius = 1
-        # bounce back on the circle edge
-        if np.dot(pos - origin, self.reward_direction) > 0 and np.linalg.norm(pos - origin) > radius:
-            self.reward_direction = origin - pos
+        # Bounce back on the circle edge.
+        if np.dot(pos - self.origin, self.reward_direction) > 0 and np.linalg.norm(pos - self.origin) > self.radius:
+            self.reward_direction = self.origin - pos
             self.reward_direction /= np.linalg.norm(self.reward_direction)
 
         if self.last_pos is None:
-            self.last_pos = pos
+            self.last_pos = pos.copy()
             progress = 0.0
         else:
             progress = np.dot(pos - self.last_pos, self.reward_direction)
 
         cost_action = np.sum(np.square(self.last_action - action)) * self.action_cost_weight
-        self.last_pos = pos
+        self.last_pos = pos.copy()
         self.last_action = action.copy()
         terminated = False
         truncated = False
 
         reward = progress - cost_action
-
         info['reward_direction'] = self.reward_direction
+        info['reward_direction_x'] = self.reward_direction[0]
+        info['reward_direction_y'] = self.reward_direction[1]
+
+        heading_perp = np.array([-info['heading_vector'][1], info['heading_vector'][0]])
+        r_b = np.array([np.dot(info['reward_direction'], info['heading_vector']),
+                        np.dot(info['reward_direction'], heading_perp)])
+
+        info['r_b_x'] = r_b[0]
+        info['r_b_y'] = r_b[1]
         info['original_reward'] = reward
         observation = np.concatenate([
             info['joint_positions'],
             info['joint_velocities'],
-            info['heading_vector'],
-            info['reward_direction'],
+            r_b,
             info['ax'],
             info['ay'],
             info['az'],
@@ -155,15 +163,6 @@ class EmbodiedAnt(gym.Env):
         self.last_origin_pos = None
         self.last_seen = 0
 
-        self.q_joints = {'hip_1': 1,
-                         'ankle_1': 2,
-                         'hip_2': 3,
-                         'ankle_2': 4,
-                         'hip_3': 5,
-                         'ankle_3': 6,
-                         'hip_4': 7,
-                         'ankle_4': 8}
-
         self.temperature_log = open('temperature_log.csv', 'a')
         # self.temperature_log = open('temperature_log.csv', 'w')
         self.error_log = open('error_log.csv', 'w')
@@ -190,6 +189,7 @@ class EmbodiedAnt(gym.Env):
         self.motor_controller.set_positions(action)
 
         sleep_duration = self.dt
+        time_since_last_step = 0.0
         if self.last_step_time is not None:
             time_since_last_step = time.time() - self.last_step_time
             sleep_duration = self.dt - time_since_last_step
@@ -202,9 +202,10 @@ class EmbodiedAnt(gym.Env):
 
         info = self.get_observation()
         observation, reward, terminated, truncated = self.task(info, action)
+        info['sleep_duration'] = sleep_duration + time_since_last_step
 
-        self.temperature_log.write(f"{time.time()}, " + ", ".join(map(str, info['temperatures'])) + "\n")
-        self.temperature_log.flush()
+        # self.temperature_log.write(f"{time.time()}, " + ", ".join(map(str, info['temperatures'])) + "\n")
+        # self.temperature_log.flush()
 
         errors = self.motor_controller.check_errors()
         if len(errors) > 0: # only log errors if there are any
@@ -217,17 +218,13 @@ class EmbodiedAnt(gym.Env):
                 print(error[2])
             truncated = True
             self.motor_controller.recover_from_error()
-
         if self.tracker_lost(info):
             truncated = True
 
         if self.render_mode == 'human':
             self.i += 1
             if self.i % 10 == 0:
-                show_image(info['vis_frame'])
-                self.vis_frame = info['vis_frame']
-        elif self.render_mode == 'rgb_array':
-            self.vis_frame = info['vis_frame']
+                show_image(self.vis_frame)
 
         return observation, reward, terminated, truncated, info
 
@@ -248,41 +245,31 @@ class EmbodiedAnt(gym.Env):
             else:
                 bodies, frame, vis_frame = {}, np.zeros((640, 480, 3)), np.zeros((640, 480, 3))
         joint_positions, joint_velocities, joint_loads = self.motor_controller.get_feedback()
-        temperatures = self.motor_controller.get_temperature()
+        # temperatures = self.motor_controller.get_temperature()
         info = imu_data
         info['joint_positions'] = joint_positions
         info['joint_velocities'] = joint_velocities
         info['joint_loads'] = joint_loads
-        info['temperatures'] = temperatures
+        # info['temperatures'] = temperatures
         info['bodies'] = bodies
 
-        info['frame'] = frame
-        info['vis_frame'] = vis_frame
+        # info['frame'] = frame
+        self.vis_frame = vis_frame
 
         if 'body' in bodies:
             info['current_x_position'] = bodies['body']['position'][0]
             info['current_y_position'] = bodies['body']['position'][1]
             self.last_pos = bodies['body']['position']
             self.last_seen = time.time()
-        else:
-            info['current_x_position'] = self.last_pos[0] if self.last_pos is not None else 0.0
-            info['current_y_position'] = self.last_pos[1] if self.last_pos is not None else 0.0
-
-        # Origin.
-        if 'origin' in bodies:
-            info['origin_x_position'] = bodies['origin']['position'][0]
-            info['origin_y_position'] = bodies['origin']['position'][1]
-        else:
-            info['origin_x_position'] = self.last_origin_pos[0] if self.last_origin_pos is not None else 0.0
-            info['origin_y_position'] = self.last_origin_pos[1] if self.last_origin_pos is not None else 0.0
-
-        if 'body' in bodies:
             heading_vector = (bodies['body']['orientation'] @ np.array([1, 0, 0]))[:2]
             heading_vector /= np.linalg.norm(heading_vector)
 
             self.last_heading_vector = heading_vector
         else:
+            info['current_x_position'] = self.last_pos[0] if self.last_pos is not None else 0.0
+            info['current_y_position'] = self.last_pos[1] if self.last_pos is not None else 0.0
             heading_vector = self.last_heading_vector
+
         info['heading_vector'] = heading_vector
         return info
 

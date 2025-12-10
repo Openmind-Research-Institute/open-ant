@@ -19,5 +19,6 @@ skrl
 
 # others
 tyro
-wandb
 pandas
+mediapy
+wandb

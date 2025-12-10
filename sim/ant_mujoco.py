@@ -62,6 +62,8 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         self.observation_space = task.observation_space
         self._terminate_on_upside_down = terminate_on_upside_down
 
+        self._previous_yaw = None
+
         if joint_config is None:
             joint_config = {
                 'hip_zero': 0,
@@ -193,12 +195,19 @@ class AntEnv(MujocoEnv, utils.EzPickle):
 
         self.step(np.zeros(self.action_space.shape[0]))
 
+        if self._previous_yaw is None:
+            self._previous_yaw = self.np_random.uniform(-np.pi, np.pi)
+            current_yaw = self._previous_yaw
+        else:
+            # Rotate 180 degrees around the z-axis.
+            current_yaw = self._previous_yaw + np.pi
+            self._previous_yaw = current_yaw
+
         qpos = np.array(self.init_qpos)
-        random_yaw = self.np_random.uniform(-np.pi, np.pi)
-        qpos[3] = np.cos(random_yaw / 2) # w
-        qpos[4] = 0 # x
-        qpos[5] = 0 # y
-        qpos[6] = np.sin(random_yaw / 2) # z
+        qpos[3] = np.cos(current_yaw / 2) # w
+        qpos[4] = 0.0 # x
+        qpos[5] = 0.0 # y
+        qpos[6] = np.sin(current_yaw / 2) # z
         # Normalize quaternion.
         qpos[3:7] = qpos[3:7] / np.linalg.norm(qpos[3:7])
 
@@ -209,7 +218,6 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         observation, reward, terminated, truncated = self.task.reset(info)
 
         return observation, info
-
 
     def get_joint_names(self):
         '''Returns the names of the joints.'''
