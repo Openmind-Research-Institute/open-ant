@@ -22,6 +22,7 @@
 
 # Modified by Sorina Lupu (sorina.lupu@openmindresearch.org)
 
+from ast import Or
 import os
 os.environ['MUJOCO_GL'] = os.getenv("MUJOCO_GL", 'egl')
 os.environ['LAZY_LEGACY_OP'] = '0'
@@ -34,7 +35,7 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../sim')))
 from ant_mujoco import AntEnv
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../embodied_ant_env')))
-from embodied_ant_env import make_ant_env, ForwardTask
+from embodied_ant_env import make_ant_env, ForwardTask, BackAndForthTask
 import numpy as np
 import json
 
@@ -93,14 +94,19 @@ def train(cfg: dict):
 			'hip_range': np.radians(45),
 			'knee_range': np.radians(20),
 		}
+		ORIGIN = np.array([0.74208548, 0.62915895])
+		# ORIGIN = np.array([0, 0])
+		RADIUS = 0.35
+		# RADIUS = 1.0
 		if cfg.hw_config == 'None':
 			print('Using sim environment!')
 			env = AntEnv(
 				dt=cfg.dt,
 				render_mode="rgb_array",
 				terminate_on_upside_down=True,
-				task=ForwardTask(),
+				task=BackAndForthTask(radius=RADIUS, origin=ORIGIN),
 				joint_config=joint_config,
+				xml_file=os.path.join(os.path.dirname(__file__), '../../sim/assets/ant_with_camera_after_sys_id.xml'),
 			)
 		else:
 			print('Using hw environment!')
@@ -110,6 +116,7 @@ def train(cfg: dict):
 					render_mode="rgb_array",
 					dt=cfg.dt,
 					joint_config=joint_config,
+					task=BackAndForthTask(radius=RADIUS, origin=ORIGIN),
 				)
 
 	else:
