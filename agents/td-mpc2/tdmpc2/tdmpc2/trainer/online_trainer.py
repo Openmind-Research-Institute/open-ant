@@ -143,7 +143,7 @@ class OnlineTrainer(Trainer):
 			obs, reward, done, info = self.env.step(action)
 			# print('Reward:', reward.item(), 'Step:', self._step)
 			self.reward_tracker.update(reward.item())
-			self.reward_tracker.log(every_N_steps=1000)
+			self.reward_tracker.log()
 
 			x_pos.append(info['current_x_position'])
 			y_pos.append(info['current_y_position'])
