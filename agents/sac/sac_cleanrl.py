@@ -22,6 +22,8 @@ import wandb
 from tqdm import tqdm
 from datetime import datetime
 from torch.utils.tensorboard import SummaryWriter
+import matplotlib
+matplotlib.use('Agg')
 from matplotlib.backends.backend_pdf import PdfPages
 import matplotlib.pyplot as plt
 
@@ -34,7 +36,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../'
 from reward import RewardTracker
 
 # Matplotlib font setup.
-plt.rcParams['font.family'] = 'Arial'
+# plt.rcParams['font.family'] = 'Arial'
 plt.rcParams['font.size'] = 20
 plt.rcParams['axes.linewidth'] = 2
 plt.rcParams['axes.labelsize'] = 20
