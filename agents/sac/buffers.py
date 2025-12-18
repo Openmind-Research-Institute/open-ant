@@ -414,6 +414,40 @@ class ReplayBuffer(BaseBuffer):
         )
         return ReplayBufferSamples(*tuple(map(self.to_torch, data)))
 
+    def save(self, filepath: str) -> None:
+        """
+        Save the replay buffer to a file.
+
+        :param filepath: Path to the file where the replay buffer will be saved.
+        """
+        np.savez(
+            filepath,
+            observations=self.observations,
+            next_observations=self.next_observations,
+            actions=self.actions,
+            rewards=self.rewards,
+            dones=self.dones,
+            timeouts=self.timeouts,
+            pos=self.pos,
+            full=self.full
+        )
+
+    def load(self, filepath: str, device: th.device | str = "auto") -> None:
+        data = np.load(filepath)
+
+        # Keep internal storage as numpy arrays.
+        self.observations = data['observations']
+        self.next_observations = data['next_observations']
+        self.actions = data['actions']
+        self.rewards = data['rewards']
+        self.dones = data['dones']
+        self.timeouts = data['timeouts']
+        self.pos = int(data['pos'])
+        self.full = bool(data['full'])
+
+        # Only store device for later (used in to_torch)
+        self.device = th.device(device)
+
     @staticmethod
     def _maybe_cast_dtype(dtype: np.typing.DTypeLike) -> np.typing.DTypeLike:
         """
