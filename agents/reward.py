@@ -1,6 +1,8 @@
 import os
 import pandas as pd
 from collections import deque
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 
