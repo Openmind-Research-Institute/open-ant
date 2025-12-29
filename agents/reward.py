@@ -1,8 +1,9 @@
 import os
 import pandas as pd
 from collections import deque
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import seaborn as sns
 
 
 class RewardTracker:
@@ -46,7 +47,6 @@ class RewardTracker:
 
     def plot(self, save_path=None):
         plt.figure(figsize=(10, 5))
-        sns.set_theme(style="whitegrid")
         plt.plot(
             self.df["step"][self.window_size:] * self.env_dt,
             self.df["reward"][self.window_size:],
