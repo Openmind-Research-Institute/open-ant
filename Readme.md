@@ -182,10 +182,13 @@ Use the persistent device path, for example:
 
 ### Q: Will the screws become loose over time due to vibrations?
 
-Yes, it can happen. For this, it is recommended to use Loctite Threadlocker 222. Ensure you don't apply too much because it can leak under the motor head and cause clogging.
+Yes, it can happen. For this, it is recommended to use Loctite Threadlocker 222. 
+Ensure you don't apply too much because it can leak under the motor head and cause clogging.
 
 ### Q: How can we increase the friction on the lower legs?
 
-We recommend dipping the lower portion of the legs into Plasti Dip rubber coating 2–3 times or 3D printing socks out of TPU.
+We recommend dipping the lower portion of the legs into Plasti Dip 
+([US link](https://shop.plastidip.com/products/plasti-dip-can?variant=49236227129646), [EU link](https://www.plasti-dip.nl/shop/plasti-dip-mat-429ml-3/)) 
+rubber coating 2–3 times or 3D printing socks out of TPU.
 
 
