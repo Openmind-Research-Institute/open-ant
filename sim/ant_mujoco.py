@@ -1,62 +1,67 @@
-import numpy as np
-
-from gymnasium import utils
-from gymnasium.envs.mujoco import MujocoEnv
-from gymnasium import spaces
-import scipy.spatial.transform as transform
 import os
-import time
-import matplotlib.pyplot as plt
-import mujoco
 import sys
+import time
+import mujoco
+import numpy as np
+import gymnasium as gym
+from gymnasium import utils
+from gymnasium import spaces
+import matplotlib.pyplot as plt
+import scipy.spatial.transform as transform
+from gymnasium.envs.mujoco.mujoco_rendering import MujocoRenderer
+
+# Import custom modules.
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../embodied_ant_env')))
 from embodied_ant_env import ForwardTask, BackAndForthTask
-import gymnasium as gym
 
-
+# Constants.
 WORKSPACE_LENGTH = 10.0 # m
 
-class AntEnv(MujocoEnv, utils.EzPickle):
+
+class AntEnv(gym.Env):
     metadata = {
         "render_modes": ["human", "rgb_array"],
     }
-
     def __init__(
         self,
-        xml_file: str = os.path.join(os.path.dirname(__file__), "assets/ant_position.xml"),
-        dt: float = 0.02,
+        model_path: str = os.path.join(os.path.dirname(__file__), "assets/ant_with_camera_after_sys_id.xml"),
+        render_mode: str | None = None,
+        control_dt: float = 0.02,
         terminate_on_upside_down: bool = False,
-        main_body: int | str = 1,
         joint_config: dict[str, float] | None = None,
-        task=ForwardTask(),
-        **kwargs,
+        task: ForwardTask | BackAndForthTask = ForwardTask(),
     ):
+        super().__init__()
+        # Initialize the environment.
         sim_dt = 0.001
-        frame_skip = int(dt / sim_dt)
+        self.dt = control_dt
+        self.nb_sim_per_step = int(control_dt / sim_dt)
 
-        utils.EzPickle.__init__( # Needed for calling gym.register()
-            self,
-            xml_file,
-            frame_skip,
-            main_body,
-            **kwargs,
-        )
-
-        MujocoEnv.__init__(
-            self,
-            xml_file,
-            frame_skip,
-            observation_space=None,
-            **kwargs,
-        )
+        self.model = mujoco.MjModel.from_xml_path(model_path)
         self.model.opt.timestep = sim_dt
-
-        self.task = task
+        self.data = mujoco.MjData(self.model)
 
         self.action_space = spaces.Box(low=-1, high=1, shape=(8,), dtype=np.float32)
         self.observation_space = task.observation_space
+
+        # Initialize the renderer.
+        self.render_mode = render_mode
+        self.mujoco_renderer = MujocoRenderer(
+            self.model,
+            self.data,
+            width=640,
+            height=480,
+            max_geom=1000,
+            visual_options={},
+        )
+
+        # Initialize the task.
+        self.task = task
         self._terminate_on_upside_down = terminate_on_upside_down
 
+        self._previous_yaw = None
+
+        # Initialize the joint configuration.
         if joint_config is None:
             joint_config = {
                 'hip_zero': 0,
@@ -64,22 +69,32 @@ class AntEnv(MujocoEnv, utils.EzPickle):
                 'hip_range': np.radians(45),
                 'knee_range': np.radians(20),
             }
-
         self.joint_config = joint_config
-        self.init_qpos = [0] * self.model.nq
+
+        # Initialize the initial position and velocity based on joint configuration.
+        self.init_qpos = [0.0] * self.model.nq
+        self.init_qvel = [0.0] * self.model.nv
         self.init_qpos[2] = 0.2
-        self.init_qpos[3] = 1.0
-        self.init_qvel = [0] * self.model.nv
+        self.init_qpos[3] = 1.0  # w.
+
+        # Set leg joints based on joint_config.
+        for i in range(4):  # 4 legs
+            self.init_qpos[7 + i * 2] = self.joint_config['hip_zero']
+            self.init_qpos[7 + i * 2 + 1] = self.joint_config['knee_zero']
+
+        self.last_step_time = None
+
 
     def step(self, action: np.ndarray):
-        # Clip action.
+        # Clip and apply action.
         action = action.copy()
         for i in range(4):
             action[2*i] = np.clip(action[2*i], -1, 1) * self.joint_config['hip_range'] + self.joint_config['hip_zero']
             action[2*i + 1] = np.clip(action[2*i + 1], -1, 1) * self.joint_config['knee_range'] + self.joint_config['knee_zero']
+        self.data.ctrl[:] = action
 
-        # Do simulation.
-        self.do_simulation(action, self.frame_skip)
+        mujoco.mj_step(self.model, self.data, nstep=self.nb_sim_per_step)
+        mujoco.mj_rnePostConstraint(self.model, self.data) # See https://github.com/openai/gym/issues/1541
 
         # Get observation and reward from task.
         info = self.get_observation()
@@ -105,11 +120,24 @@ class AntEnv(MujocoEnv, utils.EzPickle):
 
         return observation, reward, terminated, truncated, info
 
+    def set_state(self, qpos, qvel):
+        assert qpos.shape == (self.model.nq,) and qvel.shape == (self.model.nv,)
+        self.data.qpos[:] = np.copy(qpos)
+        self.data.qvel[:] = np.copy(qvel)
+        if self.model.na == 0:
+            self.data.act[:] = None
+        self.data.ctrl[:] = qpos[7:]
+        mujoco.mj_step(self.model, self.data, nstep=self.nb_sim_per_step)
+        mujoco.mj_rnePostConstraint(self.model, self.data) # See https://github.com/openai/gym/issues/1541
+
+    def render(self):
+        return self.mujoco_renderer.render(self.render_mode)
+
     def render_with_arrow(self, info):
         # Direction of the arrow is the reward_direction
         self.render()
-        if info and 'reward_direction' in info:
-            reward_direction = info['reward_direction']
+        if info and 'reward_direction_I' in info:
+            reward_direction = info['reward_direction_I']
             self.mujoco_renderer.viewer._markers = []
 
             direction = np.array([reward_direction[0], reward_direction[1], 0])
@@ -178,20 +206,30 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         info["wz"] = noisy_angular_vel[2]
         info["current_x_position"] = self.data.qpos[0]
         info["current_y_position"] = self.data.qpos[1]
+        info["position_timestamp"] = time.time()
         return info
 
     def reset(self, seed=None, options=None):
+        super().reset(seed=seed)
+
         if seed is not None:
             self.np_random, _ = gym.utils.seeding.np_random(seed)
 
         self.step(np.zeros(self.action_space.shape[0]))
 
+        if self._previous_yaw is None:
+            self._previous_yaw = self.np_random.uniform(-np.pi, np.pi)
+            current_yaw = self._previous_yaw
+        else:
+            # Rotate 180 degrees around the z-axis.
+            current_yaw = self._previous_yaw + np.pi
+            self._previous_yaw = current_yaw
+
         qpos = np.array(self.init_qpos)
-        random_yaw = self.np_random.uniform(-np.pi, np.pi)
-        qpos[3] = np.cos(random_yaw / 2) # w
-        qpos[4] = 0 # x
-        qpos[5] = 0 # y
-        qpos[6] = np.sin(random_yaw / 2) # z
+        qpos[3] = np.cos(current_yaw / 2) # w
+        qpos[4] = 0.0 # x
+        qpos[5] = 0.0 # y
+        qpos[6] = np.sin(current_yaw / 2) # z
         # Normalize quaternion.
         qpos[3:7] = qpos[3:7] / np.linalg.norm(qpos[3:7])
 
@@ -199,10 +237,10 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         self.set_state(qpos, qvel)
 
         info = self.get_observation()
-        observation, reward, terminated, truncated = self.task.reset(info)
+        observation, reward, terminated, truncated = self.task.reset(info, self.data.ctrl)
+        self.last_step_time = time.time()
 
         return observation, info
-
 
     def get_joint_names(self):
         '''Returns the names of the joints.'''
@@ -212,11 +250,16 @@ class AntEnv(MujocoEnv, utils.EzPickle):
                 self.model, mujoco.mjtObj.mjOBJ_JOINT, i))
         return self.name_joints
 
+    def close(self):
+        """Close rendering contexts processes."""
+        if self.mujoco_renderer is not None:
+            self.mujoco_renderer.close()
+
 def main():
     current_path = os.path.dirname(os.path.abspath(__file__))
-    env = AntEnv(xml_file=os.path.join(current_path, "assets/ant_position.xml"),
+    env = AntEnv(model_path=os.path.join(current_path, "assets/ant_with_camera_after_sys_id.xml"),
                  render_mode="human",
-                 dt=0.01)
+                 control_dt=0.05)
 
     joints_dict = {
         "hip_1":
@@ -248,19 +291,7 @@ def main():
             joint_data['actual'].append(env.data.qpos[idx+7])
 
         time.sleep(0.001)
-        print(f"Counter: {counter}")
         counter += 1
-
-    _, axs = plt.subplots(2, 4)
-    for idx, (joint_name, joint_data) in enumerate(joints_dict.items()):
-        axs[idx//4, idx%4].plot(np.rad2deg(joint_data['desired']))
-        axs[idx//4, idx%4].plot(np.rad2deg(joint_data['actual']))
-        axs[idx//4, idx%4].set_title(f"Joint {joint_name}")
-        axs[idx//4, idx%4].set_xlabel("Time")
-        axs[idx//4, idx%4].set_ylabel("Angle")
-        axs[idx//4, idx%4].legend(["Desired", "Actual"], loc='upper right')
-    plt.tight_layout()
-    plt.show()
 
 if __name__ == "__main__":
     main()
