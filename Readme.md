@@ -1,4 +1,4 @@
-# Physical Ant.
+# Physical Ant
 
 <p align="center">
   <img src="./imgs/traj_ppo.gif" alt="Ant walking demo" width="600"/>
@@ -49,11 +49,11 @@ The hardware is designed to be easy to build and use:
 | USB-A extension cable                     | 1        | As tether for the robot                                                                                     | [Amazon](https://www.amazon.com/dp/B07ZV6FHWF/)                                                    | $5.99                |
 | 12V 8A AC to DC Converter Power Adapter    | 1        | Power adapter for the robot, to replace the one from the U2D2 starter kit | [Amazon](https://www.amazon.com/dp/B0F24DZ2SB?ref=ppx_yo2ov_dt_b_fed_asin_title&th=1)                     | $17.09                |
 | Screw M2x4mm with socket head             | 80       | Output shaft, 8 per motor, 3D print assembly                                                                | [McMaster](https://www.mcmaster.com/91290A012/)                                                    | $18.48 (pack of 100) |
-| M2 washer            | 64       | Output shaft                                                                | [McMaster](https://www.mcmaster.com/93475A195/)  | $1.64 (pack of 100) |
+| M2 washer            | 64       | Output shaft                                                                | [McMaster](https://www.mcmaster.com/93475A195/)  | $1.78 (pack of 100) |
 | Screw M2.5x16mm with socket head          | 32       | motor mount, 4 per motor                                                                                    | [McMaster](https://www.mcmaster.com/91290a106/)                                                    | $12.81 (pack of 50)  |
 | Screw M3x8mm with socket head             | 6        | U2D2 power board mount + IMU                                                                                | [McMaster](https://www.mcmaster.com/91290A113/)                                                    | $12.82 (pack of 100) |
-| Nut M2                                    | 16       | 3D print assembly 4 per leg                                                                                 | [McMaster](https://www.mcmaster.com/91828A111/)                                                    | $6.14 (pack of 100)  |
-| Nut M3                                    | 2        | U2D2 power board mount                                                                                      | [McMaster](https://www.mcmaster.com/91828A211/)                                                    | $4.73 (pack of 100)  |
+| Nut M2                                    | 16       | 3D print assembly 4 per leg                                                                                 | [McMaster](https://www.mcmaster.com/91828A111/)                                                    | $6.75 (pack of 100)  |
+| Nut M3                                    | 2        | U2D2 power board mount                                                                                      | [McMaster](https://www.mcmaster.com/91828A211/)                                                    | $5.2 (pack of 100)  |
 | On-board camera and top-down camera for tracking         | 2        | Logitech Brio 101                                                                                           | [Logitech](https://www.logitech.com/en-us/shop/p/brio-100-webcam)                                                       | $79.98 (39.99 each)               |
 | 3D Printed Parts                          | -        | STL files in `hardware/rev3`. Print all `leg` files 4x, others 1x.                                          | -                                                                                                  | -                    |
 | **Total**                                 |          |                                                                                                             |                                                                                                    | **$2223.19**         |
