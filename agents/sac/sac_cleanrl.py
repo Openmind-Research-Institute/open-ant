@@ -10,7 +10,6 @@ import json
 import time
 import random
 import argparse
-import itertools
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -37,6 +36,7 @@ def arr_to_str(x):
         return "[" + " ".join(map(str, x.tolist())) + "]"
     return x
 
+
 def parse_args():
     parser = argparse.ArgumentParser()
 
@@ -57,7 +57,7 @@ def parse_args():
     # Algorithm.
     parser.add_argument("--env_id", type=str, default="EAnt",
                         help="environment ID")
-    parser.add_argument("--total_timesteps", type=int, default=1_000_000,
+    parser.add_argument("--total_timesteps", type=int, default=60_000,
                         help="total training timesteps")
     parser.add_argument("--num_envs", type=int, default=1,
                         help="number of parallel envs")
@@ -67,7 +67,7 @@ def parse_args():
                         help="target smoothing coefficient")
     parser.add_argument("--batch_size", type=int, default=256,
                         help="batch size")
-    parser.add_argument("--learning_starts", type=int, default=5000,
+    parser.add_argument("--learning_starts", type=int, default=2000,
                         help="timestep to start learning")
     parser.add_argument("--policy_lr", type=float, default=3e-4,
                         help="policy learning rate")
@@ -85,9 +85,11 @@ def parse_args():
                         help="automatic entropy tuning")
     parser.add_argument("--gamma_discrete", type=float, default=0.99,
                         help="discount factor")
+    parser.add_argument("--use_layer_norm", type=bool, default=True,
+                        help="use layer normalization in networks")
 
     # Environment.
-    parser.add_argument("--dt", type=float, default=0.05,
+    parser.add_argument("--dt", type=float, default=0.12,
                         help="environment timestep")
     parser.add_argument("--hw_config", type=str, default=None,
                         help="hardware config file")
@@ -97,21 +99,18 @@ def parse_args():
                         help="terminate episode if upside down")
     parser.add_argument("--weights_path", type=str, default=None,
                         help="load previous weights")
-    parser.add_argument("--task_type", type=str, default="forward",
+    parser.add_argument("--task_type", type=str, default="back_and_forth",
                         choices=["forward", "back_and_forth"],
                         help="type of task")
     parser.add_argument("--reward_scale", type=float, default=10.0,
                         help="reward scale factor")
-    parser.add_argument("--model_path", type=str, default=None,
+    parser.add_argument("--model_path", type=str, default="../../sim/assets/ant_with_camera_after_sys_id.xml",
                         help="XML file to use for the environment")
     parser.add_argument("--eval", type=bool, default=False,
                         help="evaluate the agent")
     parser.add_argument("--save_every_n_steps", type=int, default=500,
                         help="save every n steps")
-    parser.add_argument("--use_previous_action", type=bool, default=False,
-                        help="use previous action")
-    parser.add_argument("--use_layer_norm", action="store_true", default=False,
-                        help="use layer normalization in networks")
+
 
     args = parser.parse_args()
     return args
@@ -208,7 +207,7 @@ class Actor(nn.Module):
 
 def make_ant_envs(args, task, disk_folder, run_name, runs_directory='runs'):
     """Create the vectorized environment outside the SAC class."""
-    def make_env(env_id, seed, idx, capture_video, run_name):
+    def make_env(seed, idx, capture_video, run_name):
         def _init():
             joint_config = {
                 'hip_zero': 0,
@@ -243,7 +242,7 @@ def make_ant_envs(args, task, disk_folder, run_name, runs_directory='runs'):
         return _init
 
     envs = gym.vector.SyncVectorEnv(
-        [make_env(args.env_id, args.seed + i, i, args.capture_video, run_name) for i in range(args.num_envs)],
+        [make_env(args.seed + i, i, args.capture_video, run_name) for i in range(args.num_envs)],
     )
     assert isinstance(envs.single_action_space, gym.spaces.Box), "[!] Only continuous action space is supported."
     print(f"[√] Created environment with {envs.num_envs} environments.")
@@ -291,11 +290,7 @@ class SAC:
         checkpoint = None
         self.weights_path = args.weights_path
         if self.weights_path is not None:
-            # load the checkpoint that has _ the largest number in the name
-            checkpoint_files = [f for f in os.listdir(self.weights_path) if f.endswith(".pth")]
-            checkpoint_files.sort(key=lambda x: int(x.split("_")[-1].split(".")[0]))
-            checkpoint_file = checkpoint_files[-1]
-            checkpoint = torch.load(os.path.join(self.weights_path, checkpoint_file), map_location=self.device)
+            checkpoint = torch.load(os.path.join(self.weights_path, 'checkpoint.pth'), map_location=self.device)
             self.actor.load_state_dict(checkpoint["actor"])
             self.qf1.load_state_dict(checkpoint["qf1"])
             self.qf2.load_state_dict(checkpoint["qf2"])
@@ -304,11 +299,11 @@ class SAC:
             self.actor_optimizer.load_state_dict(checkpoint["actor_optimizer"])
             self.q_optimizer.load_state_dict(checkpoint["q_optimizer"])
             self.learning_starts = 0.0
-            print(f"[√] Loaded checkpoint! {checkpoint_file}. Learning starts set to 0.")
+            print(f"[√] Loaded checkpoint from weights folder {self.weights_path}. Learning starts set to {self.learning_starts}.")
 
         self.eval = args.eval
         if self.eval == True and self.weights_path is None:
-            raise ValueError("[!] Cannot evaluate without weights path")
+            raise ValueError("[!] Cannot evaluate without weights path.")
         if self.eval:
             self.learning_starts = args.total_timesteps
 
@@ -351,16 +346,11 @@ class SAC:
         # Load global_step from checkpoint if resuming, otherwise start at 0.
         if checkpoint is not None and "global_step" in checkpoint:
             self.global_step = checkpoint["global_step"]
-            print(f"[√] Loaded checkpoint! Resuming from global_step {self.global_step}.")
+            print(f"[√] Loaded checkpoint from weights folder {self.weights_path}. Resuming from global_step {self.global_step}.")
         else:
             self.global_step = 0
-        self.start_time = None
-        self.reward_tracker = None
-        self.csv_file_info = None
-        self.csv_file_agent_vars= None
-        self.writer_info = None
-        self.writer_agent_vars = None
-        self.keys_info = None
+            print(f"[√] Starting from global_step {self.global_step}.")
+
         self.keys_agent_vars = [
                                 'qf1_values',
                                 'qf2_values',
@@ -466,10 +456,6 @@ class SAC:
         self.csv_file_info = open(os.path.join(self.disk_folder, self.runs_directory, self.run_name, "info_logs.csv"), "w", newline="")
         self.keys_info = list(info.keys())
         self.keys_info = [k for k in self.keys_info if not (k.startswith("bodies") or k.startswith("_"))]
-        self.keys_info.append("reset")
-        self.keys_info.append("qf1_values")
-        self.keys_info.append("qf2_values")
-        self.keys_info.append("qf_values")
 
         self.writer_info = csv.DictWriter(self.csv_file_info, fieldnames=["step"] + self.keys_info)
         self.writer_info.writeheader()
@@ -595,13 +581,6 @@ class SAC:
             'time_add_transition_buffer': [],
             'time_learn': [],
             'time_log_step': [],
-            # 'env_time_to_get_obs': [],
-            # 'env_time_to_check_errors': [],
-            # 'env_time_to_recover_motor_errors': [],
-            # 'env_sleep_duration': [],
-            # 'env_time_imu_thread': [],
-            # 'env_time_tracker_thread': [],
-            # 'env_time_get_motor_feedback': [],
         }
         time_start = time.time()
         # Start from the current global_step (0 if new run, loaded value if resuming).
@@ -619,30 +598,6 @@ class SAC:
             next_obs, rewards, terminations, truncations, infos = self.envs.step(actions)
             rewards = rewards * self.args.reward_scale
             times['time_step_the_environment'].append(time.time() - time_start)
-            infos['reset'] = truncations
-
-            obs_torch = torch.from_numpy(obs).to(self.device).float()
-            actions_torch = torch.from_numpy(actions).to(self.device).float()
-            qf1_values = self.qf1(obs_torch, actions_torch)
-            qf2_values = self.qf2(obs_torch, actions_torch)
-            qf_values = torch.min(qf1_values, qf2_values)
-            infos['qf1_values'] = np.array([qf1_values.item()])
-            infos['qf2_values'] = np.array([qf2_values.item()])
-            infos['qf_values'] = np.array([qf_values.item()])
-
-            # for key in [
-            #     'env_time_to_get_obs',
-            #     'env_time_to_check_errors',
-            #     'env_time_to_recover_motor_errors',
-            #     'env_sleep_duration',
-            #     'env_time_imu_thread',
-            #     'env_time_tracker_thread',
-            #     'env_time_get_motor_feedback'
-            # ]:
-            #     if key in infos:
-            #         times[key].append(infos[key][0])
-            #     else:
-            #         times[key].append(None)
 
             # Add transition to buffer.
             time_start = time.time()
@@ -656,8 +611,6 @@ class SAC:
             time_start = time.time()
             qf1_a_values, qf2_a_values, qf1_loss, qf2_loss, qf_loss, actor_loss, alpha_loss = self.learn(global_step)
             times['time_learn'].append(time.time() - time_start)
-            if times['time_learn'][-1] > 0.06:
-                print(f"Time learn: {times['time_learn'][-1]}")
             # Log step.
             time_start = time.time()
             self.log_step(global_step, infos, rewards, qf1_a_values, qf2_a_values,
@@ -667,14 +620,14 @@ class SAC:
             if global_step % self.args.save_every_n_steps == 0:
                 # Save checkpoint.
                 self.save_checkpoint(global_step)
-                # Save the times to pandas
+                # Save the times to df.
                 df = pd.DataFrame(times)
                 df.to_csv(os.path.join(self.disk_folder, self.runs_directory, self.run_name, "times.csv"), index=False)
 
         # Cleanup.
         self.cleanup()
 
-def main():
+if __name__ == "__main__":
     args = parse_args()
 
     # Set up folders for environment creation.
@@ -694,9 +647,8 @@ def main():
         task = BackAndForthTask(
             radius=RADIUS,
             origin=ORIGIN,
-            use_previous_action=args.use_previous_action,
         )
-        print(f"BackAndForthTask initialized for radius: {RADIUS}, origin: {ORIGIN}, use_previous_action: {args.use_previous_action}")
+        print(f"BackAndForthTask initialized for radius: {RADIUS}, origin: {ORIGIN}")
     else:
         raise ValueError(f"Invalid task type: {args.task_type}")
 
@@ -708,6 +660,3 @@ def main():
 
     # Run the policy.
     agent.run_policy()
-
-if __name__ == "__main__":
-    main()
