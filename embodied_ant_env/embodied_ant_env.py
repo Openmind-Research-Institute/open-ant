@@ -1,14 +1,15 @@
-import numpy as np
-import threading
 import time
+import threading
+import numpy as np
+import gymnasium as gym
+from gymnasium import spaces
+from gymnasium.spaces import Box
 from collections import defaultdict
 
 from imu_msp import IMU_MSP
 from motor_controller import MotorController
 from apriltag_tracking import VisionTracker, show_image
-import gymnasium as gym
-from gymnasium import spaces
-from gymnasium.spaces import Box
+
 
 class ForwardTask:
     def __init__(self, action_cost_weight=0.0):
@@ -18,7 +19,6 @@ class ForwardTask:
         self.reward_direction_I = np.array([1, 0])
         self.observation_space = spaces.Box(low=-1.5, high=1.5, shape=(24,), dtype=np.float32)
         self.previous_pos_timestamp = None
-        print('ForwardTask initialized!')
 
     def reset(self, info, action=np.zeros(8)):
         self.last_pos = None
@@ -64,22 +64,17 @@ class ForwardTask:
         ], axis=None)
         return observation, reward, terminated, truncated
 
+
 class BackAndForthTask:
-    def __init__(self, action_cost_weight=0.0, radius=1.0, origin=np.array([0, 0]), use_previous_action=False):
+    def __init__(self, action_cost_weight=0.0, radius=1.0, origin=np.array([0, 0])):
         self.action_cost_weight = action_cost_weight
         self.last_pos = None
         self.reward_direction_I = np.array([1, 0])
         self.last_action = np.zeros(8)
-        self.use_previous_action = use_previous_action
-        self.previous_action = np.zeros(8)
         self.previous_pos_timestamp = None
-        if self.use_previous_action:
-            self.observation_space = spaces.Box(low=-1.5, high=1.5, shape=(24+8,), dtype=np.float32)
-        else:
-            self.observation_space = spaces.Box(low=-1.5, high=1.5, shape=(24,), dtype=np.float32)
+        self.observation_space = spaces.Box(low=-1.5, high=1.5, shape=(24,), dtype=np.float32)
         self.radius = radius
         self.origin = origin
-        print('BackAndForthTask initialized for radius: ', radius, 'and origin: ', origin)
 
     def reset(self, info, action=np.zeros(8)):
         self.last_pos = None
@@ -140,10 +135,6 @@ class BackAndForthTask:
             info['wy'],
             info['wz'],
         ], axis=None)
-
-        if self.use_previous_action:
-            observation = np.concatenate([observation, self.previous_action], axis=None)
-        self.previous_action = action.copy()
 
         return observation, reward, terminated, truncated
 
@@ -242,9 +233,6 @@ class EmbodiedAnt(gym.Env):
         if sleep_until_next_step:
             time.sleep(sleep_duration)
         self.last_step_time = time.time()
-
-        # # Sleep.
-        # time.sleep(0.02*self.dt)
 
         # Get observation.
         time_start = time.time()
@@ -356,7 +344,6 @@ class EmbodiedAnt(gym.Env):
         info['env_time_tracker_thread'] = time.time() - time_start
 
         # Motor outputs.
-        time_start_motor_feedback = time.time()
         joint_positions, joint_velocities, joint_loads = self.motor_controller.get_feedback()
         # temperatures = self.motor_controller.get_temperature()
         info['joint_positions'] = joint_positions
