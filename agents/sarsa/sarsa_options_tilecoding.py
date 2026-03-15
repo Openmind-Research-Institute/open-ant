@@ -1,7 +1,6 @@
 import os
 import sys
 import csv
-import time
 import json
 import pickle
 import argparse
@@ -9,7 +8,6 @@ import datetime
 import numpy as np
 from tqdm import tqdm
 import gymnasium as gym
-import matplotlib.pyplot as plt
 
 # Custom imports.
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../sim')))
@@ -19,7 +17,6 @@ from tilecoding import IHT, tiles
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../embodied_ant_env')))
 from embodied_ant_env import make_ant_env, ForwardTask, BackAndForthTask
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
-from reward import RewardTracker
 
 np.set_printoptions(precision=4, suppress=True, linewidth=120, threshold=1000)
 
