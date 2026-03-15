@@ -483,7 +483,7 @@ while idx_timelimit_episode < args.num_timelimit_episodes:
     # Update weights with eligibility traces.
     if args.learn == True:
         # Decay all eligibility traces: e = λ * γ^k * e
-        decay_factor = LAMBDA_ELIGIBILITY * (DISCOUNTING ** k) # NOTE: lambda needs to be at the power of k, as well, experiments were done without this.
+        decay_factor = (LAMBDA_ELIGIBILITY ** k) * (DISCOUNTING ** k)
         # Efficiently decay only non-zero traces
         keys_to_remove = []
         for key in eligibility_traces:
