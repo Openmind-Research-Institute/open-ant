@@ -41,6 +41,12 @@ parser.add_argument('--env_id', type=str, default='SimEmbodiedAnt')
 parser.add_argument('--hw_config', type=str, default=None)
 parser.add_argument('--capture_video', action='store_true')
 parser.add_argument('--test_options', action='store_true')
+parser.add_argument('--task', type=str, default='back_and_forth', choices=['forward', 'back_and_forth'],
+                    help='Task type: forward or back_and_forth')
+parser.add_argument('--back_and_forth_radius', type=float, default=1.0,
+                    help='Radius for BackAndForthTask (only used if task is back_and_forth)')
+parser.add_argument('--back_and_forth_origin', type=float, nargs=2, default=[0.0, 0.0],
+                    help='Origin for BackAndForthTask as [x, y] (only used if task is back_and_forth)')
 
 # Algorithm specific.
 parser.add_argument('--learn', type=bool, default=True)
@@ -71,12 +77,15 @@ for arg in vars(args):
     print(f"{arg}: {getattr(args, arg)}")
 
 # Directories.
-run_name = args.exp_name + '_' + datetime.datetime.now().strftime('%Y%m%d-%H%M%S') + f'_seed_{args.seed}'
+RUN_NAME = args.exp_name + '_' + datetime.datetime.now().strftime('%Y%m%d-%H%M%S') + f'_seed_{args.seed}'
 os.makedirs(args.runs_directory, exist_ok=True)
-log_dir = os.path.join(args.runs_directory, run_name)
-os.makedirs(log_dir, exist_ok=True)
+LOG_DIR = os.path.join(args.runs_directory, RUN_NAME)
+os.makedirs(LOG_DIR, exist_ok=True)
+WEIGHTS_IHT_DIR = os.path.join(LOG_DIR, "weights_iht")
+if not os.path.exists(WEIGHTS_IHT_DIR):
+    os.makedirs(WEIGHTS_IHT_DIR)
 
-with open(os.path.join(log_dir, "args.json"), "w") as f:
+with open(os.path.join(LOG_DIR, "args.json"), "w") as f:
     json.dump(args.__dict__, f, indent=4)
 
 SEED = args.seed
@@ -131,12 +140,11 @@ class OptionEnv:
                     action_vector[idx] = self.joints_dict[joint_name]['traj'][i]
 
             obs, reward, terminated, truncated, self.info = self.env.step(action_vector)
-            original_reward = reward
             reward *= args.reward_scaling
 
             total_reward += gamma_i * reward
             gamma_i *= self.discount
-            # Deep copy to avoid reference issues with numpy arrays
+            # Deep copy to avoid reference issues with numpy arrays.
             info_list.append({k: (v.copy() if isinstance(v, np.ndarray) else v) for k, v in self.info.items()})
             if terminated or truncated:
                 return obs, total_reward, terminated, truncated, info_list
@@ -189,11 +197,11 @@ options = {
         'duration': args.duration_option,
         'joint_names': {
             'hip_rr': motions['hip_backward'],
-            'knee_rr': motions['knee_sinusoid_up'], # lift up
+            'knee_rr': motions['knee_sinusoid_up'],
             'hip_fr': motions['hip_forward'],
             'knee_fr': motions['knee_sinusoid_down'],
             'hip_fl': motions['hip_forward'],
-            'knee_fl': motions['knee_sinusoid_up'], # lift up
+            'knee_fl': motions['knee_sinusoid_up'],
             'hip_rl': motions['hip_backward'],
             'knee_rl': motions['knee_sinusoid_down'],
         }
@@ -216,11 +224,11 @@ options = {
         'duration': args.duration_option,
         'joint_names': {
             'hip_rr': motions['hip_forward'],
-            'knee_rr': motions['knee_sinusoid_up'], # lift up
+            'knee_rr': motions['knee_sinusoid_up'],
             'hip_fr': motions['hip_backward'],
             'knee_fr': motions['knee_sinusoid_down'],
             'hip_fl': motions['hip_backward'],
-            'knee_fl': motions['knee_sinusoid_up'], # lift up
+            'knee_fl': motions['knee_sinusoid_up'],
             'hip_rl': motions['hip_forward'],
             'knee_rl': motions['knee_sinusoid_down'],
         }
@@ -295,14 +303,6 @@ def select_greedy_option(w, T, state, num_options):
     # Tie-break among maxima, in case of ties.
     maxq = q_vals.max()
     best = np.flatnonzero(q_vals == maxq)
-    # plt.clf()
-    # plt.bar(range(len(q_vals)), q_vals)
-    # # Color the highest q-value in red.
-    # plt.bar(np.argmax(q_vals), q_vals[np.argmax(q_vals)], color='red')
-    # plt.title('Q-values for each option')
-    # plt.xlabel('Option')
-    # plt.ylabel('Q-value')
-    # plt.pause(0.01)
     return int(np.random.choice(best)), q_vals
 
 def select_option_epsilon_greedy(S, epsilon, w, T):
@@ -312,14 +312,6 @@ def select_option_epsilon_greedy(S, epsilon, w, T):
     O_greedy, _ = select_greedy_option(w, T, S, num_options)
     return O_greedy
 
-def clip_state_to_limits(S, limits):
-    S = np.asarray(S, dtype=np.float64)
-    return np.clip(S, limits[:, 0], limits[:, 1])
-
-
-weights_iht_folder = os.path.join(log_dir, "weights_iht")
-if not os.path.exists(weights_iht_folder):
-    os.makedirs(weights_iht_folder)
 
 # Environment.
 joint_config = {
@@ -329,9 +321,11 @@ joint_config = {
     'knee_range': np.radians(45),
 }
 
-RADIUS = 1.0
-task = BackAndForthTask(radius=RADIUS, origin=np.array([0, 0]))
-# task = ForwardTask()
+# Create task based on arguments
+if args.task == 'back_and_forth':
+    task = BackAndForthTask(radius=args.back_and_forth_radius, origin=np.array(args.back_and_forth_origin))
+else:
+    task = ForwardTask()
 hw_config = args.hw_config if args.hw_config is not None else None
 if args.hw_config is None:
     env = AntEnv(
@@ -343,7 +337,7 @@ if args.hw_config is None:
     )
     if args.capture_video:
         print('RecordVideo!')
-        env = gym.wrappers.RecordVideo(env, os.path.join(log_dir, "videos", args.env_id),
+        env = gym.wrappers.RecordVideo(env, os.path.join(LOG_DIR, "videos", args.env_id),
                                         step_trigger=lambda x: x % 20000 == 0)
 
 else:
@@ -365,8 +359,6 @@ LAMBDA_ELIGIBILITY = args.lambda_eligibility  # Eligibility trace decay paramete
 DIM_TILING = args.dim_tiling  # Number of tiles per dimension.
 TILINGS = args.tilings_multiplier * env.observation_space.shape[0]  # Number of offset tilings.
 IHT_SIZE = 2**args.iht_size_power
-
-USE_DECAYING_EPSILON = False
 
 # Environment.
 options_env = OptionEnv(env, options, discount=args.discount)
@@ -464,17 +456,13 @@ S, info = options_env.reset(seed=SEED)
 O = select_option_epsilon_greedy(S, EPSILON, w, T)
 
 # Initialize info logging on first step.
-csv_file_info = open(os.path.join(log_dir, "info_logs.csv"), "w", newline="")
+csv_file_info = open(os.path.join(LOG_DIR, "info_logs.csv"), "w", newline="")
 keys_info = list(info.keys())
 keys_info = [k for k in keys_info if not (k.startswith("bodies") or k.startswith("_"))]
 writer_info = csv.DictWriter(csv_file_info, fieldnames=["step"] + keys_info)
 writer_info.writeheader()
 
 while idx_timelimit_episode < args.num_timelimit_episodes:
-    if USE_DECAYING_EPSILON:
-        EPSILON = max(0.05, EPSILON_START - idx_timelimit_episode * 0.015)
-        print(f"Decaying epsilon to {EPSILON}")
-
     # Step.
     S_prime, R, terminated, truncated, info_list = options_env.step(O)
 
@@ -510,7 +498,7 @@ while idx_timelimit_episode < args.num_timelimit_episodes:
             key = (O, tile_idx)
             eligibility_traces[key] = eligibility_traces.get(key, 0.0) + 1.0
 
-        # Update weights using eligibility traces
+        # Update weights using eligibility traces.
         for (opt, tile_idx), trace_value in eligibility_traces.items():
             w[opt, tile_idx] += step_size * TD_error * trace_value
 
@@ -552,9 +540,9 @@ while idx_timelimit_episode < args.num_timelimit_episodes:
             info_log_buffer = []
 
         # Save weights and eligibility traces.
-        np.save(os.path.join(weights_iht_folder, f"weights.npy"), w)
-        pickle.dump(iht, open(os.path.join(weights_iht_folder, f"iht.pkl"), "wb"))
-        pickle.dump(eligibility_traces, open(os.path.join(weights_iht_folder, f"eligibility_traces.pkl"), "wb"))
+        np.save(os.path.join(WEIGHTS_IHT_DIR, f"weights.npy"), w)
+        pickle.dump(iht, open(os.path.join(WEIGHTS_IHT_DIR, f"iht.pkl"), "wb"))
+        pickle.dump(eligibility_traces, open(os.path.join(WEIGHTS_IHT_DIR, f"eligibility_traces.pkl"), "wb"))
 
         idx_timelimit_episode += 1
         idx_options = 0
