@@ -287,7 +287,8 @@ class SuttonTileCoderWrapper:
 
     def __getitem__(self, x):
         x = np.asarray(x, dtype=np.float64)
-        idxs = tiles(self.iht, self.tilings, self.scaling * x)
+        normalized_x = (x - self.limits[:, 0]) * self.scaling
+        idxs = tiles(self.iht, self.tilings, normalized_x)
         return np.asarray(idxs, dtype=np.int64)
 
     @property
