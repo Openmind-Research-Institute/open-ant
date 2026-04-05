@@ -5,7 +5,7 @@ from collections import deque
 
 
 class RewardTracker:
-    def __init__(self, env_dt, env_id, time_window=10.0, log_folder=".", logging_freq=1000):
+    def __init__(self, env_dt, env_id, time_window=10.0, log_folder="."):
         self.env_dt = env_dt
         self.env_id = env_id
 
@@ -20,9 +20,9 @@ class RewardTracker:
 
         self.step = 0.0
         self._average_reward_per_second = 0.0
-        self._logging_freq = logging_freq
 
         self.csv_path = os.path.join(self.log_folder, f"{self.env_id}_average_rewards.csv")
+        print(f"CSV path: {self.csv_path}")
         self._csv_file_exists = os.path.exists(self.csv_path) # Cache file existence check.
 
     def update(self, reward):
@@ -43,7 +43,7 @@ class RewardTracker:
         return self._average_reward_per_second
 
     def log(self):
-        if self.buffer and self.step % self._logging_freq == 0:
+        if self.buffer:
             with open(self.csv_path, "a", newline='') as csvfile:
                 writer = csv.writer(csvfile)
                 if not self._csv_file_exists:
