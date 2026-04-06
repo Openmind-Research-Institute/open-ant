@@ -429,7 +429,7 @@ def parse_args():
                         help="entropy regularization coefficient")
     parser.add_argument("--autotune", type=bool, default=True,
                         help="automatic entropy tuning")
-    parser.add_argument("--gamma", type=float, default=0.99,
+    parser.add_argument("--gamma", type=float, default=0.92,
                         help="discount factor")
     parser.add_argument("--use_layer_norm", type=bool, default=True,
                         help="use layer normalization in networks")
