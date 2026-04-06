@@ -6,7 +6,8 @@ if [ "$1" == "sim" ]; then
         --render_mode rgb_array \
         --env_id SimEmbodiedAnt \
         --runs_directory runs_sim_test \
-        --exp_name trial_1
+        --exp_name trial_1 \
+        --num_envs 1
 fi
 
 # Learn on hardware.
