@@ -239,13 +239,10 @@ class SAC:
 
         # Replay buffer.
         self.rb = ReplayBuffer(
-            buffer_size,
-            self.envs.single_observation_space,
-            self.envs.single_action_space,
-            self.device,
-            n_envs=envs.num_envs,
-            handle_timeout_termination=False,
-        )
+                storage=LazyTensorStorage(buffer_size, device=device),
+                sampler=RandomSampler(),
+                batch_size=batch_size,
+            )
 
         self.global_step = 0
         self.obs = None
@@ -262,28 +259,35 @@ class SAC:
             actions = actions.detach().cpu().numpy()
         return actions
  
-    def agent_step(self, next_obs, rewards, terminations, truncations, infos):
+    def agent_step(self, next_obs, actions, rewards, terminations, truncations, infos):
 
-        # Add the data to the replay buffer.
-        self.rb.add(self.obs, next_obs, actions, rewards, terminations, infos)
+        tensor_dict = TensorDict({
+            "observations": torch.as_tensor(self.obs, dtype=torch.float32, device=self.device),
+            "next_observations": torch.as_tensor(next_obs, dtype=torch.float32, device=self.device),
+            "actions": torch.as_tensor(actions, dtype=torch.float32, device=self.device),
+            "rewards": torch.as_tensor(rewards, dtype=torch.float32, device=self.device).unsqueeze(-1),
+            "terminations": torch.as_tensor(terminations, dtype=torch.float32, device=self.device).unsqueeze(-1),                     # or use "terminated" + "truncated" separately if you prefer
+        }, batch_size=[self.envs.num_envs])
 
+        # Use .extend() instead of .add() when adding a batch of transitions
+        self.rb.extend(tensor_dict)
+ 
         self.global_step += 1
         self.obs = next_obs
 
         # Learning.
         if self.global_step > self.learning_starts:
-            data = self.rb.sample(self.batch_size)
+            # data = self.rb.sample(self.batch_size)
+            data, info_buffer = self.rb.sample(self.batch_size, return_info=True)
             with torch.no_grad():
-                next_state_actions, next_state_log_pi, _ = self.actor.get_action(data.next_observations)
-                qf1_next_target = self.qf1_target(data.next_observations, next_state_actions)
-                qf2_next_target = self.qf2_target(data.next_observations, next_state_actions)
+                next_state_actions, next_state_log_pi, _ = self.actor.get_action(data["next_observations"])
+                qf1_next_target = self.qf1_target(data["next_observations"], next_state_actions)
+                qf2_next_target = self.qf2_target(data["next_observations"], next_state_actions)
                 min_qf_next_target = torch.min(qf1_next_target, qf2_next_target) - self.alpha * next_state_log_pi
-                # next_q_value = data.rewards.flatten() + (1 - data.dones.flatten()) * self.gamma * (
-                #     min_qf_next_target).view(-1)
-                next_q_value = data.rewards.flatten() * args.dt + (1 - data.dones.flatten()) * (args.gamma ** args.dt) * (min_qf_next_target).view(-1)
-                # TODO: add the dt here (see K. de Asis, R. Sutton, "An Idiosyncrasy of Time-discretization in RL").
-            qf1_a_values = self.qf1(data.observations, data.actions).view(-1)
-            qf2_a_values = self.qf2(data.observations, data.actions).view(-1)
+                next_q_value = data["rewards"].flatten() * self.dt + \
+                                (1 - data["terminations"].flatten()) * (self.gamma ** self.dt) * (min_qf_next_target).view(-1)
+            qf1_a_values = self.qf1(data["observations"], data["actions"]).view(-1)
+            qf2_a_values = self.qf2(data["observations"], data["actions"]).view(-1)
             qf1_loss = F.mse_loss(qf1_a_values, next_q_value)
             qf2_loss = F.mse_loss(qf2_a_values, next_q_value)
             qf_loss = qf1_loss + qf2_loss
@@ -297,9 +301,9 @@ class SAC:
                 for _ in range(
                         self.policy_frequency
                 ):  # Compensate for the delay by doing 'actor_update_interval' instead of 1.
-                    pi, log_pi, _ = self.actor.get_action(data.observations)
-                    qf1_pi = self.qf1(data.observations, pi)
-                    qf2_pi = self.qf2(data.observations, pi)
+                    pi, log_pi, _ = self.actor.get_action(data["observations"])
+                    qf1_pi = self.qf1(data["observations"], pi)
+                    qf2_pi = self.qf2(data["observations"], pi)
                     min_qf_pi = torch.min(qf1_pi, qf2_pi)
                     actor_loss = ((self.alpha * log_pi) - min_qf_pi).mean()
 
@@ -310,7 +314,7 @@ class SAC:
 
                     if self.autotune:
                         with torch.no_grad():
-                            _, log_pi, _ = self.actor.get_action(data.observations)
+                            _, log_pi, _ = self.actor.get_action(data["observations"])
                         alpha_loss = (-self.log_alpha.exp() * (log_pi + self.target_entropy)).mean()
 
                         self.a_optimizer.zero_grad()
