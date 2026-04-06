@@ -286,6 +286,7 @@ class SAC:
                 min_qf_next_target = torch.min(qf1_next_target, qf2_next_target) - self.alpha * next_state_log_pi
                 next_q_value = data["rewards"].flatten() * self.dt + \
                                 (1 - data["terminations"].flatten()) * (self.gamma ** self.dt) * (min_qf_next_target).view(-1)
+                                # See K. De Asis, R. Sutton, "An Idiosyncrasy of Time-discretization in Reinforcement Learning"
             qf1_a_values = self.qf1(data["observations"], data["actions"]).view(-1)
             qf2_a_values = self.qf2(data["observations"], data["actions"]).view(-1)
             qf1_loss = F.mse_loss(qf1_a_values, next_q_value)
