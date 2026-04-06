@@ -331,8 +331,6 @@ class SAC:
                     target_param.data.copy_(
                         self.tau * param.data + (1 - self.tau) * target_param.data)
 
-        return actions
-
     def agent_step_eval(self, next_obs):
         # Get the action.
         if self.obs is None:
@@ -344,8 +342,6 @@ class SAC:
 
         self.global_step += 1
         self.obs = next_obs
-
-        return actions
 
     def get_state(self):
         """Returns the full state of the agent including all network weights."""
@@ -533,24 +529,22 @@ if __name__ == "__main__":
                                    )
 
     obs, info = envs.reset(seed=args.seed)
-    actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
     step = 0
 
     for step in tqdm(range(args.total_timesteps)):
-        actions = agent.get_action(obs)
-        next_obs, rewards, terminations, truncations, infos = envs.step(actions)
+        selected_actions = agent.get_action(obs)
+        next_obs, rewards, terminations, truncations, infos = envs.step(selected_actions)
         if args.eval:
-            actions = agent.agent_step_eval(next_obs)
+            agent.agent_step_eval(next_obs)
         else:
-            actions = agent.agent_step(next_obs, rewards, terminations, truncations, infos)
-        reward_tracker.update(rewards[0])
+            agent.agent_step(next_obs, selected_actions, rewards, terminations, truncations, infos)
+        reward_tracker.update(infos['original_reward'][0])
 
         if any(truncations) or any(terminations):
             envs.reset()
 
         # Save the model.
         if step % args.save_every_n_steps == 0:
-            print(f"Saving model and reward tracker at step {step}")
             state = agent.get_state()
             torch.save(state, os.path.join(args.runs_directory, run_name, f"weights_and_args.pth"))
             reward_tracker.log()
