@@ -8,3 +8,6 @@ __pycache__
 *.zip
 *.log
 logs/
+*.egg*
+runs*
+
