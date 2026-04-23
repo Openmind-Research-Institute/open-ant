@@ -55,7 +55,7 @@ def parse_args():
     # Algorithm.
     parser.add_argument("--env_id", type=str, default="EAnt",
                         help="environment ID")
-    parser.add_argument("--total_timesteps", type=int, default=60_000,
+    parser.add_argument("--total_timesteps", type=int, default=100_000,
                         help="total training timesteps")
     parser.add_argument("--num_envs", type=int, default=1,
                         help="number of parallel envs")
@@ -91,7 +91,7 @@ def parse_args():
                         help="ε for E-step dual")
     parser.add_argument("--kl_mean_constraint", type=float, default=0.01,
                         help="ε_μ for M-step mean KL")
-    parser.add_argument("--kl_var_constraint", type=float, default=0.0001,
+    parser.add_argument("--kl_var_constraint", type=float, default=0.001,
                         help="ε_Σ for M-step covariance KL")
     parser.add_argument("--alpha_mean_scale", type=float, default=1.0)
     parser.add_argument("--alpha_var_scale", type=float, default=100.0)
@@ -103,7 +103,7 @@ def parse_args():
                         help="actor gradient steps per learn() call")
     parser.add_argument("--dual_lr", type=float, default=1e-2)
     parser.add_argument("--dual_steps", type=int, default=30)
-    parser.add_argument("--max_grad_norm", type=float, default=0.1)
+    parser.add_argument("--max_grad_norm", type=float, default=1.0)
 
     # Environment.
     parser.add_argument("--dt", type=float, default=0.12,
@@ -160,66 +160,86 @@ class QNetwork(nn.Module):
         x = self.fc3(x)
         return x
 
-LOG_STD_MAX = 2
-LOG_STD_MIN = -5
+def bt(m):
+    return m.transpose(dim0=-2, dim1=-1)
+
+
+def btr(m):
+    return m.diagonal(dim1=-2, dim2=-1).sum(-1)
+
+
+def gaussian_kl(μi, μ, Ai, A):
+    """
+    Decoupled KL between two multivariate Gaussians (MPO paper, eq. 5).
+      C_μ = KL(π(·|μi, Σi) || π(·|μ,  Σi))  — mean component only
+      C_Σ = KL(π(·|μi, Σi) || π(·|μi, Σ ))  — covariance component only
+    Both Ai and A are lower-triangular Cholesky factors, shape (B, da, da).
+    Returns scalars C_μ, C_Σ and mean determinants of Σi and Σ for logging.
+    """
+    n = A.size(-1)
+    μi = μi.unsqueeze(-1)           # (B, da, 1)
+    μ  = μ.unsqueeze(-1)
+    Σi = Ai @ bt(Ai)                # (B, da, da)
+    Σ  = A  @ bt(A)
+    Σi_det = Σi.det().clamp_min(1e-6)
+    Σ_det  = Σ.det().clamp_min(1e-6)
+    Σi_inv = Σi.inverse()
+    Σ_inv  = Σ.inverse()
+    inner_μ = ((μ - μi).transpose(-2, -1) @ Σi_inv @ (μ - μi)).squeeze()
+    inner_Σ = torch.log(Σ_det / Σi_det) - n + btr(Σ_inv @ Σi)
+    C_μ = 0.5 * torch.mean(inner_μ)
+    C_Σ = 0.5 * torch.mean(inner_Σ)
+    return C_μ, C_Σ, torch.mean(Σi_det), torch.mean(Σ_det)
+
 
 class Actor(nn.Module):
+    """
+    Full-covariance Gaussian policy parameterised by a lower-triangular
+    Cholesky factor, as required by the MPO trajectory distribution q(τ).
+    forward() returns (mean, cholesky) where cholesky is scale_tril.
+    """
     def __init__(self, env, use_layer_norm=False):
         super().__init__()
-        self.use_layer_norm = use_layer_norm
-        self.fc1 = nn.Linear(np.array(env.single_observation_space.shape).prod(), 256)
+        ds = int(np.array(env.single_observation_space.shape).prod())
+        da = int(np.prod(env.single_action_space.shape))
+        self.da = da
+        self.fc1 = nn.Linear(ds, 256)
         self.fc2 = nn.Linear(256, 256)
-        self.fc_mean = nn.Linear(256, np.prod(env.single_action_space.shape))
-        self.fc_logstd = nn.Linear(256, np.prod(env.single_action_space.shape))
+        self.ln1 = nn.LayerNorm(256) if use_layer_norm else None
+        self.ln2 = nn.LayerNorm(256) if use_layer_norm else None
+        self.fc_mean     = nn.Linear(256, da)
+        self.fc_cholesky = nn.Linear(256, (da * (da + 1)) // 2)
 
-        if use_layer_norm:
-            self.ln1 = nn.LayerNorm(256)
-            self.ln2 = nn.LayerNorm(256)
-
-        # Action rescaling.
         self.register_buffer(
-            "action_scale",
-            torch.tensor(
-                (env.single_action_space.high - env.single_action_space.low) / 2.0,
-                dtype=torch.float32,
-            ),
+            "action_low",
+            torch.tensor(env.single_action_space.low, dtype=torch.float32),
         )
         self.register_buffer(
-            "action_bias",
-            torch.tensor(
-                (env.single_action_space.high + env.single_action_space.low) / 2.0,
-                dtype=torch.float32,
-            ),
+            "action_high",
+            torch.tensor(env.single_action_space.high, dtype=torch.float32),
         )
 
     def forward(self, x):
-        x = self.fc1(x)
-        if self.use_layer_norm:
-            x = self.ln1(x)
-        x = F.relu(x)
-        x = self.fc2(x)
-        if self.use_layer_norm:
-            x = self.ln2(x)
-        x = F.relu(x)
-        mean = self.fc_mean(x)
-        log_std = self.fc_logstd(x)
-        log_std = torch.tanh(log_std)
-        log_std = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (log_std + 1)
-        return mean, log_std
+        B  = x.size(0)
+        da = self.da
+        h = F.relu(self.ln1(self.fc1(x)) if self.ln1 else self.fc1(x))
+        h = F.relu(self.ln2(self.fc2(h)) if self.ln2 else self.fc2(h))
 
-    def get_action(self, x):
-        mean, log_std = self(x)
-        std = log_std.exp()
-        normal = torch.distributions.Normal(mean, std)
-        x_t = normal.rsample() # for reparameterization trick (mean + std * N(0,1)).
-        y_t = torch.tanh(x_t)
-        action = y_t * self.action_scale + self.action_bias
-        log_prob = normal.log_prob(x_t)
-        # Enforcing Action Bound.
-        log_prob -= torch.log(self.action_scale * (1 - y_t.pow(2)) + 1e-6)
-        log_prob = log_prob.sum(1, keepdim=True)
-        mean = torch.tanh(mean) * self.action_scale + self.action_bias
-        return action, log_prob, mean
+        # Mean bounded to action range via sigmoid.
+        mean = torch.sigmoid(self.fc_mean(h))
+        mean = self.action_low + (self.action_high - self.action_low) * mean
+
+        # Cholesky factor: off-diagonals free, diagonal forced positive via softplus.
+        chol_vec = self.fc_cholesky(h).clone()          # clone to allow in-place
+        diag_idx = torch.arange(da, device=x.device)
+        diag_idx = (diag_idx + 1) * (diag_idx + 2) // 2 - 1
+        chol_vec[:, diag_idx] = F.softplus(chol_vec[:, diag_idx]) + 1e-4
+
+        tril_idx = torch.tril_indices(da, da, 0, device=x.device)
+        cholesky = torch.zeros(B, da, da, device=x.device)
+        cholesky[:, tril_idx[0], tril_idx[1]] = chol_vec
+
+        return mean, cholesky
 
 
 def make_ant_envs(args, task, disk_folder, run_name, runs_directory='runs'):
@@ -298,22 +318,26 @@ class MPO:
         self.qf1_target = QNetwork(self.envs, use_layer_norm=args.use_layer_norm).to(self.device)
         self.qf1_target.load_state_dict(self.qf1.state_dict())
 
-        self.q_optimizer = optim.Adam(list(self.qf1.parameters()), lr=args.q_lr)
+        self.qf2 = QNetwork(self.envs, use_layer_norm=args.use_layer_norm).to(self.device)
+        self.qf2_target = QNetwork(self.envs, use_layer_norm=args.use_layer_norm).to(self.device)
+        self.qf2_target.load_state_dict(self.qf2.state_dict())
+
+        self.q_optimizer = optim.Adam(list(self.qf1.parameters()) + list(self.qf2.parameters()), lr=args.q_lr)
         self.actor_optimizer = optim.Adam(list(self.actor.parameters()), lr=args.policy_lr)
 
         self.learning_starts = args.learning_starts
         self.gamma_discrete = args.gamma_discrete
         self.tau = args.tau
 
-        #dual pb init:
-        self.log_eta = torch.tensor(1.0, dtype=torch.float32, device=self.device, requires_grad=True)
-        self.dual_temp_optimizer = optim.Adam([self.log_eta], lr=args.dual_lr)
+        # Dual variable η for the E-step temperature (parameterised via softplus).
+        self._log_eta = torch.tensor(0.0, dtype=torch.float32, device=self.device, requires_grad=True)
+        self.dual_temp_optimizer = optim.Adam([self._log_eta], lr=args.dual_lr)
 
-        self.log_alpha_mu = torch.tensor(0.0, dtype=torch.float32, device=self.device, requires_grad=True)
-        self.dual_kl_mu_optimizer = optim.Adam([self.log_alpha_mu], lr=args.dual_lr)
+        # Lagrange multipliers for M-step KL constraints (scalar, updated by dual ascent).
+        self.alpha_mu    = 0.0
+        self.alpha_sigma = 0.0
 
-        self.log_alpha_sigma = torch.tensor(0.0, dtype=torch.float32, device=self.device, requires_grad=True)
-        self.dual_kl_sigma_optimizer = optim.Adam([self.log_alpha_sigma], lr=args.dual_lr)
+        self.critic_loss_fn = nn.SmoothL1Loss()
 
         # Load checkpoint if provided.
         checkpoint = None
@@ -328,12 +352,17 @@ class MPO:
             self.actor_target.load_state_dict(checkpoint["actor_target"])
             self.qf1.load_state_dict(checkpoint["qf1"])
             self.qf1_target.load_state_dict(checkpoint["qf1_target"])
+            if "qf2" in checkpoint:
+                self.qf2.load_state_dict(checkpoint["qf2"])
+                self.qf2_target.load_state_dict(checkpoint["qf2_target"])
             self.actor_optimizer.load_state_dict(checkpoint["actor_optimizer"])
             self.q_optimizer.load_state_dict(checkpoint["q_optimizer"])
             if "log_eta" in checkpoint:
-                self.log_eta.data.fill_(checkpoint["log_eta"])
+                self._log_eta.data.fill_(checkpoint["log_eta"])
             if "dual_temp_optimizer" in checkpoint:
                 self.dual_temp_optimizer.load_state_dict(checkpoint["dual_temp_optimizer"])
+            self.alpha_mu    = checkpoint.get("alpha_mu", 0.0)
+            self.alpha_sigma = checkpoint.get("alpha_sigma", 0.0)
             self.learning_starts = 0
             print(f"[√] Loaded checkpoint! {checkpoint_file}. Learning starts set to 0.")
 
@@ -394,11 +423,12 @@ class MPO:
         if global_step is None:
             global_step = self.global_step
 
-        if global_step < self.learning_starts and self.weights_path is None: # if no weights path, start from random actions
+        if global_step < self.learning_starts and self.weights_path is None:
             actions = np.array([self.envs.single_action_space.sample() for _ in range(self.envs.num_envs)])
         else:
-            actions, _, _ = self.actor.get_action(torch.Tensor(obs).to(self.device))
-            actions = actions.detach().cpu().numpy()
+            with torch.no_grad():
+                mu, A = self.actor_target(torch.Tensor(obs).to(self.device))
+                actions = dist.MultivariateNormal(mu, scale_tril=A).sample().cpu().numpy()
 
         return actions
 
@@ -408,37 +438,53 @@ class MPO:
 
     def update_critic(self,
                       batch_data: ReplayBufferSamples) -> Tuple[float, float]:
-        with torch.no_grad():
-            next_action, _, _ = self.actor_target.get_action(batch_data.next_observations)
-            q_target = self.qf1_target(batch_data.next_observations, next_action)
-            next_q_target = batch_data.rewards.flatten() + (1 - batch_data.dones.flatten()) * self.gamma_discrete * q_target.view(-1)
+        s_next = batch_data.next_observations
+        B  = s_next.size(0)
+        N  = self.args.sample_action_num
+        ds = s_next.size(-1)
+        da = self.envs.single_action_space.shape[0]
 
-        q_value = self.qf1(batch_data.observations, batch_data.actions).view(-1)
-        qf1_loss = F.mse_loss(q_value, next_q_target)
+        with torch.no_grad():
+            mu_next, A_next = self.actor_target(s_next)
+            a_next = dist.MultivariateNormal(mu_next, scale_tril=A_next).sample((N,))  # (N, B, da)
+            s_next_exp = s_next.unsqueeze(0).expand(N, -1, -1)                          # (N, B, ds)
+            a_next_flat = a_next.reshape(-1, da)
+            s_next_flat = s_next_exp.reshape(-1, ds)
+            q1_next = self.qf1_target(s_next_flat, a_next_flat).reshape(N, B)
+            q2_next = self.qf2_target(s_next_flat, a_next_flat).reshape(N, B)
+            q_next = torch.min(q1_next, q2_next).mean(0)                               # (B,) clipped double-Q
+            y = (batch_data.rewards.flatten()
+                 + (1 - batch_data.dones.flatten()) * self.gamma_discrete * q_next)
+
+        q1_value = self.qf1(batch_data.observations, batch_data.actions).squeeze()
+        q2_value = self.qf2(batch_data.observations, batch_data.actions).squeeze()
+        loss_q   = self.critic_loss_fn(q1_value, y) + self.critic_loss_fn(q2_value, y)
 
         self.q_optimizer.zero_grad()
-        qf1_loss.backward()
+        loss_q.backward()
         self.q_optimizer.step()
 
-        return qf1_loss.item(), q_value.mean().item()
+        return loss_q.item(), q1_value.mean().item()
 
-    def solve_temp_dual(self, q_samples:torch.Tensor, epsilon:float, n_dual_steps:int=200) -> Tuple[torch.Tensor, torch.Tensor]:
-        _, n_samples = q_samples.shape
-        q_values = q_samples.detach()
+    def solve_temp_dual(self, q_samples: torch.Tensor, epsilon: float, n_dual_steps: int = 30) -> Tuple[torch.Tensor, torch.Tensor]:
+        q_values = q_samples.detach()                        # (N, B)
+        max_q    = q_values.max(dim=0).values                # (B,)
+        centered = q_values - max_q.unsqueeze(0)             # (N, B)
 
         with torch.enable_grad():
             for _ in range(n_dual_steps):
                 self.dual_temp_optimizer.zero_grad()
-                eta = self.log_eta.exp()
-                dual_loss = eta * epsilon + eta * (torch.logsumexp(q_values / eta, dim=-1) - torch.log(torch.tensor(n_samples))).mean()
+                eta          = F.softplus(self._log_eta) + 1e-8
+                log_mean_exp = torch.log(torch.mean(torch.exp(centered / eta), dim=0))  # (B,)
+                dual_loss    = eta * epsilon + max_q.mean() + eta * log_mean_exp.mean()
                 dual_loss.backward()
                 self.dual_temp_optimizer.step()
-                self.log_eta.data.clamp_(-4.0, 4.0)  # keep eta in [~0.02, ~55], prevents q/eta overflow
 
-        eta_star = self.log_eta.exp().detach()
+        with torch.no_grad():
+            eta_star = F.softplus(self._log_eta) + 1e-8
+            weights  = torch.softmax(q_values / eta_star, dim=0)   # (N, B)
 
-        weights = torch.softmax(q_values/eta_star, dim=-1)
-        return eta_star, weights
+        return eta_star.detach(), weights
 
     def solve_kl_dual(self, kl_value: torch.Tensor, epsilon: float, n_dual_steps: int = 30) -> torch.Tensor:
         log_alpha = torch.tensor(0.0, dtype=torch.float32, device=self.device, requires_grad=True)
@@ -456,79 +502,83 @@ class MPO:
         return log_alpha.exp().detach()
 
     def e_step(self,
-               batch_data: ReplayBufferSamples) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        obs = batch_data.observations  # (B, obs_dim)
-        N = self.args.sample_action_num
-        B = obs.size(0)
+               batch_data: ReplayBufferSamples):
+        obs = batch_data.observations
+        N   = self.args.sample_action_num
+        B   = obs.size(0)
+        ds  = obs.size(-1)
+        da  = self.envs.single_action_space.shape[0]
 
-        obs_exp = obs.unsqueeze(1).expand(-1, N, -1).reshape(-1, obs.shape[-1])  # (B*N, obs_dim)
         with torch.no_grad():
-            mean, log_std = self.actor_target(obs_exp)
-            std = log_std.exp()
-            raw_actions = torch.distributions.Normal(mean, std).rsample()  # (B*N, act_dim)
-            bounded_actions = torch.tanh(raw_actions) * self.actor_target.action_scale + self.actor_target.action_bias
-            q_values = self.qf1_target(obs_exp, bounded_actions).reshape(B, N)  # (B, N)
-
-        raw_actions = raw_actions.reshape(B, N, -1)  # (B, N, act_dim)
+            b_mu, b_A       = self.actor_target(obs)                              # (B,da), (B,da,da)
+            b_pi            = dist.MultivariateNormal(b_mu, scale_tril=b_A)
+            sampled_actions = b_pi.sample((N,))                                    # (N,B,da)
+            s_exp           = obs.unsqueeze(0).expand(N, -1, -1)                   # (N,B,ds)
+            a_flat          = sampled_actions.reshape(-1, da)
+            s_flat          = s_exp.reshape(-1, ds)
+            q1_values       = self.qf1_target(s_flat, a_flat).reshape(N, B)
+            q2_values       = self.qf2_target(s_flat, a_flat).reshape(N, B)
+            q_values        = torch.min(q1_values, q2_values)                     # (N,B) clipped double-Q
 
         eta, weights = self.solve_temp_dual(q_values, self.args.dual_constraint, self.args.dual_steps)
 
-        return raw_actions, weights, eta
+        return sampled_actions, weights, eta, b_mu, b_A
 
     def m_step(self,
                obs: torch.Tensor,
                sampled_actions: torch.Tensor,
-               weights: torch.Tensor) -> Tuple[float, float, float, float, float]:
+               weights: torch.Tensor,
+               b_mu: torch.Tensor,
+               b_A: torch.Tensor) -> Tuple[float, float, float, float]:
+
         N = self.args.sample_action_num
         B = obs.size(0)
 
-        obs_exp = obs.unsqueeze(1).expand(-1, N, -1).reshape(-1, obs.shape[-1])  # (B*N, obs_dim)
-        acts_flat = sampled_actions.reshape(-1, sampled_actions.shape[-1])  # (B*N, act_dim)
+        loss_p_val = kl_mu_val = kl_sigma_val = sigma_det_val = 0.0
 
-        # Weighted NLL (supervised fit to E-step distribution)
-        mean, log_std = self.actor(obs_exp)
-        std = log_std.exp()
-        log_probs = torch.distributions.Normal(mean, std).log_prob(acts_flat).reshape(B, N, -1)
-        nll = -(weights.detach() * log_probs.sum(-1)).sum(-1).mean()
+        for _ in range(self.args.mstep_iteration_num):
+            mu, A = self.actor(obs)                                            # (B,da), (B,da,da)
 
-        # Decoupled KL constraints
-        mean_curr, log_std_curr = self.actor(obs)
-        std_curr = log_std_curr.exp()
-        with torch.no_grad():
-            mean_old, log_std_old = self.actor_target(obs)
-            std_old = log_std_old.exp()
+            # Decoupled log-prob: mean term uses old Σ, covariance term uses old μ.
+            pi1    = dist.MultivariateNormal(mu,   scale_tril=b_A)
+            pi2    = dist.MultivariateNormal(b_mu, scale_tril=A)
+            lp1    = pi1.expand((N, B)).log_prob(sampled_actions)              # (N,B)
+            lp2    = pi2.expand((N, B)).log_prob(sampled_actions)              # (N,B)
+            loss_p = torch.mean(weights * (lp1 + lp2))
 
-        # D_KL^μ: sg on sigma_theta — gradients flow only through mu_theta
-        kl_mu = dist.kl_divergence(
-            dist.Normal(mean_curr, std_curr.detach()),
-            dist.Normal(mean_old, std_old)
-        ).sum(-1).mean()
+            kl_mu, kl_sigma, _, sigma_det = gaussian_kl(b_mu, mu, b_A, A)
 
-        # D_KL^Σ: sg on mu_theta — gradients flow only through sigma_theta
-        kl_sigma = dist.kl_divergence(
-            dist.Normal(mean_curr.detach(), std_curr),
-            dist.Normal(mean_old, std_old)
-        ).sum(-1).mean()
+            if torch.isnan(kl_mu) or torch.isnan(kl_sigma):
+                raise RuntimeError('KL is nan in M-step')
 
-        # No loop needed
-        alpha_mu = torch.clamp(kl_mu.detach() - self.args.kl_mean_constraint, min=0.0)
-        alpha_sigma = torch.clamp(kl_sigma.detach() - self.args.kl_var_constraint, min=0.0)
+            # Dual-ascent update of Lagrange multipliers (MPO paper eq. 17).
+            self.alpha_mu    -= self.args.alpha_mean_scale * (self.args.kl_mean_constraint - kl_mu.item())
+            self.alpha_sigma -= self.args.alpha_var_scale  * (self.args.kl_var_constraint  - kl_sigma.item())
+            self.alpha_mu    = float(np.clip(self.alpha_mu,    0.0, self.args.alpha_mean_max))
+            self.alpha_sigma = float(np.clip(self.alpha_sigma, 0.0, self.args.alpha_var_max))
 
-        policy_loss = (nll
-                       + alpha_mu    * (kl_mu    - self.args.kl_mean_constraint)
-                       + alpha_sigma * (kl_sigma - self.args.kl_var_constraint))
+            loss_l = -(loss_p
+                       + self.alpha_mu    * (self.args.kl_mean_constraint - kl_mu)
+                       + self.alpha_sigma * (self.args.kl_var_constraint  - kl_sigma))
 
-        self.actor_optimizer.zero_grad()
-        policy_loss.backward()
-        nn.utils.clip_grad_norm_(self.actor.parameters(), self.args.max_grad_norm)
-        self.actor_optimizer.step()
+            self.actor_optimizer.zero_grad()
+            loss_l.backward()
+            nn.utils.clip_grad_norm_(self.actor.parameters(), self.args.max_grad_norm)
+            self.actor_optimizer.step()
 
-        return policy_loss.item(), kl_mu.item(), kl_sigma.item(), alpha_mu.item(), alpha_sigma.item()
+            loss_p_val    = (-loss_p).item()
+            kl_mu_val     = kl_mu.item()
+            kl_sigma_val  = kl_sigma.item()
+            sigma_det_val = sigma_det.item()
+
+        return loss_p_val, kl_mu_val, kl_sigma_val, sigma_det_val
 
     def _update_targets(self) -> None:
         for p, p_tgt in zip(self.actor.parameters(), self.actor_target.parameters()):
             p_tgt.data.lerp_(p.data, self.tau)
         for p, p_tgt in zip(self.qf1.parameters(), self.qf1_target.parameters()):
+            p_tgt.data.lerp_(p.data, self.tau)
+        for p, p_tgt in zip(self.qf2.parameters(), self.qf2_target.parameters()):
             p_tgt.data.lerp_(p.data, self.tau)
 
     def learn(self, global_step=None):
@@ -548,27 +598,27 @@ class MPO:
 
         # 2. E-step — compute action weights
         t_estep_start = time.time()
-        sampled_actions, weights, eta = self.e_step(data)
+        sampled_actions, weights, eta, b_mu, b_A = self.e_step(data)
         t_estep = time.time() - t_estep_start
 
         # 3. M-step — actor update
         t_mstep_start = time.time()
-        policy_loss, kl_mu, kl_sigma, alpha_mu, alpha_sigma = self.m_step(data.observations, sampled_actions, weights)
+        loss_p, kl_mu, kl_sigma, sigma_det = self.m_step(data.observations, sampled_actions, weights, b_mu, b_A)
         t_mstep = time.time() - t_mstep_start
 
         self._update_targets()
 
         return {
             'loss_q': qf1_loss,
-            'loss_p': policy_loss,
+            'loss_p': loss_p,
             'loss_lagrangian': None,
             'mean_q': mean_q,
             'eta': eta.item(),
             'kl_mu': kl_mu,
             'kl_sigma': kl_sigma,
-            'sigma_det': None,
-            'alpha_mu': alpha_mu,
-            'alpha_sigma': alpha_sigma,
+            'sigma_det': sigma_det,
+            'alpha_mu': self.alpha_mu,
+            'alpha_sigma': self.alpha_sigma,
             't_critic': t_critic,
             't_estep': t_estep,
             't_mstep': t_mstep,
@@ -663,10 +713,14 @@ class MPO:
             "actor_target": self.actor_target.state_dict(),
             "qf1": self.qf1.state_dict(),
             "qf1_target": self.qf1_target.state_dict(),
+            "qf2": self.qf2.state_dict(),
+            "qf2_target": self.qf2_target.state_dict(),
             "actor_optimizer": self.actor_optimizer.state_dict(),
             "q_optimizer": self.q_optimizer.state_dict(),
-            "log_eta": self.log_eta.item(),
+            "log_eta": self._log_eta.item(),
             "dual_temp_optimizer": self.dual_temp_optimizer.state_dict(),
+            "alpha_mu": self.alpha_mu,
+            "alpha_sigma": self.alpha_sigma,
             "global_step": global_step,
         }
         torch.save(checkpoint, os.path.join(self.weights_folder, f"checkpoint_{global_step}.pth"))
@@ -730,8 +784,14 @@ class MPO:
             times['time_step_the_environment'].append(time.time() - time_start)
 
             # Add transition to buffer.
+            # gymnasium SyncVectorEnv auto-resets: next_obs is the new episode's
+            # first obs when terminated/truncated. Use final_observation instead.
             time_start = time.time()
-            self.add_transition(obs, next_obs, actions, rewards, terminations, infos)
+            real_next_obs = next_obs.copy()
+            for idx in range(self.envs.num_envs):
+                if terminations[idx] or truncations[idx]:
+                    real_next_obs[idx] = infos["final_observation"][idx]
+            self.add_transition(obs, real_next_obs, actions, rewards, terminations, infos)
             times['time_add_transition_buffer'].append(time.time() - time_start)
 
             # Update the observation.
