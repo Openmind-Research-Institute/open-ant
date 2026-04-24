@@ -6,7 +6,8 @@ if [ "$1" == "sim" ]; then
         --render_mode rgb_array \
         --env_id SimEmbodiedAnt \
         --runs_directory runs_sim_test \
-        --exp_name trial_1
+        --exp_name trial_1 \
+        --num_envs 1
 fi
 
 # Learn on hardware.
@@ -15,12 +16,11 @@ if [ "$1" == "hw" ]; then
         --render_mode rgb_array \
         --dt 0.12 \
         --env_id HwEmbodiedAnt \
-        --hw_config ../../embodied_ant_env/ant34.json \
+        --hw_config ../../embodied_ant_env/ant12.json \
         --learning_starts 2000 \
         --task_type back_and_forth \
-        --runs_directory runs_hw \
+        --runs_directory runs_hw_new_refactored_code \
         --exp_name trial_1 \
-        --use_layer_norm \
         --seed 1 \
         # --eval True
 fi
