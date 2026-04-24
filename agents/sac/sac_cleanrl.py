@@ -149,11 +149,12 @@ def make_ant_envs(args, task, disk_folder, run_name, runs_directory='runs'):
                                    joint_config=joint_config,
                                    task=task,
                                    )
+                # env.metadata['render_fps'] = 1/args.dt
 
             if capture_video and idx == 0:
                 print('RecordVideo')
                 env = gym.wrappers.RecordVideo(env, os.path.join(disk_folder, runs_directory, run_name, "videos", run_name),
-                                               step_trigger=lambda x: x % 500 == 0, video_length=500)
+                                               step_trigger=lambda x: x % args.save_every_n_steps == 0, video_length=args.save_every_n_steps)
             env.action_space.seed(seed)
             # Reward scaling.
             env = gym.wrappers.TransformReward(env, lambda reward: reward * args.reward_scale)
@@ -188,6 +189,7 @@ class SAC:
                  use_layer_norm: bool,
                  dt: float,
                  torch_deterministic: bool = True,
+                 record_infos_sac = True
                  ):
 
         # Environment.
@@ -224,6 +226,8 @@ class SAC:
         self.tau = tau
         self.dt = dt
 
+        self.record_infos_sac = record_infos_sac
+
         # Alpha (entropy coefficient).
         if self.autotune:
             self.target_entropy = -torch.prod(torch.Tensor(self.envs.single_action_space.shape).to(self.device)).item()
@@ -247,16 +251,20 @@ class SAC:
         self.global_step = 0
         self.obs = None
         
-    def get_action(self, obs):
+    def get_action(self, obs, evaluate=False):
         if self.obs is None:
             self.obs = obs
             return np.array([self.envs.single_action_space.sample() for _ in range(self.envs.num_envs)])
 
-        if self.global_step < self.learning_starts:
-            actions = np.array([self.envs.single_action_space.sample() for _ in range(self.envs.num_envs)])
-        else:
+        # If we are in evaluation mode or we have reached the learning starts, get the action from the actor.
+        if evaluate == True or self.global_step > self.learning_starts:
             actions, _, _ = self.actor.get_action(torch.Tensor(self.obs).to(self.device))
             actions = actions.detach().cpu().numpy()
+            return actions
+
+        # Otherwise, pick a random action.
+        actions = np.array([self.envs.single_action_space.sample() for _ in range(self.envs.num_envs)])
+
         return actions
  
     def agent_step(self, next_obs, actions, rewards, terminations, truncations, infos):
@@ -269,15 +277,19 @@ class SAC:
             "terminations": torch.as_tensor(terminations, dtype=torch.float32, device=self.device).unsqueeze(-1),                     # or use "terminated" + "truncated" separately if you prefer
         }, batch_size=[self.envs.num_envs])
 
-        # Use .extend() instead of .add() when adding a batch of transitions
+        # Use .extend() instead of .add() when adding a batch of transitions.
         self.rb.extend(tensor_dict)
  
         self.global_step += 1
         self.obs = next_obs
 
+        qf1_loss = None
+        qf2_loss = None
+        alpha_loss = None
+        actor_loss = None
+
         # Learning.
         if self.global_step > self.learning_starts:
-            # data = self.rb.sample(self.batch_size)
             data, info_buffer = self.rb.sample(self.batch_size, return_info=True)
             with torch.no_grad():
                 next_state_actions, next_state_log_pi, _ = self.actor.get_action(data["next_observations"])
@@ -332,31 +344,49 @@ class SAC:
                     target_param.data.copy_(
                         self.tau * param.data + (1 - self.tau) * target_param.data)
 
+        info_sac = None
+        if self.record_infos_sac == True:
+            info_sac = {
+                'global_step': self.global_step,
+                'qf1_loss': qf1_loss.item() if qf1_loss is not None else qf1_loss,
+                'qf2_loss': qf2_loss.item() if qf2_loss is not None else qf2_loss,
+                'actor_loss': actor_loss.item() if actor_loss is not None else actor_loss,
+                'alpha': self.alpha,
+                'alpha_loss': alpha_loss.item() if alpha_loss is not None else alpha_loss,
+                'rewards': rewards.flatten().tolist(),
+                'original_rewards': infos['original_reward'].flatten().tolist(),
+            }
+        return info_sac
+
     def agent_step_eval(self, next_obs):
-        # Get the action.
-        if self.obs is None:
-            self.obs = next_obs
-            return np.array([self.envs.single_action_space.sample() for _ in range(self.envs.num_envs)])
-
-        actions, _, _ = self.actor.get_action(torch.Tensor(self.obs).to(self.device))
-        actions = actions.detach().cpu().numpy()
-
         self.global_step += 1
         self.obs = next_obs
 
+    def set_global_step(self, global_step: int):
+        self.global_step = global_step
+
+    def get_replay_buffer(self):
+        return self.rb
+
+    def load_replay_buffer(self, replay_buffer_path):
+        self.rb.loads(replay_buffer_path)
+
     def get_state(self):
-        """Returns the full state of the agent including all network weights."""
+        """Returns the full state of the agent including all network weights and optimizers."""
         state = {
             "actor": self.actor.state_dict(),
             "qf1": self.qf1.state_dict(),
             "qf2": self.qf2.state_dict(),
             "qf1_target": self.qf1_target.state_dict(),
             "qf2_target": self.qf2_target.state_dict(),
-            "global_step": self.global_step,
+            "q_optimizer": self.q_optimizer.state_dict(),
+            "actor_optimizer": self.actor_optimizer.state_dict(),
+            "global_step": self.global_step
         }
         if self.autotune:
             state["log_alpha"] = self.log_alpha.cpu().detach()
             state["alpha"] = self.alpha
+            state["a_optimizer"] = self.a_optimizer.state_dict()
         return state
 
     def load_state(self, state_dict):
@@ -366,6 +396,8 @@ class SAC:
         self.qf2.load_state_dict(state_dict["qf2"])
         self.qf1_target.load_state_dict(state_dict["qf1_target"])
         self.qf2_target.load_state_dict(state_dict["qf2_target"])
+        self.q_optimizer.load_state_dict(state_dict["q_optimizer"])
+        self.actor_optimizer.load_state_dict(state_dict["actor_optimizer"])
         self.global_step = state_dict.get("global_step", 0)
         if self.autotune and "log_alpha" in state_dict:
             log_alpha_tensor = state_dict["log_alpha"].to(self.device)
@@ -376,6 +408,8 @@ class SAC:
                 self.alpha = state_dict["alpha"]
             else:
                 self.alpha = self.log_alpha.exp().item()
+            if "a_optimizer" in state_dict and self.a_optimizer is not None:
+                self.a_optimizer.load_state_dict(state_dict["a_optimizer"])
 
 
 # For logging.
@@ -400,6 +434,10 @@ def parse_args():
                         help="if toggled, cuda will be enabled by default")
     parser.add_argument("--capture_video", action="store_true",
                         help="capture video of agent performances")
+    parser.add_argument("--eval", action="store_true", default=False,
+                        help="evaluate the agent")
+    parser.add_argument("--save_every_n_steps", type=int, default=4000,
+                        help="save every n steps")
 
     # Algorithm.
     parser.add_argument("--env_id", type=str, default="EAnt",
@@ -449,14 +487,14 @@ def parse_args():
     parser.add_argument("--task_type", type=str, default="back_and_forth",
                         choices=["forward", "back_and_forth"],
                         help="type of task")
+    parser.add_argument("--radius_back_and_forth", type=float, default=0.3,
+                        help="radius of the back and forth task")
+    parser.add_argument("--origin_back_and_forth", type=float, nargs=2, default=[0.75, -0.3],
+                        help="origin of the back and forth task")
     parser.add_argument("--reward_scale", type=float, default=100.0,
                         help="reward scale factor")
     parser.add_argument("--model_path", type=str, default="../../sim/assets/ant_with_camera_after_sys_id.xml",
                         help="XML file to use for the environment")
-    parser.add_argument("--eval", type=bool, default=False,
-                        help="evaluate the agent")
-    parser.add_argument("--save_every_n_steps", type=int, default=500,
-                        help="save every n steps")
 
     args = parser.parse_args()
     return args
@@ -471,14 +509,16 @@ if __name__ == "__main__":
     run_name = f"{args.exp_name}_{date}_seed_{args.seed}"
     os.makedirs(os.path.join(args.runs_directory, run_name), exist_ok=True)
 
+    # Save the args.
+    with open(os.path.join(args.runs_directory, run_name, "args.json"), "w") as f:
+        json.dump(args.__dict__, f)
+
     # Create task.
     if args.task_type == "forward":
         task = ForwardTask()
     elif args.task_type == "back_and_forth":
-        # RADIUS = 0.3
-        RADIUS = 1.0
-        # ORIGIN = np.array([0.75,  -0.35]) # Measured in the environment.
-        ORIGIN = np.array([0, 0])
+        RADIUS = args.radius_back_and_forth
+        ORIGIN = np.array(args.origin_back_and_forth) # Measured in the environment.
         task = BackAndForthTask(
             radius=RADIUS,
             origin=ORIGIN,
@@ -515,10 +555,19 @@ if __name__ == "__main__":
                 seed=args.seed,
                 dt=args.dt)
 
-    # Load the model if eval.
-    if args.eval:
-        state = torch.load(os.path.join(args.weights_path))
+    step = 0
+    # Load the model.
+    if args.weights_path is not None:
+        state = torch.load(os.path.join(args.weights_path, f"weights.pth"))
         agent.load_state(state)
+        step = state["global_step"]
+        agent.load_replay_buffer(os.path.join(args.weights_path, f"replay_buffer"))
+
+    if args.eval:
+        step = 0 # Reset the step to 0 when eval.
+
+    agent.set_global_step(step)
+    print(f"Step: {step}")
 
     # Reward tracker.
     env_dt = args.dt
@@ -529,17 +578,28 @@ if __name__ == "__main__":
                                    log_folder=os.path.join(args.runs_directory, run_name),
                                    )
 
-    obs, info = envs.reset(seed=args.seed)
-    step = 0
+    info_sac_logs = []
+    info_sac = None
 
-    for step in tqdm(range(args.total_timesteps)):
-        selected_actions = agent.get_action(obs)
+    obs, info = envs.reset(seed=args.seed)
+
+    for step in tqdm(range(step, args.total_timesteps), initial=step):
+
+        # Get action.
+        selected_actions = agent.get_action(obs, args.eval)
+
+        # Step env.
         next_obs, rewards, terminations, truncations, infos = envs.step(selected_actions)
-        if args.eval:
+        if args.eval == True:
             agent.agent_step_eval(next_obs)
         else:
-            agent.agent_step(next_obs, selected_actions, rewards, terminations, truncations, infos)
+            # Learn.
+            info_sac = agent.agent_step(next_obs, selected_actions, rewards, terminations, truncations, infos)
+
         reward_tracker.update(infos['original_reward'][0])
+
+        if info_sac is not None:
+            info_sac_logs.append(info_sac)
 
         if any(truncations) or any(terminations):
             envs.reset()
@@ -547,6 +607,14 @@ if __name__ == "__main__":
         # Save the model.
         if step % args.save_every_n_steps == 0:
             state = agent.get_state()
-            torch.save(state, os.path.join(args.runs_directory, run_name, f"weights_and_args.pth"))
+            torch.save(state, os.path.join(args.runs_directory, run_name, f"weights.pth"))
+
+            replay_buffer = agent.get_replay_buffer()
+            replay_buffer.dumps(os.path.join(args.runs_directory, run_name, f"replay_buffer"))
+            # Reward tracker.
             reward_tracker.log()
+
+            # Save to csv.
+            df_info_sac_logs = pd.DataFrame(info_sac_logs)
+            df_info_sac_logs.to_csv(os.path.join(args.runs_directory, run_name, "info_sac_logs.csv"), index=False)
 
