@@ -190,8 +190,6 @@ class EmbodiedAnt(gym.Env):
         # self.temperature_log = open('temperature_log.csv', 'w')
         self.error_log = open('error_log.csv', 'w')
 
-        self.info_saved = None
-
     def __del__(self):
         self.close()
 
@@ -223,11 +221,6 @@ class EmbodiedAnt(gym.Env):
             sleep_duration = self.dt - time_since_last_step
             if sleep_duration < 0:
                 # print what starts with env_time_
-                if self.info_saved is not None:
-                    for key in self.info_saved:
-                        if key.startswith('env_time_'):
-                            print(key, self.info_saved[key])
-                print("--------------------------------")
                 print(f"Warning: calls to step() exceeded step size (time since last step: {time_since_last_step:.3f}s).")
                 sleep_duration = 0
         if sleep_until_next_step:
@@ -265,7 +258,7 @@ class EmbodiedAnt(gym.Env):
         if self.tracker_lost(info):
             truncated = True
 
-        if self.render_mode == 'human':
+        if self.render_mode == 'human' or self.render_mode == 'rgb_array':
             self.i += 1
 
             if isinstance(self.task, BackAndForthTask):
@@ -289,11 +282,10 @@ class EmbodiedAnt(gym.Env):
                     self.tracker.draw_arrow(self.vis_frame,
                                             self.last_pos,
                                             r_I)
+            info['vis_frame'] = self.vis_frame
             if self.render_mode == 'human':
                 if self.i % 10 == 0:
                     show_image(self.vis_frame)
-
-        self.info_saved = info
 
         return observation, reward, terminated, truncated, info
 
