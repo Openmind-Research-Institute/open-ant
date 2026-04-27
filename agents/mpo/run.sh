@@ -2,25 +2,25 @@
 
 # Learn in simulation.
 if [ "$1" == "sim" ]; then
-    python3 mpo_pytorch.py \
+    python3 mpo_default.py \
         --render_mode rgb_array \
+        --dt 0.15 \
         --env_id SimEmbodiedAnt \
-        --runs_directory runs_sim_test \
-        --exp_name trial_1
+        --runs_directory runs \
+        --exp_name baseline
 fi
 
 # Learn on hardware.
 if [ "$1" == "hw" ]; then
     python3 mpo_pytorch.py \
         --render_mode rgb_array \
-        --dt 0.12 \
+        --dt 0.15 \
         --env_id HwEmbodiedAnt \
-        --hw_config ../../embodied_ant_env/ant34.json \
-        --learning_starts 2000 \
+        --hw_config ../../embodied_ant_env/ant12.json \
+        --learning_starts 100 \
         --task_type back_and_forth \
         --runs_directory runs_hw \
         --exp_name trial_1 \
-        --use_layer_norm \
         --seed 1 \
         # --eval True
 fi
