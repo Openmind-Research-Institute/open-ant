@@ -3,6 +3,7 @@ import numpy as np
 import time
 import logging
 
+
 class MotorController:
     ADDR_TORQUE_ENABLE = 64
     ADDR_GOAL_POSITION = 116
@@ -15,6 +16,9 @@ class MotorController:
     ADDR_PWM_LIMIT = 36
     ADDR_SHUTDOWN = 63
 
+    class MotorControllerError(Exception):
+        pass
+
     def __init__(self, port, motor_list, baudrate=1000000, logger_level="DEBUG"):
         self.port = dynamixel_sdk.PortHandler(port)
         self.packet = dynamixel_sdk.PacketHandler(2.0)
@@ -25,10 +29,10 @@ class MotorController:
 
         if not self.port.openPort():
             self.logger.error("Failed to open port %s", port)
-            raise Exception(f"Failed to open port {port}")
+            raise MotorControllerError(f"Failed to open port {port}")
         if not self.port.setBaudRate(baudrate):
             self.logger.error("Failed to set baudrate %s on port %s", baudrate, port)
-            raise Exception(f"Failed to set baudrate {baudrate} on port {port}")
+            raise MotorControllerError(f"Failed to set baudrate {baudrate} on port {port}")
         self.motor_list = motor_list
         self.find_offset()
 
@@ -36,15 +40,21 @@ class MotorController:
         self.disable()
 
     def sync_read_rxtx_retry(self, sync_read_obj, num_retries=3):
-        for attempt in range(num_retries):
-            dxl_comm_result = sync_read_obj.txRxPacket()
-            if dxl_comm_result == dynamixel_sdk.COMM_SUCCESS:
-                return dxl_comm_result
-            self.logger.warning("sync_read attempt %d/%d failed: %s; retrying...",
-                           attempt, num_retries, dxl_comm_result)
-        self.logger.error("sync_read failed after %d attempts: %s",
-                     num_retries, dxl_comm_result)
-        raise Exception(f"Failed to perform sync read: {dxl_comm_result}")
+        try:
+            for attempt in range(num_retries):
+                dxl_comm_result = sync_read_obj.txRxPacket()
+                if dxl_comm_result == dynamixel_sdk.COMM_SUCCESS:
+                    return dxl_comm_result
+                self.logger.warning("sync_read attempt %d/%d failed: %s; retrying...",
+                            attempt, num_retries, dxl_comm_result)
+                self.port.closePort()
+                self.port.openPort() # re-open port to clear buffer
+            self.logger.error("sync_read failed after %d attempts: %s",
+                        num_retries, dxl_comm_result)
+            raise MotorControllerError(f"Failed to perform sync read: {dxl_comm_result}")
+        except serial.serialutil.SerialException as e:
+            self.logger.error(f"Serial exception: {e}")
+            raise MotorControllerError(f"Serial exception: {e}")
 
     def find_offset(self):
         self.offset = [0] * len(self.motor_list)
@@ -61,25 +71,25 @@ class MotorController:
             res, err = self.packet.write1ByteTxRx(self.port, motor['id'], self.ADDR_TORQUE_ENABLE, 0)
             if res != dynamixel_sdk.COMM_SUCCESS:
                 self.logger.error(f"Failed to disable torque: {self.packet.getTxRxResult(res)}")
-                raise Exception(f"Failed to disable torque: {self.packet.getTxRxResult(res)}")
+                raise MotorControllerError(f"Failed to disable torque: {self.packet.getTxRxResult(res)}")
             res, err = self.packet.write1ByteTxRx(self.port, motor['id'], self.ADDR_OPERATING_MODE, 4) # multi-turn mode
             if res != dynamixel_sdk.COMM_SUCCESS:
                 self.logger.error(f"Failed to set operating mode: {self.packet.getTxRxResult(res)}")
-                raise Exception(f"Failed to set operating mode: {self.packet.getTxRxResult(res)}")
+                raise MotorControllerError(f"Failed to set operating mode: {self.packet.getTxRxResult(res)}")
             res, err = self.packet.write2ByteTxRx(self.port, motor['id'], self.ADDR_PWM_LIMIT, int(50/0.113)) # set PWM limit
             if res != dynamixel_sdk.COMM_SUCCESS:
                 self.logger.error(f"Failed to set PWM limit: {self.packet.getTxRxResult(res)}")
-                raise Exception(f"Failed to set PWM limit: {self.packet.getTxRxResult(res)}")
+                raise MotorControllerError(f"Failed to set PWM limit: {self.packet.getTxRxResult(res)}")
             val = (1 << 0) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) # faults: voltage, overheat, encoder, electrical, overload
             res, err = self.packet.write1ByteTxRx(self.port, motor['id'], self.ADDR_SHUTDOWN, val) # set fault shutdown
             if res != dynamixel_sdk.COMM_SUCCESS:
                 self.logger.error(f"Failed to set fault shutdown: {self.packet.getTxRxResult(res)}")
-                raise Exception(f"Failed to set fault shutdown: {self.packet.getTxRxResult(res)}")
+                raise MotorControllerError(f"Failed to set fault shutdown: {self.packet.getTxRxResult(res)}")
             # all settings must be changed before enabling torque
             res, err = self.packet.write1ByteTxRx(self.port, motor['id'], self.ADDR_TORQUE_ENABLE, 1)
             if res != dynamixel_sdk.COMM_SUCCESS:
                 self.logger.error(f"Failed to enable torque: {self.packet.getTxRxResult(res)}")
-                raise Exception(f"Failed to enable torque: {self.packet.getTxRxResult(res)}")
+                raise MotorControllerError(f"Failed to enable torque: {self.packet.getTxRxResult(res)}")
         self.find_offset()
 
     def disable(self):
@@ -87,7 +97,7 @@ class MotorController:
             res, err = self.packet.write1ByteTxRx(self.port, motor['id'], self.ADDR_TORQUE_ENABLE, 0)
             if res != dynamixel_sdk.COMM_SUCCESS:
                 self.logger.error(f"Failed to disable torque: {self.packet.getTxRxResult(res)}")
-                raise Exception(f"Failed to disable torque: {self.packet.getTxRxResult(res)}")
+                raise MotorControllerError(f"Failed to disable torque: {self.packet.getTxRxResult(res)}")
 
     def pos_to_dxl_units(self, pos):
         return int((pos) * 4095 / (2 * np.pi))
@@ -104,21 +114,25 @@ class MotorController:
         return value
 
     def set_positions(self, positions):
-        sync_write = dynamixel_sdk.GroupSyncWrite(self.port, self.packet, self.ADDR_GOAL_POSITION, 4)
-        for pos, motor, offset in zip(positions, self.motor_list, self.offset):
-            data = [0] * 4
-            pos = np.clip(pos, motor['min_position'], motor['max_position'])
-            pos_dxl_units = self.pos_to_dxl_units(pos + offset)
-            data[0] = pos_dxl_units & 0xFF
-            data[1] = (pos_dxl_units >> 8) & 0xFF
-            data[2] = (pos_dxl_units >> 16) & 0xFF
-            data[3] = (pos_dxl_units >> 24) & 0xFF
-            sync_write.addParam(motor['id'], data)
-        dxl_comm_result = sync_write.txPacket()
-        if dxl_comm_result != dynamixel_sdk.COMM_SUCCESS:
-            self.logger.error(f"Failed to set positions: {self.packet.getTxRxResult(dxl_comm_result)}")
-            raise Exception(f"Failed to set positions: {self.packet.getTxRxResult(dxl_comm_result)}")
-        sync_write.clearParam()
+        try:
+            sync_write = dynamixel_sdk.GroupSyncWrite(self.port, self.packet, self.ADDR_GOAL_POSITION, 4)
+            for pos, motor, offset in zip(positions, self.motor_list, self.offset):
+                data = [0] * 4
+                pos = np.clip(pos, motor['min_position'], motor['max_position'])
+                pos_dxl_units = self.pos_to_dxl_units(pos + offset)
+                data[0] = pos_dxl_units & 0xFF
+                data[1] = (pos_dxl_units >> 8) & 0xFF
+                data[2] = (pos_dxl_units >> 16) & 0xFF
+                data[3] = (pos_dxl_units >> 24) & 0xFF
+                sync_write.addParam(motor['id'], data)
+            dxl_comm_result = sync_write.txPacket()
+            if dxl_comm_result != dynamixel_sdk.COMM_SUCCESS:
+                self.logger.error(f"Failed to set positions: {self.packet.getTxRxResult(dxl_comm_result)}")
+                raise MotorControllerError(f"Failed to set positions: {self.packet.getTxRxResult(dxl_comm_result)}")
+            sync_write.clearParam()
+        except serial.serialutil.SerialException as e:
+            self.logger.error(f"Serial exception: {e}")
+            raise MotorControllerError(f"Serial exception: {e}")
 
     def get_feedback_raw(self):
         sync_read = dynamixel_sdk.GroupSyncRead(self.port, self.packet, self.ADDR_PRESENT_LOAD, 2 + 4 + 4)
@@ -134,19 +148,19 @@ class MotorController:
                 positions.append(self.interpret_int_as_signed(data, 32))
             else:
                 self.logger.error(f"Motor {motor['id']} not found in sync read")
-                raise Exception(f"Motor {motor['id']} not found in sync read")
+                raise MotorControllerError(f"Motor {motor['id']} not found in sync read")
             if sync_read.isAvailable(motor['id'], self.ADDR_PRESENT_VELOCITY, 4):
                 data = sync_read.getData(motor['id'], self.ADDR_PRESENT_VELOCITY, 4)
                 velocities.append(self.interpret_int_as_signed(data, 32))
             else:
                 self.logger.error(f"Motor {motor['id']} not found in sync read")
-                raise Exception(f"Motor {motor['id']} not found in sync read")
+                raise MotorControllerError(f"Motor {motor['id']} not found in sync read")
             if sync_read.isAvailable(motor['id'], self.ADDR_PRESENT_LOAD, 2):
                 data = sync_read.getData(motor['id'], self.ADDR_PRESENT_LOAD, 2)
                 loads.append(self.interpret_int_as_signed(data, 16))
             else:
                 self.logger.error(f"Motor {motor['id']} not found in sync read")
-                raise Exception(f"Motor {motor['id']} not found in sync read")
+                raise MotorControllerError(f"Motor {motor['id']} not found in sync read")
         sync_read.clearParam()
         return positions, velocities, loads
 
@@ -187,14 +201,20 @@ class MotorController:
                     self.logger.error(f"Motor {motor['id']} has errors: {self.get_error_string(data)}")
             else:
                 self.logger.error(f"Motor {motor['id']} not found in sync read")
-                raise Exception(f"Motor {motor['id']} not found in sync read")
+                raise MotorControllerError(f"Motor {motor['id']} not found in sync read")
         return errors
 
     def recover_from_error(self):
-        for motor in self.motor_list:
-            self.packet.reboot(self.port, motor['id'])
-            time.sleep(0.1)
-        self.enable()
+        try:
+            for motor in self.motor_list:
+                self.packet.reboot(self.port, motor['id'])
+                time.sleep(0.1)
+            self.port.closePort()
+            self.port.openPort() # re-open port to clear buffer
+            self.enable()
+        except serial.serialutil.SerialException as e:
+            self.logger.error(f"Serial exception: {e}")
+            raise MotorControllerError(f"Serial exception: {e}")
 
     def get_temperature(self):
         sync_read = dynamixel_sdk.GroupSyncRead(self.port, self.packet, self.ADDR_PRESENT_TEMPERATURE, 1)
@@ -208,7 +228,7 @@ class MotorController:
                 temperatures.append(data)
             else:
                 self.logger.error(f"Motor {motor['id']} not found in sync read")
-                raise Exception(f"Motor {motor['id']} not found in sync read")
+                raise MotorControllerError(f"Motor {motor['id']} not found in sync read")
         sync_read.clearParam()
         return temperatures
 
