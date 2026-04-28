@@ -235,11 +235,12 @@ class MPO:
         return np.array([self.envs.single_action_space.sample() for _ in range(self.envs.num_envs)])
 
     def agent_step(self, next_obs, actions, rewards, terminations, truncations, infos):
-        # Gymnasium SyncVectorEnv auto-resets: recover the true final obs.
+        # SyncVectorEnv auto-resets and stores the true final obs; hw env does not.
         real_next_obs = next_obs.copy()
-        for idx in range(self.envs.num_envs):
-            if terminations[idx] or truncations[idx]:
-                real_next_obs[idx] = infos["final_observation"][idx]
+        if "final_observation" in infos:
+            for idx in range(self.envs.num_envs):
+                if terminations[idx] or truncations[idx]:
+                    real_next_obs[idx] = infos["final_observation"][idx]
 
         self.rb.add(self.obs, real_next_obs, actions, rewards, terminations,
                     [{}] * self.envs.num_envs)
