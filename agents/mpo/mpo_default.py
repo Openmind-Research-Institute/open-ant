@@ -184,6 +184,8 @@ class MPO:
         self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=args.policy_lr)
         self.critic_optimizers = [optim.Adam(c.parameters(), lr=args.q_lr) for c in self.critics]
 
+        self.policy_learning_starts = 2000
+
         # Dual variable for E-step temperature.
         self.log_eta = torch.tensor(0.0, dtype=torch.float32, device=self.device, requires_grad=True)
         self.dual_temp_optimizer = optim.Adam([self.log_eta], lr=args.dual_lr)
@@ -262,19 +264,27 @@ class MPO:
         self.obs = next_obs
 
     def _learn(self):
+        if self.global_step >= self.policy_learning_starts:
+            self.args.decouple_q_learning = False
+
         data = self.rb.sample(self.args.batch_size)
 
         t0 = time.time()
         loss_q, mean_q = self._update_critic(data)
         t_critic = time.time() - t0
 
-        t0 = time.time()
-        raw_actions, weights, eta, b_mu, b_sigma = self._e_step(data)
-        t_estep = time.time() - t0
+        loss_p = kl_mu = kl_sigma = 0.0
+        eta = self.log_eta.exp().detach()
+        t_estep = t_mstep = 0.0
 
-        t0 = time.time()
-        loss_p, kl_mu, kl_sigma = self._m_step(data.observations, raw_actions, weights, b_mu, b_sigma)
-        t_mstep = time.time() - t0
+        if not self.args.decouple_q_learning:
+            t0 = time.time()
+            raw_actions, weights, eta, b_mu, b_sigma = self._e_step(data)
+            t_estep = time.time() - t0
+
+            t0 = time.time()
+            loss_p, kl_mu, kl_sigma = self._m_step(data.observations, raw_actions, weights, b_mu, b_sigma)
+            t_mstep = time.time() - t0
 
         self._update_targets()
 
@@ -419,8 +429,10 @@ class MPO:
         return loss_p_val, kl_mu_val, kl_sigma_val
 
     def _update_targets(self):
-        for p, p_tgt in zip(self.actor.parameters(), self.actor_target.parameters()):
-            p_tgt.data.lerp_(p.data, self.args.tau)
+        if not self.args.decouple_q_learning:
+            for p, p_tgt in zip(self.actor.parameters(), self.actor_target.parameters()):
+                p_tgt.data.lerp_(p.data, self.args.tau)
+        
         for critic, target_critic in zip(self.critics, self.target_critics):
             for p, p_tgt in zip(critic.parameters(), target_critic.parameters()):
                 p_tgt.data.lerp_(p.data, self.args.tau)
@@ -579,6 +591,7 @@ def parse_args():
     parser.add_argument("--hidden_dim", type=int, default=256)
     parser.add_argument("--n_hidden_layers", type=int, default=2)
     parser.add_argument("--utd_ratio", type=int, default=1)
+    parser.add_argument("--decouple_q_learning", action='store_true', default=False)
 
     # MPO specific.
     parser.add_argument("--dual_constraint", type=float, default=0.1,
