@@ -7,7 +7,8 @@ if [ "$1" == "sim" ]; then
         --dt 0.15 \
         --env_id SimEmbodiedAnt \
         --runs_directory runs \
-        --exp_name baseline
+        --exp_name perf_check \
+        --utd_ratio 1 \
 fi
 
 # Learn on hardware.
