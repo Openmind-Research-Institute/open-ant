@@ -94,7 +94,7 @@ ax.axhline(y=0, color='black', linestyle='--', linewidth=1.0)
 ax.set_xlabel('Time [minutes]')
 ax.set_ylabel('Average Reward per Second [cm/s]')
 ax.set_title(f'Training curves — Average Reward (smoothing window={TIME_WINDOW}s)')
-ax.legend(loc='upper left', framealpha=0.7, fontsize=10)
+ax.legend(loc='lower right', framealpha=0.7, fontsize='x-small', ncols=2)
 ax.grid(True, alpha=0.3, linestyle='--')
 
 plt.tight_layout()
