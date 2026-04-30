@@ -1,6 +1,7 @@
 import os
 import csv
 import sys
+import copy
 import json
 import time
 import random
@@ -172,15 +173,16 @@ class MPO:
         self.actor_target.load_state_dict(self.actor.state_dict())
         for p in self.actor_target.parameters():
             p.requires_grad = False
-
-        self.critic = Critic(envs, hidden_dims=hidden_dims, use_layer_norm=args.use_layer_norm).to(self.device)
-        self.critic_target = Critic(envs, hidden_dims=hidden_dims, use_layer_norm=args.use_layer_norm).to(self.device)
-        self.critic_target.load_state_dict(self.critic.state_dict())
-        for p in self.critic_target.parameters():
+        
+        self.critics = nn.ModuleList([Critic(envs,
+                                             hidden_dims=hidden_dims,
+                                             use_layer_norm=args.use_layer_norm) for _ in range(self.args.ensemble)]).to(self.device)
+        self.target_critics = copy.deepcopy(self.critics)
+        for p in self.target_critics.parameters():
             p.requires_grad = False
-
+            
         self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=args.policy_lr)
-        self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=args.q_lr)
+        self.critic_optimizers = [optim.Adam(c.parameters(), lr=args.q_lr) for c in self.critics]
 
         # Dual variable for E-step temperature.
         self.log_eta = torch.tensor(0.0, dtype=torch.float32, device=self.device, requires_grad=True)
@@ -294,19 +296,45 @@ class MPO:
         with torch.no_grad():
             next_actions, _, _, _ = self.actor_target.get_action(data.next_observations)
             next_actions = next_actions.squeeze(1)
-            q_target = self.critic_target(data.next_observations, next_actions)
+            q_target = self.aggregation_operator(
+                data.next_observations, next_actions, self.target_critics, mode='min_subset', subset_size=2
+            )
             y = data.rewards + (1.0 - data.dones) * self.args.gamma * q_target
 
-        q_value = self.critic(data.observations, data.actions)
-        loss_q = F.mse_loss(q_value, y)
+        losses = []
+        for critic, opt in zip(self.critics, self.critic_optimizers):
+            q_value = critic(data.observations, data.actions)
+            loss = F.mse_loss(q_value, y)
 
-        self.critic_optimizer.zero_grad()
-        loss_q.backward()
-        if self.args.max_grad_norm > 0:
-            nn.utils.clip_grad_norm_(self.critic.parameters(), self.args.max_grad_norm)
-        self.critic_optimizer.step()
+            opt.zero_grad()
+            loss.backward()
+            if self.args.max_grad_norm > 0:
+                nn.utils.clip_grad_norm_(critic.parameters(), self.args.max_grad_norm)
+            opt.step()
+            losses.append(loss.item())
 
-        return loss_q.item(), q_value.mean().item()
+        with torch.no_grad():
+            mean_q = self.aggregation_operator(
+                data.observations, data.actions, self.critics, mode='mean'
+            ).mean().item()
+
+        return float(np.mean(losses)), mean_q
+
+    def aggregation_operator(self, state, action, critics, mode='mean', beta=1.0, subset_size=2):
+        q_values = torch.stack([c(state, action) for c in critics], dim=0)
+        if mode == 'mean':
+            return q_values.mean(dim=0)
+        elif mode == 'min_subset':
+            idx = torch.randperm(q_values.shape[0], device=self.device)[:subset_size]
+            return q_values[idx].min(dim=0).values
+        elif mode == 'LCB':
+            return q_values.mean(dim=0) - beta * (q_values.std(dim=0) + 1e-6)
+        elif mode == 'UCB':
+            return q_values.mean(dim=0) + beta * (q_values.std(dim=0) + 1e-6)
+        elif mode == 'median':
+            return q_values.median(dim=0).values
+        else:
+            raise ValueError(f"Unknown aggregation mode: {mode}")
 
     def _solve_temp_dual(self, q_values: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         q = q_values.detach()  # (B, N)
@@ -340,7 +368,9 @@ class MPO:
             bounded = torch.tanh(raw_actions) * self.actor_target.action_scale + self.actor_target.action_bias
             obs_exp = obs.unsqueeze(1).expand(-1, N, -1).reshape(-1, ds)
             acts_flat = bounded.reshape(-1, da)
-            q_values = self.critic_target(obs_exp, acts_flat).reshape(B, N)
+            q_values = self.aggregation_operator(
+                obs_exp, acts_flat, self.target_critics, mode='mean'
+            ).reshape(B, N)
 
         eta, weights = self._solve_temp_dual(q_values)
         return raw_actions, weights, eta, b_mu, b_sigma
@@ -391,8 +421,9 @@ class MPO:
     def _update_targets(self):
         for p, p_tgt in zip(self.actor.parameters(), self.actor_target.parameters()):
             p_tgt.data.lerp_(p.data, self.args.tau)
-        for p, p_tgt in zip(self.critic.parameters(), self.critic_target.parameters()):
-            p_tgt.data.lerp_(p.data, self.args.tau)
+        for critic, target_critic in zip(self.critics, self.target_critics):
+            for p, p_tgt in zip(critic.parameters(), target_critic.parameters()):
+                p_tgt.data.lerp_(p.data, self.args.tau)
 
     def initialize_logging(self, info):
         self.start_time = time.time()
@@ -462,10 +493,10 @@ class MPO:
         checkpoint = {
             "actor": self.actor.state_dict(),
             "actor_target": self.actor_target.state_dict(),
-            "critic": self.critic.state_dict(),
-            "critic_target": self.critic_target.state_dict(),
+            "critics": [c.state_dict() for c in self.critics],
+            "target_critics": [c.state_dict() for c in self.target_critics],
             "actor_optimizer": self.actor_optimizer.state_dict(),
-            "critic_optimizer": self.critic_optimizer.state_dict(),
+            "critic_optimizers": [opt.state_dict() for opt in self.critic_optimizers],
             "log_eta": self.log_eta.item(),
             "dual_temp_optimizer": self.dual_temp_optimizer.state_dict(),
             "alpha_mu": self.alpha_mu,
@@ -482,10 +513,13 @@ class MPO:
 
         self.actor.load_state_dict(checkpoint["actor"])
         self.actor_target.load_state_dict(checkpoint["actor_target"])
-        self.critic.load_state_dict(checkpoint["critic"])
-        self.critic_target.load_state_dict(checkpoint["critic_target"])
+        for c, sd in zip(self.critics, checkpoint["critics"]):
+            c.load_state_dict(sd)
+        for c, sd in zip(self.target_critics, checkpoint["target_critics"]):
+            c.load_state_dict(sd)
         self.actor_optimizer.load_state_dict(checkpoint["actor_optimizer"])
-        self.critic_optimizer.load_state_dict(checkpoint["critic_optimizer"])
+        for opt, sd in zip(self.critic_optimizers, checkpoint["critic_optimizers"]):
+            opt.load_state_dict(sd)
         if "log_eta" in checkpoint:
             self.log_eta.data.fill_(checkpoint["log_eta"])
         if "dual_temp_optimizer" in checkpoint:
@@ -564,6 +598,7 @@ def parse_args():
     parser.add_argument("--dual_lr", type=float, default=1e-2)
     parser.add_argument("--dual_steps", type=int, default=30)
     parser.add_argument("--max_grad_norm", type=float, default=1.0)
+    parser.add_argument("--ensemble", type=int, default=1)
 
     # Environment.
     parser.add_argument("--dt", type=float, default=0.15)
