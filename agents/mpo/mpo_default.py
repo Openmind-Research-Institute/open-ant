@@ -215,7 +215,7 @@ class MPO:
         self.keys_agent_vars = [
             'loss_q', 'loss_p', 'mean_q', 'eta',
             'kl_mu', 'kl_sigma', 'alpha_mu', 'alpha_sigma',
-            'SPS', 'average_reward_per_second', 'reward',
+            'utd_ratio', 'SPS', 'average_reward_per_second', 'reward',
         ]
         self.info_log_buffer = []
         self.agent_vars_buffer = []
@@ -247,9 +247,13 @@ class MPO:
         self.global_step += 1
         self.obs = next_obs
 
+        metrics = None
         if self.global_step > self.args.learning_starts and self.rb.size() >= self.args.batch_size:
-            return self._learn()
-        return None
+            results = [self._learn() for _ in range(self.args.utd_ratio)]
+            keys = results[0].keys()
+            metrics = {k: sum(r[k] for r in results) / len(results) for k in keys}
+            metrics['utd_ratio'] = self.args.utd_ratio
+        return metrics
 
     def agent_step_eval(self, next_obs):
         self.global_step += 1
@@ -437,6 +441,7 @@ class MPO:
                 "kl_sigma": metrics.get('kl_sigma'),
                 "alpha_mu": metrics.get('alpha_mu'),
                 "alpha_sigma": metrics.get('alpha_sigma'),
+                "utd_ratio": metrics.get('utd_ratio'),
                 "SPS": int(global_step / (time.time() - self.start_time)) if self.start_time else 0,
                 "average_reward_per_second": self.reward_tracker.average_reward_per_second,
                 "reward": rewards[0] if hasattr(rewards, '__len__') else float(rewards),
@@ -523,7 +528,7 @@ def parse_args():
     parser.add_argument("--cuda", action="store_true", default=False)
     parser.add_argument("--capture_video", action="store_true")
     parser.add_argument("--eval", action="store_true", default=False)
-    parser.add_argument("--save_every_n_steps", type=int, default=500)
+    parser.add_argument("--save_every_n_steps", type=int, default=4000)
 
     # Algorithm.
     parser.add_argument("--env_id", type=str, default="EAnt")
@@ -532,13 +537,14 @@ def parse_args():
     parser.add_argument("--buffer_size", type=int, default=int(1e6))
     parser.add_argument("--tau", type=float, default=0.005)
     parser.add_argument("--batch_size", type=int, default=256)
-    parser.add_argument("--learning_starts", type=int, default=500)
+    parser.add_argument("--learning_starts", type=int, default=2000)
     parser.add_argument("--policy_lr", type=float, default=3e-4)
     parser.add_argument("--q_lr", type=float, default=1e-3)
     parser.add_argument("--gamma", type=float, default=0.99)
     parser.add_argument("--use_layer_norm", type=bool, default=True)
     parser.add_argument("--hidden_dim", type=int, default=256)
     parser.add_argument("--n_hidden_layers", type=int, default=2)
+    parser.add_argument("--utd_ratio", type=int, default=1)
 
     # MPO specific.
     parser.add_argument("--dual_constraint", type=float, default=0.1,
