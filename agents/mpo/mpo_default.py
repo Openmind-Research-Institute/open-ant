@@ -150,6 +150,7 @@ class MPO:
         self.envs = envs
         self.device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
         print(f"[√] Using device: {self.device}")
+        self.dt = self.args.dt
 
         self.disk_folder = disk_folder
         self.run_name = run_name
@@ -311,7 +312,7 @@ class MPO:
                 data.next_observations, next_actions, self.target_critics, mode='min_subset', subset_size=2
             )
             for k in range(data.rewards.shape[1] - 1, -1, -1):
-                y = data.rewards[:, k, :] + (1.0 - data.dones[:, k, :]) * self.args.gamma * y
+                y = data.rewards[:, k, :]*self.dt + (1.0 - data.dones[:, k, :]) * (self.args.gamma**self.dt) * y
 
         losses = []
         for critic, opt in zip(self.critics, self.critic_optimizers):
@@ -590,7 +591,7 @@ def parse_args():
     parser.add_argument("--learning_starts", type=int, default=2000)
     parser.add_argument("--policy_lr", type=float, default=3e-4)
     parser.add_argument("--q_lr", type=float, default=1e-3)
-    parser.add_argument("--gamma", type=float, default=0.99)
+    parser.add_argument("--gamma", type=float, default=0.92)
     parser.add_argument("--use_layer_norm", type=bool, default=True)
     parser.add_argument("--hidden_dim", type=int, default=256)
     parser.add_argument("--n_hidden_layers", type=int, default=2)
@@ -598,7 +599,7 @@ def parse_args():
     parser.add_argument("--td_horizon", type=int, default=1,
                         help="n-step TD horizon for Q learning")
     parser.add_argument("--decouple_q_learning", action='store_true', default=False)
-    parser.add_argument("--policy_learning_starts", type=int, default=5000,
+    parser.add_argument("--policy_learning_starts", type=int, default=0,
                         help="steps of Q-only warmup after learning_starts when --decouple_q_learning is set")
 
     # MPO specific.
@@ -612,7 +613,7 @@ def parse_args():
     parser.add_argument("--alpha_var_scale", type=float, default=20.0)
     parser.add_argument("--alpha_mean_max", type=float, default=0.1)
     parser.add_argument("--alpha_var_max", type=float, default=10.0)
-    parser.add_argument("--sample_action_num", type=int, default=20,
+    parser.add_argument("--sample_action_num", type=int, default=64,
                         help="actions sampled per state in E-step")
     parser.add_argument("--mstep_iteration_num", type=int, default=5,
                         help="actor gradient steps per learn() call")
