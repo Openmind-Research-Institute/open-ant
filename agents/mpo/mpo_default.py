@@ -25,7 +25,7 @@ from embodied_ant_env import make_ant_env, ForwardTask, BackAndForthTask
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from reward import RewardTracker
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
-from utils.buffers import ReplayBuffer
+from utils.buffers import ReplayBuffer, NStepReplayBufferSamples
 
 
 def arr_to_str(x):
@@ -184,7 +184,7 @@ class MPO:
         self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=args.policy_lr)
         self.critic_optimizers = [optim.Adam(c.parameters(), lr=args.q_lr) for c in self.critics]
 
-        self.policy_learning_starts = 2000
+        self.policy_learning_starts = args.policy_learning_starts
 
         # Dual variable for E-step temperature.
         self.log_eta = torch.tensor(0.0, dtype=torch.float32, device=self.device, requires_grad=True)
@@ -264,10 +264,10 @@ class MPO:
         self.obs = next_obs
 
     def _learn(self):
-        if self.global_step >= self.policy_learning_starts:
+        if self.global_step >= self.args.learning_starts + self.policy_learning_starts:
             self.args.decouple_q_learning = False
 
-        data = self.rb.sample(self.args.batch_size)
+        data = self.rb.sample_nstep(self.args.batch_size, self.args.td_horizon)
 
         t0 = time.time()
         loss_q, mean_q = self._update_critic(data)
@@ -277,11 +277,12 @@ class MPO:
         eta = self.log_eta.exp().detach()
         t_estep = t_mstep = 0.0
 
-        if not self.args.decouple_q_learning:
-            t0 = time.time()
-            raw_actions, weights, eta, b_mu, b_sigma = self._e_step(data)
-            t_estep = time.time() - t0
+        # Always run E-step so eta stays calibrated during Q warmup.
+        t0 = time.time()
+        raw_actions, weights, eta, b_mu, b_sigma = self._e_step(data)
+        t_estep = time.time() - t0
 
+        if not self.args.decouple_q_learning:
             t0 = time.time()
             loss_p, kl_mu, kl_sigma = self._m_step(data.observations, raw_actions, weights, b_mu, b_sigma)
             t_mstep = time.time() - t0
@@ -302,14 +303,15 @@ class MPO:
             't_mstep': t_mstep,
         }
 
-    def _update_critic(self, data) -> Tuple[float, float]:
+    def _update_critic(self, data: NStepReplayBufferSamples) -> Tuple[float, float]:
         with torch.no_grad():
             next_actions, _, _, _ = self.actor_target.get_action(data.next_observations)
             next_actions = next_actions.squeeze(1)
-            q_target = self.aggregation_operator(
+            y = self.aggregation_operator(
                 data.next_observations, next_actions, self.target_critics, mode='min_subset', subset_size=2
             )
-            y = data.rewards + (1.0 - data.dones) * self.args.gamma * q_target
+            for k in range(data.rewards.shape[1] - 1, -1, -1):
+                y = data.rewards[:, k, :] + (1.0 - data.dones[:, k, :]) * self.args.gamma * y
 
         losses = []
         for critic, opt in zip(self.critics, self.critic_optimizers):
@@ -406,12 +408,6 @@ class MPO:
                 dist.Normal(b_mu, b_sigma)
             ).sum(-1).mean()
 
-            # Dual-ascent update of Lagrange multipliers.
-            self.alpha_mu += self.args.alpha_mean_scale * (kl_mu.item() - self.args.kl_mean_constraint)
-            self.alpha_mu = float(np.clip(self.alpha_mu, 0.0, self.args.alpha_mean_max))
-            self.alpha_sigma += self.args.alpha_var_scale * (kl_sigma.item() - self.args.kl_var_constraint)
-            self.alpha_sigma = float(np.clip(self.alpha_sigma, 0.0, self.args.alpha_var_max))
-
             loss = (nll
                     + self.alpha_mu * (kl_mu - self.args.kl_mean_constraint)
                     + self.alpha_sigma * (kl_sigma - self.args.kl_var_constraint))
@@ -425,6 +421,14 @@ class MPO:
             loss_p_val = nll.item()
             kl_mu_val = kl_mu.item()
             kl_sigma_val = kl_sigma.item()
+
+        # Dual-ascent update once per _learn() call, not per inner gradient step.
+        # With mstep_iteration_num=5 and utd_ratio=3, updating inside the loop
+        # applies 15 alpha updates per env step, causing KL constraint oscillation.
+        self.alpha_mu += self.args.alpha_mean_scale * (kl_mu_val - self.args.kl_mean_constraint)
+        self.alpha_mu = float(np.clip(self.alpha_mu, 0.0, self.args.alpha_mean_max))
+        self.alpha_sigma += self.args.alpha_var_scale * (kl_sigma_val - self.args.kl_var_constraint)
+        self.alpha_sigma = float(np.clip(self.alpha_sigma, 0.0, self.args.alpha_var_max))
 
         return loss_p_val, kl_mu_val, kl_sigma_val
 
@@ -591,7 +595,11 @@ def parse_args():
     parser.add_argument("--hidden_dim", type=int, default=256)
     parser.add_argument("--n_hidden_layers", type=int, default=2)
     parser.add_argument("--utd_ratio", type=int, default=1)
+    parser.add_argument("--td_horizon", type=int, default=1,
+                        help="n-step TD horizon for Q learning")
     parser.add_argument("--decouple_q_learning", action='store_true', default=False)
+    parser.add_argument("--policy_learning_starts", type=int, default=5000,
+                        help="steps of Q-only warmup after learning_starts when --decouple_q_learning is set")
 
     # MPO specific.
     parser.add_argument("--dual_constraint", type=float, default=0.1,
@@ -601,7 +609,7 @@ def parse_args():
     parser.add_argument("--kl_var_constraint", type=float, default=1e-4,
                         help="epsilon_sigma for M-step covariance KL")
     parser.add_argument("--alpha_mean_scale", type=float, default=1.0)
-    parser.add_argument("--alpha_var_scale", type=float, default=100.0)
+    parser.add_argument("--alpha_var_scale", type=float, default=20.0)
     parser.add_argument("--alpha_mean_max", type=float, default=0.1)
     parser.add_argument("--alpha_var_max", type=float, default=10.0)
     parser.add_argument("--sample_action_num", type=int, default=20,
