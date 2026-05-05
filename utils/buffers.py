@@ -41,6 +41,7 @@ __all__ = [
     "ReplayBuffer",
     "RolloutBufferSamples",
     "ReplayBufferSamples",
+    "NStepReplayBufferSamples",
 ]
 
 
@@ -59,6 +60,14 @@ class ReplayBufferSamples(NamedTuple):
     next_observations: th.Tensor
     dones: th.Tensor
     rewards: th.Tensor
+
+
+class NStepReplayBufferSamples(NamedTuple):
+    observations: th.Tensor       # (B, obs_dim)  — obs at the start of the window
+    actions: th.Tensor            # (B, act_dim)  — action taken at the start
+    next_observations: th.Tensor  # (B, obs_dim)  — obs after the last step (for bootstrapping)
+    dones: th.Tensor              # (B, n_step, 1)
+    rewards: th.Tensor            # (B, n_step, 1)
 
 
 def get_action_dim(action_space: spaces.Space) -> int:
@@ -413,6 +422,44 @@ class ReplayBuffer(BaseBuffer):
             self.rewards[batch_inds, env_indices].reshape(-1, 1),
         )
         return ReplayBufferSamples(*tuple(map(self.to_torch, data)))
+
+    def sample_nstep(self, batch_size: int, n_step: int) -> "NStepReplayBufferSamples":
+        if not self.full:
+            max_start = self.pos - n_step + 1
+            if max_start <= 0:
+                raise ValueError(f"Not enough data for {n_step}-step sampling ({self.pos} steps stored)")
+            batch_inds = np.random.randint(0, max_start, size=batch_size)
+        else:
+            # Shift all valid start indices by pos so no window straddles the write head.
+            # Valid linear range: [0, buffer_size - n_step], mapped to circular via + pos.
+            linear_inds = np.random.randint(0, self.buffer_size - n_step + 1, size=batch_size)
+            batch_inds = (linear_inds + self.pos) % self.buffer_size
+
+        env_inds = np.random.randint(0, high=self.n_envs, size=(batch_size,))
+        return self._get_nstep_samples(batch_inds, env_inds, n_step)
+
+    def _get_nstep_samples(self, batch_inds: np.ndarray, env_inds: np.ndarray, n_step: int) -> "NStepReplayBufferSamples":
+        offsets = np.arange(n_step)[None, :]                              # (1, n_step)
+        all_inds = (batch_inds[:, None] + offsets) % self.buffer_size    # (B, n_step)
+
+        rewards = self.rewards[all_inds, env_inds[:, None]]              # (B, n_step)
+        dones = (
+            self.dones[all_inds, env_inds[:, None]]
+            * (1 - self.timeouts[all_inds, env_inds[:, None]])
+        )                                                                  # (B, n_step)
+
+        obs = self.observations[batch_inds, env_inds]
+        actions = self.actions[batch_inds, env_inds]
+        last_inds = (batch_inds + n_step - 1) % self.buffer_size
+        next_obs = self.next_observations[last_inds, env_inds]
+
+        return NStepReplayBufferSamples(
+            observations=self.to_torch(obs),
+            actions=self.to_torch(actions),
+            next_observations=self.to_torch(next_obs),
+            dones=self.to_torch(dones[..., None]),      # (B, n_step, 1)
+            rewards=self.to_torch(rewards[..., None]),  # (B, n_step, 1)
+        )
 
     def save(self, filepath: str) -> None:
         """
