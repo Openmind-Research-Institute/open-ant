@@ -7,9 +7,12 @@ if [ "$1" == "sim" ]; then
         --dt 0.15 \
         --env_id SimEmbodiedAnt \
         --runs_directory runs \
-        --exp_name ensemble \
+        --exp_name decoupled \
         --utd_ratio 3 \
-        --ensemble 3
+        --ensemble 3 \
+        --decouple_q_learning \
+        --policy_learning_starts 5000 \
+        --td_horizon 3
 fi
 
 # Learn on hardware.
