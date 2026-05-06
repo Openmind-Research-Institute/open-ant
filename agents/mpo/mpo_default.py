@@ -60,6 +60,12 @@ class Actor(nn.Module):
         self.net = nn.Sequential(*layers)
         self.mu_head = nn.Linear(prev, act_dim)
         self.log_sigma_head = nn.Linear(prev, act_dim)
+        self.apply(self._init_weights)
+
+    @staticmethod
+    def _init_weights(m):
+        if isinstance(m, nn.Linear):
+            nn.init.constant_(m.bias, 0.0)
 
     def forward(self, x: torch.Tensor) -> dist.Normal:
         logits = self.net(x)
@@ -96,6 +102,12 @@ class Critic(nn.Module):
             prev = h
         layers.append(nn.Linear(prev, 1))
         self.net = nn.Sequential(*layers)
+        self.apply(self._init_weights)
+
+    @staticmethod
+    def _init_weights(m):
+        if isinstance(m, nn.Linear):
+            nn.init.constant_(m.bias, 0.0)
 
     def forward(self, state: torch.Tensor, action: torch.Tensor) -> torch.Tensor:
         return self.net(torch.cat([state, action], dim=-1))
@@ -192,8 +204,8 @@ class MPO:
         self.dual_temp_optimizer = optim.Adam([self.log_eta], lr=args.dual_lr)
 
         # Scalar Lagrange multipliers for M-step KL constraints.
-        self.alpha_mu = 0.0
-        self.alpha_sigma = 0.0
+        self.alpha_mu = 1e-3 #if 0.0 first policy imporvement steps are unconstrained
+        self.alpha_sigma = 1e-3
 
         self.envs.single_observation_space.dtype = np.float32
 
@@ -400,13 +412,13 @@ class MPO:
 
             # Decoupled KL: stop-gradient on sigma for mean term, on mu for covariance term.
             kl_mu = dist.kl_divergence(
-                dist.Normal(curr_d.loc, curr_d.scale.detach()),
-                dist.Normal(b_mu, b_sigma)
+                dist.Normal(b_mu, b_sigma),
+                dist.Normal(curr_d.loc, b_sigma),     # σ fixed at old
             ).sum(-1).mean()
 
             kl_sigma = dist.kl_divergence(
-                dist.Normal(curr_d.loc.detach(), curr_d.scale),
-                dist.Normal(b_mu, b_sigma)
+                dist.Normal(b_mu, b_sigma),
+                dist.Normal(b_mu, curr_d.scale),      # μ fixed at old
             ).sum(-1).mean()
 
             loss = (nll
