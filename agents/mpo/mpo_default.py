@@ -282,23 +282,23 @@ class MPO:
 
         data = self.rb.sample_nstep(self.args.batch_size, self.args.td_horizon)
 
-        t0 = time.time()
+        # t0 = time.time()
         loss_q, mean_q = self._update_critic(data)
-        t_critic = time.time() - t0
+        # t_critic = time.time() - t0
 
         loss_p = kl_mu = kl_sigma = 0.0
         eta = self.log_eta.exp().detach()
-        t_estep = t_mstep = 0.0
+        # t_estep = t_mstep = 0.0
 
         # Always run E-step so eta stays calibrated during Q warmup.
-        t0 = time.time()
+        # t0 = time.time()
         raw_actions, weights, eta, b_mu, b_sigma = self._e_step(data)
-        t_estep = time.time() - t0
+        # t_estep = time.time() - t0
 
         if not self.args.decouple_q_learning:
-            t0 = time.time()
+            # t0 = time.time()
             loss_p, kl_mu, kl_sigma = self._m_step(data.observations, raw_actions, weights, b_mu, b_sigma)
-            t_mstep = time.time() - t0
+            # t_mstep = time.time() - t0
 
         self._update_targets()
 
@@ -311,9 +311,9 @@ class MPO:
             'kl_sigma': kl_sigma,
             'alpha_mu': self.alpha_mu,
             'alpha_sigma': self.alpha_sigma,
-            't_critic': t_critic,
-            't_estep': t_estep,
-            't_mstep': t_mstep,
+            # 't_critic': t_critic,
+            # 't_estep': t_estep,
+            # 't_mstep': t_mstep,
         }
 
     def _update_critic(self, data: NStepReplayBufferSamples) -> Tuple[float, float]:
