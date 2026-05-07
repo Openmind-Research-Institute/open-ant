@@ -10,7 +10,7 @@ if [ "$1" == "sim" ]; then
     for SEED in "${SEEDS[@]}"; do
         python3 mpo_default.py \
             --render_mode rgb_array \
-            --total_timesteps 3000 \
+            --total_timesteps 40000 \
             --dt 0.15 \
             --env_id SimEmbodiedAnt \
             --runs_directory runs \
