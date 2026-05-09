@@ -17,6 +17,10 @@ The hardware is designed to be easy to build and use:
 - no soldering required
 - no special tools required (only the standard hex drivers for M2, M2.5, and M3 screws which are 1.5mm, 2.0mm, and 2.5mm, respectively)
 
+## Assembly video
+
+[Watch the assembly video](https://youtu.be/siWUn2i8hFY?si=Tb2L7xUlnYaNfrpW)
+
 ### Specs.
 
 - hip range +/- 45deg
