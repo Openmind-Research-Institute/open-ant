@@ -181,6 +181,11 @@ Yes, it can happen. For this, it is recommended to use Loctite Threadlocker. Ens
 
 We recommend 3D printing socks out of TPU.
 
+### Q: There might be intermittent communication dropout. How is this addressed?
+
+During long duration run-time learning experiments, we observed intermittent, very short communication dropouts. 
+The power connection was modified to connect directly to the screw terminals on the control board rather than using the barrel connector. This eliminated the voltage drops caused by vibration-induced intermittent contact during learning experiments.
+
 
 ## Misc
 
