@@ -39,16 +39,20 @@ LOG_STD_MIN = -5
 
 
 class Actor(nn.Module):
-    def __init__(self, env, hidden_dims: List[int] = [256, 256], use_layer_norm: bool = False):
+    def __init__(self,
+                 env,
+                 hidden_dims: List[int] = [256, 256],
+                 use_layer_norm: bool = False,
+                 min_scale: float = 1e-3,
+                 init_scale: float = 0.5,):
         super().__init__()
         obs_dim = int(np.array(env.single_observation_space.shape).prod())
         act_dim = int(np.prod(env.single_action_space.shape))
+        self.min_scale = min_scale
 
-        self.register_buffer("action_scale", torch.tensor(
-            (env.single_action_space.high - env.single_action_space.low) / 2.0, dtype=torch.float32))
-        self.register_buffer("action_bias", torch.tensor(
-            (env.single_action_space.high + env.single_action_space.low) / 2.0, dtype=torch.float32))
-
+        self.register_buffer("action_low",torch.tensor(env.single_action_space.low, dtype=torch.float32))
+        self.register_buffer("action_high",torch.tensor(env.single_action_space.high, dtype=torch.float32))
+        
         layers = []
         prev = obs_dim
         for h in hidden_dims:
@@ -60,37 +64,36 @@ class Actor(nn.Module):
         self.net = nn.Sequential(*layers)
         self.mu_head = nn.Linear(prev, act_dim)
         self.log_sigma_head = nn.Linear(prev, act_dim)
+
+        self._softplus_bias = float(np.log(np.exp(init_scale - min_scale) - 1.0))
+
         self.apply(self._init_weights)
+        with torch.no_grad():
+            self.log_sigma_head.bias.fill_(self._softplus_bias)
 
     @staticmethod
     def _init_weights(m):
         if isinstance(m, nn.Linear):
             nn.init.constant_(m.bias, 0.0)
 
-    def forward(self, x: torch.Tensor) -> dist.Normal:
+    def forward(self, x: torch.Tensor) -> dist.Independent:
         logits = self.net(x)
-        mu = self.mu_head(logits)
-        log_sigma = self.log_sigma_head(logits).clamp(LOG_STD_MIN, LOG_STD_MAX)
-        return dist.Normal(mu, log_sigma.exp())
+        mu = self.action_low + (self.action_high - self.action_low) * torch.sigmoid(self.mu_head(logits))
+        sigma = F.softplus(self.log_sigma_head(logits)) + self.min_scale
+        return dist.Independent(dist.Normal(mu, sigma), 1)
 
     def get_action(self, obs: torch.Tensor, n_samples: int = 1) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         d = self.forward(obs)
-        raw_acts = d.rsample((n_samples,)).permute(1, 0, 2)  # (batch, n_samples, act_dim)
-        scaled_acts = torch.tanh(raw_acts)
-        actions = scaled_acts * self.action_scale + self.action_bias
-        expanded = dist.Normal(d.loc.unsqueeze(1), d.scale.unsqueeze(1))
-        log_probs = expanded.log_prob(raw_acts)
-        log_probs -= torch.log(self.action_scale * (1 - scaled_acts.pow(2)) + 1e-6)
-        log_probs = log_probs.sum(2, keepdim=True)
-        mean = torch.tanh(d.mean) * self.action_scale + self.action_bias
-        return actions, log_probs, mean, raw_acts
+        actions = d.rsample((n_samples,))
+        log_probs = d.log_prob(actions)
 
-    def get_log_probs(self, obs: torch.Tensor, raw_action: torch.Tensor) -> torch.Tensor:
+        actions = actions.permute(1, 0, 2)  # (batch, n_samples, act_dim)
+        log_probs = log_probs.transpose(0, 1).unsqueeze(-1)
+        return actions, log_probs, d.mean
+
+    def get_log_probs(self, obs: torch.Tensor, action: torch.Tensor) -> torch.Tensor:
         d = self.forward(obs)
-        scaled = torch.tanh(raw_action)
-        log_probs = d.log_prob(raw_action)
-        log_probs -= torch.log(self.action_scale * (1 - scaled.pow(2)) + 1e-6)
-        return log_probs.sum(-1, keepdim=True)
+        return d.log_prob(action).unsqueeze(-1)
 
 
 class Critic(nn.Module):
@@ -485,7 +488,7 @@ class MPO:
 
             kl_sigma = dist.kl_divergence(
                 dist.Normal(b_mu, b_sigma),
-                dist.Normal(b_mu, curr_d.scale),      # μ fixed at old
+                dist.Normal(b_mu, curr_d.base_dist.scale),      # μ fixed at old
             ).sum(-1).mean()
 
             loss = (nll
