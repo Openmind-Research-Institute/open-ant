@@ -14,7 +14,7 @@ if [ "$1" == "sim" ]; then
             --dt 0.15 \
             --env_id SimEmbodiedAnt \
             --runs_directory runs \
-            --exp_name IS_MPO \
+            --exp_name retrace \
             --utd_ratio 3 \
             --ensemble 3 \
             --decouple_q_learning \
