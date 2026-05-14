@@ -11,3 +11,4 @@ logs/
 *.egg*
 runs*
 
+copy_from_hpc.sh
