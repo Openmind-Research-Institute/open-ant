@@ -230,7 +230,7 @@ class MPO:
 
         self.global_step = 0
         self.obs = None
-        self.last_raw_actions = None
+        self.last_actions = None
         self.last_log_probs = None
 
         # Logging state.
@@ -255,23 +255,22 @@ class MPO:
         if self.obs is None:
             self.obs = obs
             rand_actions = np.array([self.envs.single_action_space.sample() for _ in range(self.envs.num_envs)])
-            self.last_raw_actions = np.zeros((self.envs.num_envs, act_dim), dtype=np.float32)
+            self.last_actions = np.zeros((self.envs.num_envs, act_dim), dtype=np.float32)
             self.last_log_probs = np.zeros((self.envs.num_envs, 1), dtype=np.float32)
             return rand_actions
 
         if evaluate or self.global_step > self.args.learning_starts:
             with torch.no_grad():
                 obs_t = torch.as_tensor(self.obs, dtype=torch.float32, device=self.device)
-                actions, log_probs, _, raw_acts = self.actor.get_action(obs_t)
+                actions, log_probs, _ = self.actor.get_action(obs_t)
                 actions = actions.squeeze(1)     # (n_envs, act_dim)
-                raw_acts = raw_acts.squeeze(1)   # (n_envs, act_dim)
                 log_probs = log_probs.squeeze(1) # (n_envs, 1)
-                self.last_raw_actions = raw_acts.cpu().numpy()
+                self.last_actions = actions.cpu().numpy()
                 self.last_log_probs = log_probs.cpu().numpy()
                 return actions.cpu().numpy()
 
         rand_actions = np.array([self.envs.single_action_space.sample() for _ in range(self.envs.num_envs)])
-        self.last_raw_actions = np.zeros((self.envs.num_envs, act_dim), dtype=np.float32)
+        self.last_actions = np.zeros((self.envs.num_envs, act_dim), dtype=np.float32)
         self.last_log_probs = np.zeros((self.envs.num_envs, 1), dtype=np.float32)
         return rand_actions
 
