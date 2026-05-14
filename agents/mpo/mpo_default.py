@@ -457,33 +457,32 @@ class MPO:
 
         with torch.no_grad():
             d = self.actor_target.forward(obs)
-            b_mu, b_sigma = d.loc, d.scale                            # (B, da)
-            raw_actions = d.rsample((N,)).permute(1, 0, 2)            # (B, N, da)
+            b_mu, b_sigma = d.base_dist.loc, d.base_dist.scale                            # (B, da)
+            action_samples = d.rsample((N,)).permute(1, 0, 2)            # (B, N, da)
 
-            bounded = torch.tanh(raw_actions) * self.actor_target.action_scale + self.actor_target.action_bias
             obs_exp = obs.unsqueeze(1).expand(-1, N, -1).reshape(-1, ds)
-            acts_flat = bounded.reshape(-1, da)
+            acts_flat = action_samples.reshape(-1, da)
             q_values = self.aggregation_operator(
                 obs_exp, acts_flat, self.target_critics, mode='mean'
             ).reshape(B, N)
 
         eta, weights = self._solve_temp_dual(q_values)
-        return raw_actions, weights, eta, b_mu, b_sigma
+        return action_samples, weights, eta, b_mu, b_sigma
 
-    def _m_step(self, obs, raw_actions, weights, b_mu, b_sigma) -> Tuple[float, float, float]:
+    def _m_step(self, obs, action_samples, weights, b_mu, b_sigma) -> Tuple[float, float, float]:
         loss_p_val = kl_mu_val = kl_sigma_val = 0.0
 
         for _ in range(self.args.mstep_iteration_num):
             curr_d = self.actor.forward(obs)
 
             # Weighted log-likelihood under current policy (pre-tanh raw actions from E-step).
-            log_probs = dist.Normal(curr_d.loc.unsqueeze(1), curr_d.scale.unsqueeze(1)).log_prob(raw_actions)
+            log_probs = dist.Normal(curr_d.base_dist.loc.unsqueeze(1), curr_d.base_dist.scale.unsqueeze(1)).log_prob(action_samples)
             nll = -(weights.detach() * log_probs.sum(-1)).sum(-1).mean()
 
             # Decoupled KL: stop-gradient on sigma for mean term, on mu for covariance term.
             kl_mu = dist.kl_divergence(
                 dist.Normal(b_mu, b_sigma),
-                dist.Normal(curr_d.loc, b_sigma),     # σ fixed at old
+                dist.Normal(curr_d.base_dist.loc, b_sigma),     # σ fixed at old
             ).sum(-1).mean()
 
             kl_sigma = dist.kl_divergence(
