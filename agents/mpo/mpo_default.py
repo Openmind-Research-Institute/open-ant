@@ -284,7 +284,7 @@ class MPO:
 
         self.rb.add(self.obs, real_next_obs, actions, rewards, terminations,
                     [{}] * self.envs.num_envs,
-                    raw_action=self.last_raw_actions,
+                    raw_action=self.last_actions,
                     behavior_log_prob=self.last_log_probs)
         self.global_step += 1
         self.obs = next_obs
