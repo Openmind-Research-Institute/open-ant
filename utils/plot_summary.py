@@ -7,6 +7,7 @@ from datetime import datetime
 
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.lines as mlines
 import matplotlib.cm as cm
 import numpy as np
 
@@ -91,6 +92,7 @@ def load_run(logs_dir, run_name, smooth):
     info['_reward_smooth'] = (
         info['avg_reward_per_second'].rolling(smooth, min_periods=1).mean() * 100
     )
+    info = info.iloc[smooth:].copy()
     info['sim_time_min'] = info['step'] * dt / 60
 
     return perf, info, dt, learning_starts
@@ -99,6 +101,192 @@ def load_run(logs_dir, run_name, smooth):
 def add_vline(ax, x, color, legend=False):
     ax.axvline(x, color=color, linestyle='--', linewidth=1.0,
                alpha=0.6, label='learning starts' if legend else '_')
+
+
+AGENTS_DIR   = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'agents')
+SIM_RUNS_DIR = os.path.join(AGENTS_DIR, 'mpo', 'runs')
+HW_RUNS_DIR  = os.path.join(AGENTS_DIR, 'mpo', 'runs_hw')
+
+_DATE_SEED_RE = re.compile(r'_\d{8}-\d{6}_seed_\d+$')
+
+LOSS_COLS = ['loss_q', 'loss_p', 'mean_q']
+DUAL_COLS = ['eta', 'kl_mu', 'kl_sigma', 'alpha_mu', 'alpha_sigma']
+
+
+def _short_label(run_path):
+    return _DATE_SEED_RE.sub('', os.path.basename(run_path))
+
+
+def _get_weights_path(run_path):
+    p = os.path.join(run_path, 'weights_and_args', 'args.json')
+    if not os.path.exists(p):
+        return None
+    with open(p) as f:
+        wp = json.load(f).get('weights_path')
+    return os.path.abspath(wp) if wp else None
+
+
+def _scan_runs(runs_dir):
+    if not os.path.isdir(runs_dir):
+        return []
+    return sorted([
+        os.path.join(runs_dir, d)
+        for d in os.listdir(runs_dir)
+        if os.path.isdir(os.path.join(runs_dir, d))
+        and os.path.exists(os.path.join(runs_dir, d, 'performance_variables.csv'))
+        and os.path.exists(os.path.join(runs_dir, d, 'weights_and_args', 'args.json'))
+    ])
+
+
+def _build_chains(sim_runs, hw_runs):
+    all_runs = sim_runs + hw_runs
+    is_hw    = {r: False for r in sim_runs}
+    is_hw.update({r: True for r in hw_runs})
+    wa_index = {os.path.abspath(os.path.join(r, 'weights_and_args')): r for r in all_runs}
+
+    children = {}
+    for r in hw_runs:
+        wp = _get_weights_path(r)
+        if wp:
+            parent = wa_index.get(wp)
+            if parent:
+                children.setdefault(parent, []).append(r)
+
+    def all_paths(node):
+        entry = {'path': node, 'is_hw': is_hw[node]}
+        kids  = sorted(children.get(node, []))
+        if not kids:
+            return [[entry]]
+        paths = []
+        for kid in kids:
+            for sub in all_paths(kid):
+                paths.append([entry] + sub)
+        return paths
+
+    chains = []
+    for sim_run in sim_runs:
+        if sim_run in children:
+            chains.extend(all_paths(sim_run))
+    return chains
+
+
+def _load_perf(run_path, smooth):
+    with open(os.path.join(run_path, 'weights_and_args', 'args.json')) as f:
+        dt = json.load(f).get('dt', 0.15)
+    perf = pd.read_csv(os.path.join(run_path, 'performance_variables.csv'))
+    perf = perf[pd.to_numeric(perf['step'], errors='coerce').notna()].copy()
+    perf['step'] = perf['step'].astype(float)
+    valid = [c for c in LOSS_COLS + DUAL_COLS if c in perf.columns]
+    for col in valid:
+        perf[col] = perf[col].rolling(smooth, min_periods=1).mean()
+    perf = perf.iloc[smooth:].copy()
+    return perf, dt
+
+
+def plot_sim2real_losses(smooth=10):
+    sim_runs = _scan_runs(SIM_RUNS_DIR)
+    hw_runs  = _scan_runs(HW_RUNS_DIR)
+    chains   = _build_chains(sim_runs, hw_runs)
+    if not chains:
+        return
+
+    # Each chain gets a pair of adjacent tab10 colors: even index = sim, odd = hw.
+    full_palette = cm.tab10(np.linspace(0, 0.9, 10))
+
+    fig = plt.figure(figsize=(14, 12))
+    gs  = fig.add_gridspec(3, 2, hspace=0.45, wspace=0.30)
+    axes = {
+        'loss_q': fig.add_subplot(gs[0, 0]),
+        'loss_p': fig.add_subplot(gs[0, 1]),
+        'mean_q': fig.add_subplot(gs[1, 0]),
+        'eta':    fig.add_subplot(gs[1, 1]),
+        'dual':   fig.add_subplot(gs[2, :]),
+    }
+
+    legend_handles = []
+
+    for chain_idx, chain in enumerate(chains):
+        sim_color = full_palette[(chain_idx * 2)     % 10]
+        hw_color  = full_palette[(chain_idx * 2 + 1) % 10]
+        label     = _short_label(chain[0]['path'])
+        prev_last_step = None
+        transfer_steps = []
+        first_sim = True
+        first_hw  = True
+
+        for i, seg in enumerate(chain):
+            try:
+                perf, dt = _load_perf(seg['path'], smooth)
+            except Exception as e:
+                print(f"  Skipping {seg['path']}: {e}")
+                continue
+
+            steps = perf['step'].values
+            if seg['is_hw'] and prev_last_step is not None and len(steps) > 0:
+                steps = steps - steps[0] + prev_last_step
+
+            t     = steps * dt / 60
+            color = hw_color if seg['is_hw'] else sim_color
+
+            if seg['is_hw'] and first_hw:
+                seg_label = f'{label} hw'
+                first_hw  = False
+            elif not seg['is_hw'] and first_sim:
+                seg_label = f'{label} sim'
+                first_sim = False
+            else:
+                seg_label = None
+
+            for col, ax_key in [('loss_q', 'loss_q'), ('loss_p', 'loss_p'),
+                                 ('mean_q', 'mean_q'), ('eta', 'eta')]:
+                if col in perf.columns:
+                    axes[ax_key].plot(t, perf[col].values, color=color,
+                                      linewidth=1.5, label=seg_label)
+                    seg_label = None  # only attach label to first subplot
+
+            for col, lstyle in zip(DUAL_COLS, ['-', '--', '-.', ':', (0, (3, 1, 1, 1))]):
+                if col not in perf.columns:
+                    continue
+                # Label each variable once (first chain, sim segment) to show linestyle key.
+                dual_label = col if (chain_idx == 0 and not seg['is_hw']) else None
+                axes['dual'].plot(t, perf[col].values, color=color,
+                                  linestyle=lstyle, linewidth=1.5, label=dual_label)
+
+            if len(steps) > 0:
+                prev_last_step = steps[-1]
+            if i < len(chain) - 1 and len(steps) > 0:
+                transfer_steps.append(t[-1])
+
+        for xv in transfer_steps:
+            for ax in axes.values():
+                ax.axvline(xv, color='black', linestyle=':', linewidth=1.0, alpha=0.5)
+
+        legend_handles += [
+            mlines.Line2D([], [], color=sim_color, linewidth=2, label=f'{label} sim'),
+            mlines.Line2D([], [], color=hw_color,  linewidth=2, label=f'{label} hw'),
+        ]
+
+    titles = {
+        'loss_q': 'Critic loss (loss_q)',
+        'loss_p': 'Policy loss (loss_p)',
+        'mean_q': 'Mean Q value',
+        'eta':    'Dual η (KL constraint)',
+        'dual':   'Dual variables (kl / α)',
+    }
+    for key, ax in axes.items():
+        ax.set_title(titles[key])
+        ax.set_xlabel('Sim time [min]')
+        ax.grid(True, alpha=0.3, linestyle='--')
+
+    axes['loss_q'].legend(handles=legend_handles, fontsize='x-small')
+    axes['dual'].legend(fontsize='x-small', ncols=3)
+
+    fig.suptitle('Sim-to-real — loss & dual variable evolution', fontsize=14, y=1.01)
+
+    out_path = os.path.join(AGENTS_DIR, 'sim2real_losses.pdf')
+    fig.savefig(out_path, bbox_inches='tight', dpi=150)
+    print(f'Saved sim2real loss plot to {out_path}')
+    return fig
 
 
 def main():
@@ -198,6 +386,8 @@ def main():
     out_path = os.path.join(logs_dir, primary_name, 'dashboard.pdf')
     fig.savefig(out_path, bbox_inches='tight')
     print(f'Saved to {out_path}')
+
+    plot_sim2real_losses(smooth=args.smooth)
     plt.show()
 
 
