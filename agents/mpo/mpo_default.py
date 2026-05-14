@@ -82,7 +82,7 @@ class Actor(nn.Module):
         sigma = F.softplus(self.log_sigma_head(logits)) + self.min_scale
         return dist.Independent(dist.Normal(mu, sigma), 1)
 
-    def get_action(self, obs: torch.Tensor, n_samples: int = 1) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    def get_action(self, obs: torch.Tensor, n_samples: int = 1) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         d = self.forward(obs)
         actions = d.rsample((n_samples,))
         log_probs = d.log_prob(actions)
@@ -356,17 +356,17 @@ class MPO:
             )
 
             c_prod = torch.ones_like(y)   # running IS product (B, 1)
-            alive  = torch.ones_like(y)   # episode-still-alive mask (B, 1)
+            alive = torch.ones_like(y)   # episode-still-alive mask (B, 1)
             prev_done = None
 
             for k in range(n):
-                s_k    = data.all_observations[:, k, :]       # (B, obs_dim)
-                a_k    = data.all_actions[:, k, :]            # (B, act_dim)
-                r_k    = data.rewards[:, k, :]                # (B, 1)
+                s_k = data.all_observations[:, k, :]       # (B, obs_dim)
+                a_k = data.all_actions[:, k, :]            # (B, act_dim)
+                r_k = data.rewards[:, k, :]                # (B, 1)
                 done_k = data.dones[:, k, :]                  # (B, 1)
-                s_kp1  = data.all_next_observations[:, k, :]  # (B, obs_dim)
+                s_kp1 = data.all_next_observations[:, k, :]  # (B, obs_dim)
 
-                a_kp1, _, _, _ = self.actor_target.get_action(s_kp1)
+                a_kp1, _, _ = self.actor_target.get_action(s_kp1)
                 a_kp1 = a_kp1.squeeze(1)
                 q_kp1 = self.aggregation_operator(
                     s_kp1, a_kp1, self.target_critics,
