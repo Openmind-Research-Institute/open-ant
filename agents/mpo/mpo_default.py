@@ -85,6 +85,13 @@ class Actor(nn.Module):
         mean = torch.tanh(d.mean) * self.action_scale + self.action_bias
         return actions, log_probs, mean, raw_acts
 
+    def get_log_probs(self, obs: torch.Tensor, raw_action: torch.Tensor) -> torch.Tensor:
+        d = self.forward(obs)
+        scaled = torch.tanh(raw_action)
+        log_probs = d.log_prob(raw_action)
+        log_probs -= torch.log(self.action_scale * (1 - scaled.pow(2)) + 1e-6)
+        return log_probs.sum(-1, keepdim=True)
+
 
 class Critic(nn.Module):
     def __init__(self, env, hidden_dims: List[int] = [256, 256], use_layer_norm: bool = False):
@@ -220,6 +227,8 @@ class MPO:
 
         self.global_step = 0
         self.obs = None
+        self.last_raw_actions = None
+        self.last_log_probs = None
 
         # Logging state.
         self.start_time = None
@@ -238,18 +247,30 @@ class MPO:
         self.agent_vars_buffer = []
 
     def get_action(self, obs, evaluate=False):
+        act_dim = self.envs.single_action_space.shape[0]
+
         if self.obs is None:
             self.obs = obs
-            return np.array([self.envs.single_action_space.sample() for _ in range(self.envs.num_envs)])
+            rand_actions = np.array([self.envs.single_action_space.sample() for _ in range(self.envs.num_envs)])
+            self.last_raw_actions = np.zeros((self.envs.num_envs, act_dim), dtype=np.float32)
+            self.last_log_probs = np.zeros((self.envs.num_envs, 1), dtype=np.float32)
+            return rand_actions
 
         if evaluate or self.global_step > self.args.learning_starts:
             with torch.no_grad():
-                actions, _, _, _ = self.actor.get_action(
-                    torch.as_tensor(self.obs, dtype=torch.float32, device=self.device)
-                )
-                return actions.squeeze(1).cpu().numpy()
+                obs_t = torch.as_tensor(self.obs, dtype=torch.float32, device=self.device)
+                actions, log_probs, _, raw_acts = self.actor.get_action(obs_t)
+                actions = actions.squeeze(1)     # (n_envs, act_dim)
+                raw_acts = raw_acts.squeeze(1)   # (n_envs, act_dim)
+                log_probs = log_probs.squeeze(1) # (n_envs, 1)
+                self.last_raw_actions = raw_acts.cpu().numpy()
+                self.last_log_probs = log_probs.cpu().numpy()
+                return actions.cpu().numpy()
 
-        return np.array([self.envs.single_action_space.sample() for _ in range(self.envs.num_envs)])
+        rand_actions = np.array([self.envs.single_action_space.sample() for _ in range(self.envs.num_envs)])
+        self.last_raw_actions = np.zeros((self.envs.num_envs, act_dim), dtype=np.float32)
+        self.last_log_probs = np.zeros((self.envs.num_envs, 1), dtype=np.float32)
+        return rand_actions
 
     def agent_step(self, next_obs, actions, rewards, terminations, truncations, infos):
         # SyncVectorEnv auto-resets and stores the true final obs; hw env does not.
@@ -260,7 +281,9 @@ class MPO:
                     real_next_obs[idx] = infos["final_observation"][idx]
 
         self.rb.add(self.obs, real_next_obs, actions, rewards, terminations,
-                    [{}] * self.envs.num_envs)
+                    [{}] * self.envs.num_envs,
+                    raw_action=self.last_raw_actions,
+                    behavior_log_prob=self.last_log_probs)
         self.global_step += 1
         self.obs = next_obs
 
@@ -317,14 +340,54 @@ class MPO:
         }
 
     def _update_critic(self, data: NStepReplayBufferSamples) -> Tuple[float, float]:
+        n = data.rewards.shape[1]
+        gamma_dt = self.args.gamma ** self.dt
+
         with torch.no_grad():
-            next_actions, _, _, _ = self.actor_target.get_action(data.next_observations)
-            next_actions = next_actions.squeeze(1)
+            # Fixed critic subset for the entire Retrace computation — consistent targets.
+            subset_idx = torch.randperm(len(self.critics), device=self.device)[:2]
+
+            # Bootstrap from Q_target(s_0, a_0).
             y = self.aggregation_operator(
-                data.next_observations, next_actions, self.target_critics, mode='min_subset', subset_size=2
+                data.observations, data.actions, self.target_critics,
+                mode='min_subset', subset_size=2, subset_idx=subset_idx,
             )
-            for k in range(data.rewards.shape[1] - 1, -1, -1):
-                y = data.rewards[:, k, :]*self.dt + (1.0 - data.dones[:, k, :]) * (self.args.gamma**self.dt) * y
+
+            c_prod = torch.ones_like(y)   # running IS product (B, 1)
+            alive  = torch.ones_like(y)   # episode-still-alive mask (B, 1)
+            prev_done = None
+
+            for k in range(n):
+                s_k    = data.all_observations[:, k, :]       # (B, obs_dim)
+                a_k    = data.all_actions[:, k, :]            # (B, act_dim)
+                r_k    = data.rewards[:, k, :]                # (B, 1)
+                done_k = data.dones[:, k, :]                  # (B, 1)
+                s_kp1  = data.all_next_observations[:, k, :]  # (B, obs_dim)
+
+                a_kp1, _, _, _ = self.actor_target.get_action(s_kp1)
+                a_kp1 = a_kp1.squeeze(1)
+                q_kp1 = self.aggregation_operator(
+                    s_kp1, a_kp1, self.target_critics,
+                    mode='min_subset', subset_size=2, subset_idx=subset_idx,
+                )
+                # k=0: reuse the initial y to avoid an extra forward pass.
+                q_k = y if k == 0 else self.aggregation_operator(
+                    s_k, a_k, self.target_critics,
+                    mode='min_subset', subset_size=2, subset_idx=subset_idx,
+                )
+
+                delta_k = r_k * self.dt + gamma_dt * (1.0 - done_k) * q_kp1 - q_k
+
+                if k > 0:
+                    alive  = alive * (1.0 - prev_done)
+                    raw_k  = data.raw_actions[:, k, :]         # (B, act_dim)
+                    log_mu = data.behavior_log_probs[:, k, :]  # (B, 1)
+                    log_pi = self.actor_target.get_log_probs(s_k, raw_k)
+                    c_k    = self.importance_sampling_coef(log_pi, log_mu)
+                    c_prod = c_prod * c_k
+
+                y = y + (gamma_dt ** k) * c_prod * alive * delta_k
+                prev_done = done_k
 
         losses = []
         for critic, opt in zip(self.critics, self.critic_optimizers):
@@ -345,13 +408,14 @@ class MPO:
 
         return float(np.mean(losses)), mean_q
 
-    def aggregation_operator(self, state, action, critics, mode='mean', beta=1.0, subset_size=2):
+    def aggregation_operator(self, state, action, critics, mode='mean', beta=1.0, subset_size=2, subset_idx=None):
         q_values = torch.stack([c(state, action) for c in critics], dim=0)
         if mode == 'mean':
             return q_values.mean(dim=0)
         elif mode == 'min_subset':
-            idx = torch.randperm(q_values.shape[0], device=self.device)[:subset_size]
-            return q_values[idx].min(dim=0).values
+            if subset_idx is None:
+                subset_idx = torch.randperm(q_values.shape[0], device=self.device)[:subset_size]
+            return q_values[subset_idx].min(dim=0).values
         elif mode == 'LCB':
             return q_values.mean(dim=0) - beta * (q_values.std(dim=0) + 1e-6)
         elif mode == 'UCB':
@@ -360,6 +424,9 @@ class MPO:
             return q_values.median(dim=0).values
         else:
             raise ValueError(f"Unknown aggregation mode: {mode}")
+
+    def importance_sampling_coef(self, log_pi: torch.Tensor, log_mu: torch.Tensor) -> torch.Tensor:
+        return (log_pi - log_mu).exp().clamp(max=1.0)
 
     def _solve_temp_dual(self, q_values: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         q = q_values.detach()  # (B, N)
