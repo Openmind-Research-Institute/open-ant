@@ -33,11 +33,6 @@ def arr_to_str(x):
         return "[" + " ".join(map(str, x.tolist())) + "]"
     return x
 
-
-LOG_STD_MAX = 2
-LOG_STD_MIN = -5
-
-
 class Actor(nn.Module):
     def __init__(self,
                  env,
@@ -218,6 +213,10 @@ class MPO:
         self.alpha_sigma = 1e-3
 
         self.envs.single_observation_space.dtype = np.float32
+        self.action_low = envs.single_action_space.low.astype(np.float32)
+        self.action_high = envs.single_action_space.high.astype(np.float32)
+        assert np.all(np.isfinite(envs.single_action_space.low)) and np.all(np.isfinite(envs.single_action_space.high))
+        self._uniform_log_prob = -float(np.sum(np.log(self.action_high - self.action_low)))
 
         self.rb = ReplayBuffer(
             args.buffer_size,
@@ -254,9 +253,9 @@ class MPO:
 
         if self.obs is None:
             self.obs = obs
-            rand_actions = np.array([self.envs.single_action_space.sample() for _ in range(self.envs.num_envs)])
-            self.last_actions = np.zeros((self.envs.num_envs, act_dim), dtype=np.float32)
-            self.last_log_probs = np.zeros((self.envs.num_envs, 1), dtype=np.float32)
+            rand_actions = np.array([self.envs.single_action_space.sample() for _ in range(self.envs.num_envs)]) #Gymnasium uses uniform sampling for box --> if other than change logprob formula
+            self.last_actions = rand_actions.copy()
+            self.last_log_probs = np.full((self.envs.num_envs, 1), self._uniform_log_prob, dtype=np.float32)
             return rand_actions
 
         if evaluate or self.global_step > self.args.learning_starts:
@@ -270,8 +269,8 @@ class MPO:
                 return actions.cpu().numpy()
 
         rand_actions = np.array([self.envs.single_action_space.sample() for _ in range(self.envs.num_envs)])
-        self.last_actions = np.zeros((self.envs.num_envs, act_dim), dtype=np.float32)
-        self.last_log_probs = np.zeros((self.envs.num_envs, 1), dtype=np.float32)
+        self.last_actions = rand_actions.copy()
+        self.last_log_probs = np.full((self.envs.num_envs, 1), self._uniform_log_prob, dtype=np.float32)
         return rand_actions
 
     def agent_step(self, next_obs, actions, rewards, terminations, truncations, infos):
@@ -474,7 +473,7 @@ class MPO:
         for _ in range(self.args.mstep_iteration_num):
             curr_d = self.actor.forward(obs)
 
-            # Weighted log-likelihood under current policy (pre-tanh raw actions from E-step).
+            # Weighted log-likelihood under current policy.
             log_probs = dist.Normal(curr_d.base_dist.loc.unsqueeze(1), curr_d.base_dist.scale.unsqueeze(1)).log_prob(action_samples)
             nll = -(weights.detach() * log_probs.sum(-1)).sum(-1).mean()
 
