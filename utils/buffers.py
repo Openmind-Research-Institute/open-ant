@@ -63,15 +63,14 @@ class ReplayBufferSamples(NamedTuple):
 
 
 class NStepReplayBufferSamples(NamedTuple):
-    observations: th.Tensor           # (B, obs_dim)       — obs at the start of the window
-    actions: th.Tensor                # (B, act_dim)       — bounded action at the start
-    next_observations: th.Tensor      # (B, obs_dim)       — obs after the last step (bootstrapping)
+    observations: th.Tensor           # (B, obs_dim) 
+    actions: th.Tensor                
+    next_observations: th.Tensor      
     dones: th.Tensor                  # (B, n_step, 1)
-    rewards: th.Tensor                # (B, n_step, 1)
+    rewards: th.Tensor                
     all_observations: th.Tensor       # (B, n_step, obs_dim)
-    all_next_observations: th.Tensor  # (B, n_step, obs_dim)
-    all_actions: th.Tensor            # (B, n_step, act_dim) — bounded
-    raw_actions: th.Tensor            # (B, n_step, act_dim) — pre-tanh
+    all_next_observations: th.Tensor 
+    all_actions: th.Tensor            
     behavior_log_probs: th.Tensor     # (B, n_step, 1)
 
 
@@ -325,7 +324,6 @@ class ReplayBuffer(BaseBuffer):
         self.actions = np.zeros(
             (self.buffer_size, self.n_envs, self.action_dim), dtype=self._maybe_cast_dtype(action_space.dtype)
         )
-        self.raw_actions = np.zeros((self.buffer_size, self.n_envs, self.action_dim), dtype=np.float32)
         self.behavior_log_probs = np.zeros((self.buffer_size, self.n_envs, 1), dtype=np.float32)
 
         self.rewards = np.zeros((self.buffer_size, self.n_envs), dtype=np.float32)
@@ -360,7 +358,6 @@ class ReplayBuffer(BaseBuffer):
         reward: np.ndarray,
         done: np.ndarray,
         infos: list[dict[str, Any]],
-        raw_action: np.ndarray | None = None,
         behavior_log_prob: np.ndarray | None = None,
     ) -> None:
         # Reshape needed when using multiple envs with discrete observations
@@ -381,8 +378,6 @@ class ReplayBuffer(BaseBuffer):
             self.next_observations[self.pos] = np.array(next_obs)
 
         self.actions[self.pos] = np.array(action)
-        if raw_action is not None:
-            self.raw_actions[self.pos] = np.array(raw_action).reshape((self.n_envs, self.action_dim))
         if behavior_log_prob is not None:
             self.behavior_log_probs[self.pos] = np.array(behavior_log_prob).reshape((self.n_envs, 1))
         self.rewards[self.pos] = np.array(reward)
@@ -469,7 +464,6 @@ class ReplayBuffer(BaseBuffer):
         all_obs      = self.observations[all_inds, env_inds[:, None]]       # (B, n_step, obs_dim)
         all_next_obs = self.next_observations[all_inds, env_inds[:, None]]  # (B, n_step, obs_dim)
         all_acts     = self.actions[all_inds, env_inds[:, None]]            # (B, n_step, act_dim)
-        all_raw      = self.raw_actions[all_inds, env_inds[:, None]]        # (B, n_step, act_dim)
         all_lp       = self.behavior_log_probs[all_inds, env_inds[:, None]] # (B, n_step, 1)
 
         return NStepReplayBufferSamples(
@@ -481,7 +475,6 @@ class ReplayBuffer(BaseBuffer):
             all_observations=self.to_torch(all_obs),
             all_next_observations=self.to_torch(all_next_obs),
             all_actions=self.to_torch(all_acts),
-            raw_actions=self.to_torch(all_raw),
             behavior_log_probs=self.to_torch(all_lp),
         )
 
@@ -496,7 +489,6 @@ class ReplayBuffer(BaseBuffer):
             observations=self.observations,
             next_observations=self.next_observations,
             actions=self.actions,
-            raw_actions=self.raw_actions,
             behavior_log_probs=self.behavior_log_probs,
             rewards=self.rewards,
             dones=self.dones,
@@ -512,7 +504,6 @@ class ReplayBuffer(BaseBuffer):
         self.observations = data['observations']
         self.next_observations = data['next_observations']
         self.actions = data['actions']
-        self.raw_actions = data['raw_actions'] if 'raw_actions' in data else np.zeros_like(self.raw_actions)
         self.behavior_log_probs = data['behavior_log_probs'] if 'behavior_log_probs' in data else np.zeros_like(self.behavior_log_probs)
         self.rewards = data['rewards']
         self.dones = data['dones']
