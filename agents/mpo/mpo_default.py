@@ -761,9 +761,6 @@ if __name__ == "__main__":
 
         agent.log_step(step, infos, rewards, metrics)
 
-        if any(truncations) or any(terminations):
-            envs.reset()
-
         if step % args.save_every_n_steps == 0:
             agent.save_checkpoint(step)
 
