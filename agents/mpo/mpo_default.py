@@ -283,7 +283,6 @@ class MPO:
 
         self.rb.add(self.obs, real_next_obs, actions, rewards, terminations,
                     [{}] * self.envs.num_envs,
-                    raw_action=self.last_actions,
                     behavior_log_prob=self.last_log_probs)
         self.global_step += 1
         self.obs = next_obs
@@ -316,12 +315,12 @@ class MPO:
 
         # Always run E-step so eta stays calibrated during Q warmup.
         # t0 = time.time()
-        raw_actions, weights, eta, b_mu, b_sigma = self._e_step(data)
+        action_samples, weights, eta, b_mu, b_sigma = self._e_step(data)
         # t_estep = time.time() - t0
 
         if not self.args.decouple_q_learning:
             # t0 = time.time()
-            loss_p, kl_mu, kl_sigma = self._m_step(data.observations, raw_actions, weights, b_mu, b_sigma)
+            loss_p, kl_mu, kl_sigma = self._m_step(data.observations, action_samples, weights, b_mu, b_sigma)
             # t_mstep = time.time() - t0
 
         self._update_targets()
@@ -381,9 +380,9 @@ class MPO:
 
                 if k > 0:
                     alive  = alive * (1.0 - prev_done)
-                    raw_k  = data.raw_actions[:, k, :]         # (B, act_dim)
+                    actions_k  = data.all_actions[:, k, :]         # (B, act_dim)
                     log_mu = data.behavior_log_probs[:, k, :]  # (B, 1)
-                    log_pi = self.actor_target.get_log_probs(s_k, raw_k)
+                    log_pi = self.actor_target.get_log_probs(s_k, actions_k)
                     c_k    = self.importance_sampling_coef(log_pi, log_mu)
                     c_prod = c_prod * c_k
 
