@@ -81,7 +81,8 @@ class Actor(nn.Module):
         d = self.forward(obs)
         actions = d.rsample((n_samples,))
         log_probs = d.log_prob(actions)
-
+        actions = torch.clamp(actions, self.action_low, self.action_high)
+        log_probs = d.log_prob(actions) #TODO: verify log prob consistency
         actions = actions.permute(1, 0, 2)  # (batch, n_samples, act_dim)
         log_probs = log_probs.transpose(0, 1).unsqueeze(-1)
         return actions, log_probs, d.mean
@@ -261,9 +262,12 @@ class MPO:
         if evaluate or self.global_step > self.args.learning_starts:
             with torch.no_grad():
                 obs_t = torch.as_tensor(self.obs, dtype=torch.float32, device=self.device)
-                actions, log_probs, _ = self.actor.get_action(obs_t)
+                d = self.actor.forward(obs_t)
+                action = d.mean if evaluate else d.rsample()
+                actions = torch.clamp(action, self.actor.action_low, self.actor.action_high) #mjx clipos internally but overflowed action stored in buffer --> inconsistency
                 actions = actions.squeeze(1)     # (n_envs, act_dim)
-                log_probs = log_probs.squeeze(1) # (n_envs, 1)
+                
+                log_probs = d.log_prob(actions).unsqueeze(-1)
                 self.last_actions = actions.cpu().numpy()
                 self.last_log_probs = log_probs.cpu().numpy()
                 return actions.cpu().numpy()
@@ -432,6 +436,8 @@ class MPO:
         q = q_values.detach()  # (B, N)
         n_samples = q.shape[-1]
 
+        q = (q - q.mean()) / q.std().clamp_min(1e-6) #mkae temp dual coeff reward scale inv.
+
         with torch.enable_grad():
             for _ in range(self.args.dual_steps):
                 self.dual_temp_optimizer.zero_grad()
@@ -456,7 +462,7 @@ class MPO:
             d = self.actor_target.forward(obs)
             b_mu, b_sigma = d.base_dist.loc, d.base_dist.scale                            # (B, da)
             action_samples = d.rsample((N,)).permute(1, 0, 2)            # (B, N, da)
-
+            action_samples = torch.clamp(action_samples, self.actor_target.action_low, self.actor_target.action_high) #mjx clipos internally but overflowed action stored in buffer --> inconsistency
             obs_exp = obs.unsqueeze(1).expand(-1, N, -1).reshape(-1, ds)
             acts_flat = action_samples.reshape(-1, da)
             q_values = self.aggregation_operator(
