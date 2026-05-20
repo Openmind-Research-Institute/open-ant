@@ -213,6 +213,8 @@ class MPO:
         self.alpha_mu = 1e-3 #if 0.0 first policy imporvement steps are unconstrained
         self.alpha_sigma = 1e-3
 
+        self.obs_dim = int(np.array(self.envs.single_observation_space.shape).prod())
+        self.act_dim = int(np.prod(self.envs.single_action_space.shape))
         self.envs.single_observation_space.dtype = np.float32
         self.action_low = envs.single_action_space.low.astype(np.float32)
         self.action_high = envs.single_action_space.high.astype(np.float32)
@@ -227,6 +229,9 @@ class MPO:
             n_envs=args.num_envs,
             handle_timeout_termination=False,
         )
+
+        self.batch_size = self.args.batch_size
+        self.trajectory_length = self.args.td_horizon
 
         self.global_step = 0
         self.obs = None
@@ -292,7 +297,7 @@ class MPO:
         self.obs = next_obs
 
         metrics = None
-        if self.global_step > self.args.learning_starts and self.rb.size() >= self.args.batch_size:
+        if self.global_step > self.args.learning_starts and self.rb.size() >= self.batch_size:
             results = [self._learn() for _ in range(self.args.utd_ratio)]
             keys = results[0].keys()
             metrics = {k: sum(r[k] for r in results) / len(results) for k in keys}
@@ -307,7 +312,7 @@ class MPO:
         if self.global_step >= self.args.learning_starts + self.policy_learning_starts:
             self.args.decouple_q_learning = False
 
-        data = self.rb.sample_nstep(self.args.batch_size, self.args.td_horizon)
+        data = self.rb.sample_nstep(self.batch_size, self.trajectory_length)
 
         # t0 = time.time()
         loss_q, mean_q = self._update_critic(data)
@@ -344,51 +349,63 @@ class MPO:
         }
 
     def _update_critic(self, data: NStepReplayBufferSamples) -> Tuple[float, float]:
-        n = data.rewards.shape[1]
+        n = self.trajectory_length
+        B = self.batch_size
         gamma_dt = self.args.gamma ** self.dt
 
         with torch.no_grad():
             # Fixed critic subset for the entire Retrace computation — consistent targets.
             subset_idx = torch.randperm(len(self.critics), device=self.device)[:2]
 
+            s_k_flat = data.all_observations.reshape(B*n, self.obs_dim)
+            a_k_flat = data.all_actions.reshape(B*n,self.act_dim)
+            q_traj_stack = self.aggregation_operator(state=s_k_flat, action=a_k_flat, critics=self.target_critics,
+                                                     mode='min_subset', subset_size=2, subset_idx=subset_idx)
+            q_traj = q_traj_stack.reshape(B,n)
+             
+            s_kp1_flat = data.all_next_observations.reshape(B*n, self.obs_dim)
+            a_kp1_flat = self.actor_target.get_action(s_kp1_flat)[0].squeeze(1) #squeeze samples to (B*n;act_dim) discard mean and log probs
+            q_kp1_stack = self.aggregation_operator(state=s_kp1_flat, action=a_kp1_flat, critics=self.target_critics,
+                                                    mode='min_subset', subset_size=2, subset_idx=subset_idx)
+            q_kp1_traj = q_kp1_stack.reshape(B,n)
+            if n > 1: #importance sampling coef only needed if td horizon larger than 1
+                s_middle_flat = data.all_observations[:,1:,:].reshape(B*(n-1), self.obs_dim)
+                a_middle_flat = data.all_actions[:,1:,:].reshape(B*(n-1), self.act_dim)
+                logp_pi = self.actor_target.get_log_probs(s_middle_flat, a_middle_flat).reshape(B,n-1) #log proba of obtaining a given s under target policy (even if samples are from traj folowing behavior pol)
+                logp_mu = data.behavior_log_probs[:,1:,:].squeeze(-1)
+                c_all = self.importance_sampling_coef(log_pi=logp_pi, log_mu=logp_mu)
+
             # Bootstrap from Q_target(s_0, a_0).
-            y = self.aggregation_operator(
-                data.observations, data.actions, self.target_critics,
-                mode='min_subset', subset_size=2, subset_idx=subset_idx,
-            )
+            y = q_traj[:,0:1].clone()
 
             c_prod = torch.ones_like(y)   # running IS product (B, 1)
             alive = torch.ones_like(y)   # episode-still-alive mask (B, 1)
             prev_done = None
 
             for k in range(n):
-                s_k = data.all_observations[:, k, :]       # (B, obs_dim)
-                a_k = data.all_actions[:, k, :]            # (B, act_dim)
+                q_kp1 = q_kp1_traj[:,k:k+1]
+                q_k = q_traj[:,k:k+1]
                 r_k = data.rewards[:, k, :]                # (B, 1)
                 done_k = data.dones[:, k, :]                  # (B, 1)
-                s_kp1 = data.all_next_observations[:, k, :]  # (B, obs_dim)
+                # s_kp1 = data.all_next_observations[:, k, :]  # (B, obs_dim)
 
-                a_kp1, _, _ = self.actor_target.get_action(s_kp1)
-                a_kp1 = a_kp1.squeeze(1)
-                q_kp1 = self.aggregation_operator(
-                    s_kp1, a_kp1, self.target_critics,
-                    mode='min_subset', subset_size=2, subset_idx=subset_idx,
-                )
-                # k=0: reuse the initial y to avoid an extra forward pass.
-                q_k = y if k == 0 else self.aggregation_operator(
-                    s_k, a_k, self.target_critics,
-                    mode='min_subset', subset_size=2, subset_idx=subset_idx,
-                )
+                # a_kp1, _, _ = self.actor_target.get_action(s_kp1)
+                # a_kp1 = a_kp1.squeeze(1)
+                # q_kp1 = self.aggregation_operator(
+                #     s_kp1, a_kp1, self.target_critics,
+                #     mode='min_subset', subset_size=2, subset_idx=subset_idx,
+                # )
+                # # k=0: reuse the initial y to avoid an extra forward pass.
+                # q_k = y if k == 0 else self.aggregation_operator(
+                #     s_k, a_k, self.target_critics,
+                #     mode='min_subset', subset_size=2, subset_idx=subset_idx,
+                # )
 
                 delta_k = r_k * self.dt + gamma_dt * (1.0 - done_k) * q_kp1 - q_k
 
                 if k > 0:
                     alive  = alive * (1.0 - prev_done)
-                    actions_k  = data.all_actions[:, k, :]         # (B, act_dim)
-                    log_mu = data.behavior_log_probs[:, k, :]  # (B, 1)
-                    log_pi = self.actor_target.get_log_probs(s_k, actions_k)
-                    c_k    = self.importance_sampling_coef(log_pi, log_mu)
-                    c_prod = c_prod * c_k
+                    c_prod = c_prod * c_all[:,k-1:k]
 
                 y = y + (gamma_dt ** k) * c_prod * alive * delta_k
                 prev_done = done_k
