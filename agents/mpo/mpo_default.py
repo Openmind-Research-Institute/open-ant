@@ -3,6 +3,7 @@ import csv
 import sys
 import copy
 import json
+import math
 import time
 import random
 import argparse
@@ -80,7 +81,6 @@ class Actor(nn.Module):
     def get_action(self, obs: torch.Tensor, n_samples: int = 1) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         d = self.forward(obs)
         actions = d.rsample((n_samples,))
-        log_probs = d.log_prob(actions)
         actions = torch.clamp(actions, self.action_low, self.action_high)
         log_probs = d.log_prob(actions) #TODO: verify log prob consistency
         actions = actions.permute(1, 0, 2)  # (batch, n_samples, act_dim)
@@ -254,6 +254,14 @@ class MPO:
         self.info_log_buffer = []
         self.agent_vars_buffer = []
 
+        #compile modules
+        # self.actor = torch.compile(self.actor, mode='reduce-overhead')
+        # self.actor_target = torch.compile(self.actor_target, mode='reduce-overhead')
+        # self.critics = nn.ModuleList([torch.compile(c,mode='reduce-overhead') for c in self.critics])
+        # self.target_critics = nn.ModuleList([torch.compile(c,mode='reduce-overhead') for c in self.target_critics])
+        
+
+
     def get_action(self, obs, evaluate=False):
         act_dim = self.envs.single_action_space.shape[0]
 
@@ -364,7 +372,11 @@ class MPO:
             q_traj = q_traj_stack.reshape(B,n)
              
             s_kp1_flat = data.all_next_observations.reshape(B*n, self.obs_dim)
-            a_kp1_flat = self.actor_target.get_action(s_kp1_flat)[0].squeeze(1) #squeeze samples to (B*n;act_dim) discard mean and log probs
+            # a_kp1_flat = self.actor_target.get_action(s_kp1_flat)[0].squeeze(1) #squeeze samples to (B*n;act_dim) discard mean and log probs
+            d_kp1 = self.actor_target.forward(s_kp1_flat)
+            a_kp1_flat = torch.clamp(d_kp1.rsample(),
+                                    self.actor_target.action_low,
+                                    self.actor_target.action_high)
             q_kp1_stack = self.aggregation_operator(state=s_kp1_flat, action=a_kp1_flat, critics=self.target_critics,
                                                     mode='min_subset', subset_size=2, subset_idx=subset_idx)
             q_kp1_traj = q_kp1_stack.reshape(B,n)
@@ -411,21 +423,20 @@ class MPO:
                 prev_done = done_k
 
         losses = []
-        for critic, opt in zip(self.critics, self.critic_optimizers):
-            q_value = critic(data.observations, data.actions)
-            loss = F.mse_loss(q_value, y)
+        q_preds = torch.stack([c(data.observations, data.actions) for c in self.critics], dim=0)
+        joint_loss = F.mse_loss(q_preds, y.unsqueeze(0).expand_as(q_preds), reduction='sum') / B
 
+        for opt in self.critic_optimizers:
             opt.zero_grad()
-            loss.backward()
+        joint_loss.backward()
+        for i, (critic, opt) in enumerate(zip(self.critics, self.critic_optimizers)):
             if self.args.max_grad_norm > 0:
                 nn.utils.clip_grad_norm_(critic.parameters(), self.args.max_grad_norm)
             opt.step()
-            losses.append(loss.item())
+            losses.append(F.mse_loss(q_preds[i].detach(), y).item())
 
         with torch.no_grad():
-            mean_q = self.aggregation_operator(
-                data.observations, data.actions, self.critics, mode='mean'
-            ).mean().item()
+            mean_q = q_preds.detach().mean().item()
 
         return float(np.mean(losses)), mean_q
 
@@ -458,9 +469,7 @@ class MPO:
         with torch.enable_grad():
             for _ in range(self.args.dual_steps):
                 self.dual_temp_optimizer.zero_grad()
-                eta = self.log_eta.exp()
-                dual_loss = (eta * self.args.dual_constraint
-                             + eta * (torch.logsumexp(q / eta, dim=-1) - np.log(n_samples)).mean())
+                dual_loss = _compiled_dual_loss(log_eta=self.log_eta, q=q, dual_constraint=self.args.dual_constraint, log_n=math.log(n_samples))
                 dual_loss.backward()
                 self.dual_temp_optimizer.step()
                 self.log_eta.data.clamp_(-4.0, 4.0)
@@ -622,7 +631,8 @@ class MPO:
             "global_step": global_step,
         }
         torch.save(checkpoint, os.path.join(self.weights_folder, f"checkpoint_{global_step}.pth"))
-        self.rb.save(os.path.join(self.weights_folder, "replay_buffer.npz"))
+        if global_step % (10 * self.args.save_every_n_steps) == 0:
+            self.rb.save(os.path.join(self.weights_folder, "replay_buffer.npz"))
 
     def load_checkpoint(self, weights_path):
         checkpoint_files = [f for f in os.listdir(weights_path) if f.endswith(".pth")]
@@ -667,6 +677,11 @@ class MPO:
             self.csv_file_agent_vars.close()
         if self.envs:
             self.envs.close()
+
+@torch.compile
+def _compiled_dual_loss(log_eta, q, dual_constraint, log_n):
+    eta = log_eta.exp()
+    return eta * dual_constraint + eta * (torch.logsumexp(q / eta, dim=-1) - log_n).mean()
 
 
 def parse_args():
