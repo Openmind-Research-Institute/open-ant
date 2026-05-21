@@ -17,6 +17,10 @@ The hardware is designed to be easy to build and use:
 - no soldering required
 - no special tools required (only the standard hex drivers for M2, M2.5, and M3 screws which are 1.5mm, 2.0mm, and 2.5mm, respectively)
 
+## Assembly video
+
+[Watch the assembly video](https://youtu.be/siWUn2i8hFY?si=Tb2L7xUlnYaNfrpW)
+
 ### Specs.
 
 - hip range +/- 45deg
@@ -176,6 +180,11 @@ Yes, it can happen. For this, it is recommended to use Loctite Threadlocker. Ens
 ### Q: How can we increase the friction on the lower legs?
 
 We recommend 3D printing socks out of TPU.
+
+### Q: There might be intermittent communication dropout. How is this addressed?
+
+During long duration run-time learning experiments, we observed intermittent, very short communication dropouts. 
+The power connection was modified to connect directly to the screw terminals on the control board rather than using the barrel connector. This eliminated the voltage drops caused by vibration-induced intermittent contact during learning experiments.
 
 
 ## Misc
