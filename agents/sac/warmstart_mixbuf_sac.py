@@ -189,7 +189,8 @@ class SAC:
                  use_layer_norm: bool,
                  dt: float,
                  torch_deterministic: bool = True,
-                 record_infos_sac = True
+                 record_infos_sac = True,
+                 warm_start: bool = False
                  ):
 
         # Environment.
@@ -247,9 +248,14 @@ class SAC:
                 sampler=RandomSampler(),
                 batch_size=batch_size,
             )
+        
+        # offline replay buffer, loaded during sim2
+        self.rb_offline = None
+        self.offline_mix_alpha = 0.5
 
         self.global_step = 0
         self.obs = None
+        self.warm_start = warm_start
         
     def get_action(self, obs, evaluate=False):
         if self.obs is None:
@@ -263,8 +269,12 @@ class SAC:
             return actions
 
         # Otherwise, pick a random action.
-        actions = np.array([self.envs.single_action_space.sample() for _ in range(self.envs.num_envs)])
+        #actions = np.array([self.envs.single_action_space.sample() for _ in range(self.envs.num_envs)])
+        if self.warm_start:
+            actions, _, _ = self.actor.get_action(torch.Tensor(self.obs).to(self.device))
+            return actions.detach().cpu().numpy()
 
+        actions = np.array([self.envs.single_action_space.sample() for _ in range(self.envs.num_envs)])
         return actions
  
     def agent_step(self, next_obs, actions, rewards, terminations, truncations, infos):
@@ -290,7 +300,16 @@ class SAC:
 
         # Learning.
         if self.global_step > self.learning_starts:
-            data, info_buffer = self.rb.sample(self.batch_size, return_info=True)
+            if self.rb_offline is not None:
+                num_online  = int(self.batch_size * self.offline_mix_alpha)
+                num_offline = self.batch_size - num_online
+
+                # Is vertically stacking, dim = 0 the right concatenation?
+                data = torch.cat([self.rb_offline.sample(num_offline), self.rb.sample(num_online)], dim=0)
+            else:
+                num_online = self.batch_size
+                num_offline = 0
+                data, info_buffer = self.rb.sample(self.batch_size, return_info=True)
             with torch.no_grad():
                 next_state_actions, next_state_log_pi, _ = self.actor.get_action(data["next_observations"])
                 qf1_next_target = self.qf1_target(data["next_observations"], next_state_actions)
@@ -371,6 +390,15 @@ class SAC:
     def load_replay_buffer(self, replay_buffer_path):
         self.rb.loads(replay_buffer_path)
 
+    def load_replay_buffer_offline(self, replay_buffer_path):
+        self.rb_offline = ReplayBuffer(
+                storage=LazyTensorStorage(1_000_000, device=self.device),
+                sampler=RandomSampler(),
+                batch_size=self.batch_size,
+            )
+        self.rb_offline.loads(replay_buffer_path)
+        # loads is a tourchrl method, read saved buffer from the specified path on disk, and puts it in self.rb_offline with the transition data 
+    
     def get_state(self):
         """Returns the full state of the agent including all network weights and optimizers."""
         state = {
@@ -426,7 +454,7 @@ def parse_args():
                         help="the name of this experiment")
     parser.add_argument("--runs_directory", type=str, default="runs",
                         help="the directory to save the runs in")
-    parser.add_argument("--seed", type=int, default=1,
+    parser.add_argument("--seed", type=int, default=42,
                         help="seed of the experiment")
     parser.add_argument("--torch_deterministic", type=bool, default=True,
                         help="if toggled, torch.backends.cudnn.deterministic=False")
@@ -495,7 +523,12 @@ def parse_args():
                         help="reward scale factor")
     parser.add_argument("--model_path", type=str, default="../../sim/assets/ant_with_camera_after_sys_id.xml",
                         help="XML file to use for the environment")
-
+    parser.add_argument("--offline_buffer_path", type=str, default=None,
+                    help="path to sim1 replay buffer for offline mixing")
+    parser.add_argument("--load_buffer", action="store_true", default=False,
+                    help="whether to load the replay buffer from weights_path, if resuming a crashed run")       
+    parser.add_argument("--warm_start", action="store_true", default=False,
+                    help="use pi0 during warmup instead of random actions")
     args = parser.parse_args()
     return args
 
@@ -553,7 +586,8 @@ if __name__ == "__main__":
                 gamma=args.gamma,
                 use_layer_norm=args.use_layer_norm,
                 seed=args.seed,
-                dt=args.dt)
+                dt=args.dt,
+                warm_start=args.warm_start)
 
     step = 0
     # Load the model.
@@ -561,12 +595,19 @@ if __name__ == "__main__":
         state = torch.load(os.path.join(args.weights_path, f"weights.pth"))
         agent.load_state(state)
         step = state["global_step"]
-        agent.load_replay_buffer(os.path.join(args.weights_path, f"replay_buffer"))
+        if args.load_buffer:
+            agent.load_replay_buffer(os.path.join(args.weights_path, f"replay_buffer"))
+
+    if args.offline_buffer_path is not None:
+        agent.load_replay_buffer_offline(args.offline_buffer_path)
 
     if args.eval:
         step = 0 # Reset the step to 0 when eval.
 
-    agent.set_global_step(step)
+    if args.warm_start:
+        agent.set_global_step(0)  # reset so learning_starts warmup triggers
+    else:
+        agent.set_global_step(step)
     print(f"Step: {step}")
 
     # Reward tracker.
@@ -583,8 +624,10 @@ if __name__ == "__main__":
 
     obs, info = envs.reset(seed=args.seed)
 
-    for step in tqdm(range(step, args.total_timesteps), initial=step):
+    sim2_start_step = step
 
+    for step in tqdm(range(step, args.total_timesteps), initial=step):
+        
         # Get action.
         selected_actions = agent.get_action(obs, args.eval)
 
@@ -595,7 +638,12 @@ if __name__ == "__main__":
         else:
             # Learn.
             info_sac = agent.agent_step(next_obs, selected_actions, rewards, terminations, truncations, infos)
-
+        
+            # Offline mixing check at each step, and decay the alpha value over time.
+            if agent.rb_offline is not None:
+                local_step = step - sim2_start_step
+                sim2_total = args.total_timesteps - sim2_start_step
+                agent.offline_mix_alpha = min(1.0, 0.5 + local_step / (sim2_total * 0.5)) 
         reward_tracker.update(infos['original_reward'][0])
 
         if info_sac is not None:
@@ -617,3 +665,4 @@ if __name__ == "__main__":
             # Save to csv.
             df_info_sac_logs = pd.DataFrame(info_sac_logs)
             df_info_sac_logs.to_csv(os.path.join(args.runs_directory, run_name, "info_sac_logs.csv"), index=False)
+
