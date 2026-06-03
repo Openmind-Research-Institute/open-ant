@@ -8,3 +8,7 @@ __pycache__
 *.zip
 *.log
 logs/
+*.egg*
+runs*
+
+copy_from_hpc.sh
