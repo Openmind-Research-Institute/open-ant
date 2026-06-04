@@ -5,147 +5,66 @@ import matplotlib.pyplot as plt
 # =====================================================
 # USER SETTINGS
 # =====================================================
-
-csv_path_1 = "/home/serena-liu/open-ant/agents/sac/runs_sim_less_aggresive/mixing-buffer/trial_2_20260529-153539_seed_2/info_sac_logs.csv"
-csv_path_2 = "/home/serena-liu/open-ant/agents/sac/runs_sim_less_aggresive/mixing-buffer/trial_2_continual_learning_20260529-154337_seed_2/info_sac_logs.csv"
-
-output_dir = "/home/serena-liu/open-ant/agents/sac/runs_sim_less_aggresive/mixing-buffer"
-
+csv_path_1 = "/home/serena-liu/open-ant/agents/sac/runs_sim_less_aggresive/warm_start/trial_1_20260531-151730_seed_0/info_sac_logs.csv"
+csv_path_2 = "/home/serena-liu/open-ant/agents/sac/runs_sim_less_aggresive/warm_start/trial_1_warmstart_continual_learning_20260531-152601_seed_0/info_sac_logs.csv"
+output_dir = "/home/serena-liu/open-ant/agents/sac/runs_sim_less_aggresive/warm_start"
 os.makedirs(output_dir, exist_ok=True)
 
 # =====================================================
-# LOAD CSVS
+# LOAD & CONCATENATE WITH CUMULATIVE STEPS
 # =====================================================
-
 df1 = pd.read_csv(csv_path_1)
 df2 = pd.read_csv(csv_path_2)
 
-# Stack rows from csv2 underneath csv1
+df1["global_step"] = pd.to_numeric(df1["global_step"], errors="coerce")
+df2["global_step"] = pd.to_numeric(df2["global_step"], errors="coerce")
+
+# Offset df2 steps so they continue after df1
+step_offset = df1["global_step"].max()
+df2 = df2.copy()
+df2["global_step"] = df2["global_step"] + step_offset
+
+# Concatenate in order — NO sort_values, order is already correct
 df = pd.concat([df1, df2], ignore_index=True)
 
 # =====================================================
-# CONVERT TO NUMERIC
+# CONVERT REMAINING COLS TO NUMERIC
 # =====================================================
-
-numeric_cols = [
-    "global_step",
-    "qf1_loss",
-    "qf2_loss",
-    "actor_loss",
-    "alpha_loss",
-    "alpha",
-]
-
+numeric_cols = ["qf1_loss", "qf2_loss", "actor_loss", "alpha_loss", "alpha"]
 for col in numeric_cols:
     if col in df.columns:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
-# Sort by global step just in case
-df = df.sort_values("global_step")
-
 # =====================================================
 # PLOTS
 # =====================================================
-
 fig, axes = plt.subplots(5, 1, figsize=(12, 15), sharex=True)
 
-# -----------------------------------------------------
-# QF1 LOSS
-# -----------------------------------------------------
+# Add a vertical line to mark the transition between runs
+transition_step = step_offset
 
-valid = df[["global_step", "qf1_loss"]].dropna()
+def plot_metric(ax, col, ylabel, title, ylim=None):
+    valid = df[["global_step", col]].dropna()
+    if len(valid) > 0:
+        ax.plot(valid["global_step"], valid[col], linewidth=1)
+        ax.axvline(x=transition_step, color="red", linestyle="--", linewidth=1, label="warm start")
+        ax.legend(fontsize=8)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    ax.grid(True)
+    if ylim:
+        ax.set_ylim(ylim)
 
-if len(valid) > 0:
-    axes[0].plot(
-        valid["global_step"],
-        valid["qf1_loss"],
-        linewidth=1,
-    )
-
-axes[0].set_ylabel("qf1_loss")
-axes[0].set_title("QF1 Loss")
-axes[0].grid(True)
-axes[0].set_ylim(0, 0.3)
-
-# -----------------------------------------------------
-# QF2 LOSS
-# -----------------------------------------------------
-
-valid = df[["global_step", "qf2_loss"]].dropna()
-
-if len(valid) > 0:
-    axes[1].plot(
-        valid["global_step"],
-        valid["qf2_loss"],
-        linewidth=1,
-    )
-
-axes[1].set_ylabel("qf2_loss")
-axes[1].set_title("QF2 Loss")
-axes[1].grid(True)
-axes[1].set_ylim(0, 0.3)
-
-# -----------------------------------------------------
-# ACTOR LOSS
-# -----------------------------------------------------
-
-valid = df[["global_step", "actor_loss"]].dropna()
-
-if len(valid) > 0:
-    axes[2].plot(
-        valid["global_step"],
-        valid["actor_loss"],
-        linewidth=1,
-    )
-
-axes[2].set_ylabel("actor_loss")
-axes[2].set_title("Actor Loss")
-axes[2].grid(True)
-
-# -----------------------------------------------------
-# ALPHA LOSS
-# -----------------------------------------------------
-
-valid = df[["global_step", "alpha_loss"]].dropna()
-
-if len(valid) > 0:
-    axes[3].plot(
-        valid["global_step"],
-        valid["alpha_loss"],
-        linewidth=1,
-    )
-
-axes[3].set_ylabel("alpha_loss")
-axes[3].set_title("Alpha Loss")
-axes[3].grid(True)
-
-# -----------------------------------------------------
-# ALPHA
-# -----------------------------------------------------
-
-valid = df[["global_step", "alpha"]].dropna()
-
-if len(valid) > 0:
-    axes[4].plot(
-        valid["global_step"],
-        valid["alpha"],
-        linewidth=1,
-    )
-
-axes[4].set_ylabel("alpha")
-axes[4].set_title("Entropy Coefficient Alpha")
-axes[4].grid(True)
+plot_metric(axes[0], "qf1_loss",   "qf1_loss",   "QF1 Loss",                   ylim=(0, 0.3))
+plot_metric(axes[1], "qf2_loss",   "qf2_loss",   "QF2 Loss",                   ylim=(0, 0.3))
+plot_metric(axes[2], "actor_loss", "actor_loss", "Actor Loss")
+plot_metric(axes[3], "alpha_loss", "alpha_loss", "Alpha Loss")
+plot_metric(axes[4], "alpha",      "alpha",      "Entropy Coefficient Alpha")
 
 axes[4].set_xlabel("Global Step")
 
 plt.tight_layout()
-
-save_path = os.path.join(
-    output_dir,
-    "seed2_combined_sac_metrics.png"
-)
-
+save_path = os.path.join(output_dir, "seed0_warmstart_sac_metrics.png")
 plt.savefig(save_path, dpi=300)
 plt.close()
-
 print(f"Saved plot to: {save_path}")
