@@ -5,9 +5,9 @@ import matplotlib.pyplot as plt
 # =====================================================
 # USER SETTINGS
 # =====================================================
-csv_path_1 = "/home/serena-liu/open-ant/agents/sac/runs_sim_less_aggresive/warm_start/trial_1_20260531-151730_seed_0/info_sac_logs.csv"
-csv_path_2 = "/home/serena-liu/open-ant/agents/sac/runs_sim_less_aggresive/warm_start/trial_1_warmstart_continual_learning_20260531-152601_seed_0/info_sac_logs.csv"
-output_dir = "/home/serena-liu/open-ant/agents/sac/runs_sim_less_aggresive/warm_start"
+csv_path_1 = "/home/seliu/open-ant/agents/sac/runs_sim_less_aggresive/vanilla_sac_mpoparam/trial_1_20260603-182257_seed_0/info_sac_logs.csv"
+csv_path_2 = "/home/seliu/open-ant/agents/sac/runs_sim_less_aggresive/vanilla_sac_mpoparam/trial_1_continual_learning_20260603-185340_seed_0/info_sac_logs.csv"
+output_dir = "/home/seliu/open-ant/agents/sac/runs_sim_less_aggresive/vanilla_sac_mpoparam"
 os.makedirs(output_dir, exist_ok=True)
 
 # =====================================================
@@ -19,14 +19,22 @@ df2 = pd.read_csv(csv_path_2)
 df1["global_step"] = pd.to_numeric(df1["global_step"], errors="coerce")
 df2["global_step"] = pd.to_numeric(df2["global_step"], errors="coerce")
 
-# Offset df2 steps so they continue after df1
 step_offset = df1["global_step"].max()
-df2 = df2.copy()
-df2["global_step"] = df2["global_step"] + step_offset
+df2_start = df2["global_step"].min()
+
+# If df2 already continues from where df1 left off, concat directly.
+# If df2 resets (starts near 1), offset it.
+if df2_start < step_offset * 0.1:  # starts way below df1's max -> reset
+    df2 = df2.copy()
+    df2["global_step"] = df2["global_step"] + step_offset
+    print(f"Detected reset: offsetting df2 steps by {step_offset}")
+else:
+    print(f"Detected continuation: df2 already starts at {df2_start}, no offset needed")
+
+transition_step = step_offset
 
 # Concatenate in order — NO sort_values, order is already correct
 df = pd.concat([df1, df2], ignore_index=True)
-
 # =====================================================
 # CONVERT REMAINING COLS TO NUMERIC
 # =====================================================
@@ -64,7 +72,7 @@ plot_metric(axes[4], "alpha",      "alpha",      "Entropy Coefficient Alpha")
 axes[4].set_xlabel("Global Step")
 
 plt.tight_layout()
-save_path = os.path.join(output_dir, "seed0_warmstart_sac_metrics.png")
+save_path = os.path.join(output_dir, "seed0_vanilla_sac_metrics.png")
 plt.savefig(save_path, dpi=300)
 plt.close()
 print(f"Saved plot to: {save_path}")
