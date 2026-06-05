@@ -631,7 +631,7 @@ class MPO:
             "global_step": global_step,
         }
         torch.save(checkpoint, os.path.join(self.weights_folder, f"checkpoint_{global_step}.pth"))
-        if global_step % (10 * self.args.save_every_n_steps) == 0:
+        if global_step % self.args.save_every_n_steps == 0:
             self.rb.save(os.path.join(self.weights_folder, "replay_buffer.npz"))
 
     def load_checkpoint(self, weights_path):

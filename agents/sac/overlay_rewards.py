@@ -3,7 +3,7 @@ import glob
 import pandas as pd
 import matplotlib.pyplot as plt
 
-RUNS_DIR = "/home/serena-liu/open-ant/agents/sac/runs_sim_less_aggresive/vanilla_sac"
+RUNS_DIR = "/home/seliu/open-ant/agents/sac/runs_sim_less_aggresive/freezeactor_40ksim1"
 
 # ← Edit this list to include whichever seeds you want
 SEEDS_TO_PLOT = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
@@ -47,6 +47,6 @@ plt.ylabel("Reward")
 plt.title("Reward vs Step: All Seeds Overlaid")
 plt.legend(fontsize=8)
 plt.grid(True)
-plt.savefig("vanilla_combined_reward_plot_all_seeds.png", dpi=300, bbox_inches="tight")
+plt.savefig("freezeactor_40ksim1_reward_allseeds.png", dpi=300, bbox_inches="tight")
 plt.close()
 print("Saved")

@@ -292,6 +292,16 @@ class SAC:
         alpha_loss = None
         actor_loss = None
 
+        mean_q1 = None
+        mean_q2 = None
+        mean_td_target = None
+        mean_q_actor = None
+        actor_entropy = None
+        log_std_mean = None
+        log_std_std = None
+        actor_grad_norm = None
+        critic_grad_norm = None
+
         # Learning.
         if self.global_step > self.learning_starts:
             if self.rb_offline is not None:
@@ -318,9 +328,20 @@ class SAC:
             qf2_loss = F.mse_loss(qf2_a_values, next_q_value)
             qf_loss = qf1_loss + qf2_loss
 
+            mean_q1 = qf1_a_values.detach().mean().item()
+            mean_q2 = qf2_a_values.detach().mean().item()
+            mean_td_target = next_q_value.detach().mean().item()
+
             # Optimize the Action-Value networks.
             self.q_optimizer.zero_grad()
             qf_loss.backward()
+
+            critic_grad_norm = sum(
+                p.grad.norm().item() ** 2
+                for net in (self.qf1, self.qf2)
+                for p in net.parameters()
+                if p.grad is not None
+            ) ** 0.5
             self.q_optimizer.step()
 
             if self.global_step % self.policy_frequency == 0:
@@ -333,9 +354,24 @@ class SAC:
                     min_qf_pi = torch.min(qf1_pi, qf2_pi)
                     actor_loss = ((self.alpha * log_pi) - min_qf_pi).mean()
 
+                    mean_q_actor = min_qf_pi.detach().mean().item()
+                    actor_entropy = (-log_pi).detach().mean().item()
+
+                    with torch.no_grad():
+                        _, log_std_batch = self.actor(data["observations"])
+                        log_std_mean = log_std_batch.mean().item()
+                        log_std_std  = log_std_batch.std().item()
+
                     # Optimize the Actor network.
                     self.actor_optimizer.zero_grad()
                     actor_loss.backward()
+
+                    actor_grad_norm = sum(
+                        p.grad.norm().item() ** 2
+                        for p in self.actor.parameters()
+                        if p.grad is not None
+                    ) ** 0.5
+                    
                     self.actor_optimizer.step()
 
                     if self.autotune:
@@ -368,6 +404,15 @@ class SAC:
                 'alpha_loss': alpha_loss.item() if alpha_loss is not None else alpha_loss,
                 'rewards': rewards.flatten().tolist(),
                 'original_rewards': infos['original_reward'].flatten().tolist(),
+                'mean_q1': mean_q1,
+                'mean_q2': mean_q2,
+                'mean_td_target': mean_td_target,
+                'mean_q_actor': mean_q_actor,
+                'actor_entropy': actor_entropy,
+                'log_std_mean': log_std_mean,
+                'log_std_std': log_std_std,
+                'actor_grad_norm': actor_grad_norm,
+                'critic_grad_norm': critic_grad_norm,
             }
         return info_sac
 

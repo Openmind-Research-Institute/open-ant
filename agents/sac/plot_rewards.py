@@ -2,11 +2,11 @@ import os
 import pandas as pd
 import matplotlib.pyplot as plt
 
-csv_path_1 = "/home/serena-liu/open-ant/agents/sac/runs_sim_less_aggresive/vanilla_sac/trial_1_20260602-145258_seed_0/SimEmbodiedAnt_average_rewards.csv"
-csv_path_2 = "/home/serena-liu/open-ant/agents/sac/runs_sim_less_aggresive/vanilla_sac/trial_1_continual_learning_20260602-150145_seed_0/SimEmbodiedAnt_average_rewards.csv"
+csv_path_1 = "/home/seliu/open-ant/agents/sac/runs_sim_less_aggresive/alphareset_lr1e-4/trial_1_20260605-181635_seed_0/SimEmbodiedAnt_average_rewards.csv"
+csv_path_2 = "/home/seliu/open-ant/agents/sac/runs_sim_less_aggresive/alphareset_lr1e-4/trial_1_continual_learning_20260605-182644_seed_0/SimEmbodiedAnt_average_rewards.csv"
 
-output_dir = "/home/serena-liu/open-ant/agents/sac/runs_sim_less_aggresive/vanilla_sac"
-figure_name = "vanilla_sac_seed0.png"
+output_dir = "/home/seliu/open-ant/agents/sac/runs_sim_less_aggresive/alphareset_lr1e-4"
+figure_name = "seed0_sac_alphareset_lr1e-4.png"
 
 df1 = pd.read_csv(csv_path_1)
 df2 = pd.read_csv(csv_path_2)

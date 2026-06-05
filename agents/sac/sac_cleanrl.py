@@ -442,7 +442,7 @@ def parse_args():
     # Algorithm.
     parser.add_argument("--env_id", type=str, default="EAnt",
                         help="environment ID")
-    parser.add_argument("--total_timesteps", type=int, default=60_000,
+    parser.add_argument("--total_timesteps", type=int, default=40_000,
                         help="total training timesteps")
     parser.add_argument("--num_envs", type=int, default=1,
                         help="number of parallel envs")

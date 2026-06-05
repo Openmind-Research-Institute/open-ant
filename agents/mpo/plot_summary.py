@@ -19,8 +19,8 @@ import numpy as np
 REPO_ROOT = "/home/seliu/open-ant"
 
 RUN_DIRS = [
-    "/home/seliu/open-ant/agents/mpo/runs_continous_learning/retrace_20260604-063201_seed_0",
-    "/home/seliu/open-ant/agents/mpo/runs_continous_learning/retrace_continual_learning_20260604-151042_seed_0",
+    "/home/seliu/open-ant/agents/mpo/runs_continous_learning/retrace_20260604-090437_seed_2",
+    "/home/seliu/open-ant/agents/mpo/runs_continous_learning/retrace_continual_learning_20260604-204029_seed_2",
     # add or remove paths as needed
 ]
 
@@ -180,10 +180,9 @@ def main():
     ax_dual.grid(True, alpha=0.3)
     ax_dual.legend(fontsize='x-small', ncols=3)
 
-    out_path = os.path.join(out_dir, f'{primary_label}_dashboard.pdf')
+    out_path = os.path.join(out_dir, f'{primary_label}_dashboard.png')
     fig.savefig(out_path, bbox_inches='tight')
     print(f'Saved to {out_path}')
-    plt.show()
 
 
 if __name__ == '__main__':
