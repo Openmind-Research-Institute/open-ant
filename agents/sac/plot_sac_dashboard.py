@@ -9,7 +9,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 
-sys.path.insert(0, "/home/seliu/open-ant")  # adjust to your repo root
+sys.path.insert(0, "/home/serena-liu/open-ant")  # adjust to your repo root
 from agents.reward import RewardTracker
 
 # =====================================================
@@ -21,13 +21,13 @@ from agents.reward import RewardTracker
 # is one continuous timeline regardless of whether sim2 starts at step 1 or
 # step 36002.
 RUN_DIRS = [
-    "/home/seliu/open-ant/agents/sac/runs_sim_less_aggresive/alphareset_lr1e-4/trial_1_20260605-181635_seed_0",
-    "/home/seliu/open-ant/agents/sac/runs_sim_less_aggresive/alphareset_lr1e-4/trial_1_continual_learning_20260605-182644_seed_0",
+    "/home/serena-liu/open-ant/agents/sac/runs_sim_less_aggresive/warmstart_morestats/trial_1_20260605-151155_seed_0",
+    "/home/serena-liu/open-ant/agents/sac/runs_sim_less_aggresive/warmstart_morestats/trial_1_warmstart_continual_learning_20260605-151826_seed_0",
     # add or remove paths as needed
 ]
 
 SMOOTH = 10
-OUTPUT_DIR = "/home/seliu/open-ant/agents/sac/runs_sim_less_aggresive/alphareset_lr1e-4"
+OUTPUT_DIR = "/home/serena-liu/open-ant/agents/sac/runs_sim_less_aggresive/warmstart_morestats"
 
 # Percentile used to clip the y-axis so early spikes don't crush the trend.
 # Data OUTSIDE this range still gets drawn (the line goes off the axes) but
@@ -313,6 +313,16 @@ def main():
     combined_critic_vals = col_vals["qf1_loss"] + col_vals["qf2_loss"]
     ylims["critic_combined"] = robust_ylim(combined_critic_vals, lo_pct=0, hi_pct=SPIKE_CLIP_PCT)
 
+        # ── fixed y-axis ranges requested ─────────────────────────────────────────
+    ylims["critic_combined"] = (0, 0.10)
+    ylims["alpha_loss"] = (0, 2)
+    ylims[ACTOR_LOSS_COL] = (-30, 1)
+    ylims["alpha"] = (0, 0.02)
+    ylims["actor_entropy"] = (-10, 10)
+    ylims["mean_q_actor"] = (0, 190)
+    ylims["log_std_mean"] = (-2, 90)
+    ylims["actor_grad_norm"] = (0, 2)
+
     # ── figure layout ─────────────────────────────────────────────────────────
     fig = plt.figure(figsize=(12, 20))
     gs  = fig.add_gridspec(6, 2, hspace=0.50, wspace=0.30)
@@ -477,7 +487,7 @@ def main():
 
     panel_titles = [
         (ax_policy,  "Actor (policy) loss"),
-        (ax_critic,  f"Critic loss (qf1 / qf2)  [y-axis clipped at p{SPIKE_CLIP_PCT}, values annotated above]"),
+        (ax_critic,  "Critic loss (qf1 / qf2)"),
         (ax_meanq,   "Mean Q value (Q1 / Q2 / TD target)"),
         (ax_qactor,  "Mean Q seen by actor (min target critics)"),
         (ax_alpha,   "Entropy coefficient alpha"),
