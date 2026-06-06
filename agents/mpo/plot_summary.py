@@ -16,17 +16,17 @@ import numpy as np
 # =====================================================
 
 #REPO_ROOT = "/home/seliu/open-ant"
-REPO_ROOT = "/home/seliu/open-ant"
+REPO_ROOT = "/home/serena-liu/open-ant"
 
 RUN_DIRS = [
-    "/home/seliu/open-ant/agents/mpo/runs_continous_learning/retrace_20260604-090437_seed_2",
-    "/home/seliu/open-ant/agents/mpo/runs_continous_learning/retrace_continual_learning_20260604-204029_seed_2",
+    "/home/serena-liu/open-ant/agents/mpo/runs/vanilla_morestats/trial_1_mpo_20260606-135202_seed_0",
+    "/home/serena-liu/open-ant/agents/mpo/runs/vanilla_morestats/trial_1_mpo_continual_learning_20260606-144723_seed_0",
     # add or remove paths as needed
 ]
 
 SMOOTH = 10
 
-OUTPUT_DIR = "/home/seliu/open-ant/agents/mpo/runs_continous_learning"
+OUTPUT_DIR = "/home/serena-liu/open-ant/agents/mpo/runs/vanilla_morestats"
 # =====================================================
 
 REPO_ROOT = os.path.abspath(REPO_ROOT)
@@ -47,7 +47,10 @@ DUAL_LINESTYLES = {
 LOSS_COLS = ['loss_q', 'loss_p', 'mean_q']
 DUAL_COLS = ['eta', 'kl_mu', 'kl_sigma', 'alpha_mu', 'alpha_sigma']
 
+DIAGNOSTIC_COLS = ['critic_grad_norm', 'actor_grad_norm', 'actor_entropy', 'mean_td_target']
+# per-critic Q columns are dynamically detected (mean_q_0, mean_q_1, ...)
 
+PER_CRITIC_Q_PATTERN = re.compile(r'^mean_q_\d+$')
 # def arg_parser():
 #     parser = argparse.ArgumentParser()
 #     parser.add_argument('--runs', type=str, nargs='+', required=True,
@@ -87,7 +90,10 @@ def load_run(run_dir, smooth):
         info = info.iloc[smooth:].copy()
         info['sim_time_min'] = info['step'] * dt / 60
 
-    for col in [c for c in LOSS_COLS + DUAL_COLS if c in perf.columns]:
+    per_critic_q_cols = [c for c in perf.columns if PER_CRITIC_Q_PATTERN.match(c)]
+    smooth_cols = LOSS_COLS + DUAL_COLS + DIAGNOSTIC_COLS + per_critic_q_cols
+    for col in [c for c in smooth_cols if c in perf.columns]:
+        perf[col] = pd.to_numeric(perf[col], errors='coerce')
         perf[col] = perf[col].rolling(smooth, min_periods=1).mean()
     perf = perf.iloc[smooth:].copy()
     perf['sim_time_min'] = perf['step'] * dt / 60
@@ -108,14 +114,18 @@ def main():
 
     palette = cm.tab10(np.linspace(0, 0.9, max(len(run_dirs), 1)))
 
-    fig = plt.figure(figsize=(12, 14))
-    gs  = fig.add_gridspec(4, 2, hspace=0.50, wspace=0.30)
-    ax_reward = fig.add_subplot(gs[0, :])
-    ax_policy = fig.add_subplot(gs[1, 0])
-    ax_critic = fig.add_subplot(gs[1, 1])
-    ax_meanq  = fig.add_subplot(gs[2, 0])
-    ax_sps    = fig.add_subplot(gs[2, 1])
-    ax_dual   = fig.add_subplot(gs[3, :])
+    fig = plt.figure(figsize=(12, 22))
+    gs  = fig.add_gridspec(6, 2, hspace=0.55, wspace=0.30)
+    ax_reward  = fig.add_subplot(gs[0, :])
+    ax_policy  = fig.add_subplot(gs[1, 0])
+    ax_critic  = fig.add_subplot(gs[1, 1])
+    ax_meanq   = fig.add_subplot(gs[2, 0])     # mean_q overlay (existing)
+    ax_sps     = fig.add_subplot(gs[2, 1])
+    ax_qdiag   = fig.add_subplot(gs[3, :])     # NEW: mean_q + per-critic + TD target overlay (full width)
+    ax_gnorm_c = fig.add_subplot(gs[4, 0])     # NEW: critic grad norm
+    ax_gnorm_a = fig.add_subplot(gs[4, 1])     # NEW: actor grad norm
+    ax_entropy = fig.add_subplot(gs[5, 0])     # NEW: actor entropy
+    ax_dual    = fig.add_subplot(gs[5, 1])     # dual variables (moved, now half-width)
 
     for i, run_dir in enumerate(run_dirs):
         color = palette[i]
@@ -152,6 +162,49 @@ def main():
             data = perf[['sim_time_min', 'SPS']].dropna()
             ax_sps.plot(data['sim_time_min'], data['SPS'], color=color, alpha=alpha, lw=lw, label=label)
 
+        # ── Q-value diagnostics overlay: mean_q + per-critic + TD target ──
+        if 'mean_q' in perf.columns:
+            data = perf[['sim_time_min', 'mean_q']].dropna()
+            ax_qdiag.plot(data['sim_time_min'], data['mean_q'],
+                          color=color, alpha=alpha, lw=lw,
+                          label=f'mean_q ({label})' if len(run_dirs) > 1 else 'mean_q')
+        if 'mean_td_target' in perf.columns:
+            data = perf[['sim_time_min', 'mean_td_target']].dropna()
+            ax_qdiag.plot(data['sim_time_min'], data['mean_td_target'],
+                          color=color, alpha=alpha, lw=lw, linestyle='--',
+                          label=f'TD target ({label})' if len(run_dirs) > 1 else 'TD target')
+        # per-critic Q traces (mean_q_0, mean_q_1, ...)
+        per_critic_cols = sorted([c for c in perf.columns if PER_CRITIC_Q_PATTERN.match(c)],
+                                 key=lambda x: int(x.split('_')[-1]))
+        per_critic_linestyles = [':', '-.', (0, (3, 1, 1, 1))]   # cycles for ensemble > 3
+        for k, col in enumerate(per_critic_cols):
+            data = perf[['sim_time_min', col]].dropna()
+            ls = per_critic_linestyles[k % len(per_critic_linestyles)]
+            ax_qdiag.plot(data['sim_time_min'], data[col],
+                          color=color, alpha=alpha * 0.6, lw=lw * 0.8, linestyle=ls,
+                          label=f'{col} ({label})' if len(run_dirs) > 1 else col)
+        add_vline(ax_qdiag, learning_starts_min, color)
+
+        # ── grad norms ────────────────────────────────────────────────────
+        if 'critic_grad_norm' in perf.columns:
+            data = perf[['sim_time_min', 'critic_grad_norm']].dropna()
+            ax_gnorm_c.plot(data['sim_time_min'], data['critic_grad_norm'],
+                            color=color, alpha=alpha, lw=lw, label=label)
+        add_vline(ax_gnorm_c, learning_starts_min, color)
+
+        if 'actor_grad_norm' in perf.columns:
+            data = perf[['sim_time_min', 'actor_grad_norm']].dropna()
+            ax_gnorm_a.plot(data['sim_time_min'], data['actor_grad_norm'],
+                            color=color, alpha=alpha, lw=lw, label=label)
+        add_vline(ax_gnorm_a, learning_starts_min, color)
+
+        # ── actor entropy ─────────────────────────────────────────────────
+        if 'actor_entropy' in perf.columns:
+            data = perf[['sim_time_min', 'actor_entropy']].dropna()
+            ax_entropy.plot(data['sim_time_min'], data['actor_entropy'],
+                            color=color, alpha=alpha, lw=lw, label=label)
+        add_vline(ax_entropy, learning_starts_min, color)
+
         for col, ls in DUAL_LINESTYLES.items():
             if col not in perf.columns:
                 continue
@@ -179,6 +232,16 @@ def main():
     ax_dual.set(xlabel='Sim time [minutes]', title='Dual variables', xlim=(0, None))
     ax_dual.grid(True, alpha=0.3)
     ax_dual.legend(fontsize='x-small', ncols=3)
+
+    for ax, title in [
+        (ax_qdiag,   'Q-value diagnostics (mean_q / TD target / per-critic)'),
+        (ax_gnorm_c, 'Critic gradient norm'),
+        (ax_gnorm_a, 'Actor gradient norm'),
+        (ax_entropy, 'Actor entropy  H = 0.5·Σ log(2πe σ²)'),
+    ]:
+        ax.set(xlabel='Sim time [minutes]', title=title, xlim=(0, None))
+        ax.grid(True, alpha=0.3)
+        ax.legend(fontsize='x-small', ncols=2)
 
     out_path = os.path.join(out_dir, f'{primary_label}_dashboard.png')
     fig.savefig(out_path, bbox_inches='tight')
