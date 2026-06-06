@@ -247,10 +247,12 @@ class MPO:
         self.writer_agent_vars = None
         self.keys_info = None
         self.keys_agent_vars = [
-            'loss_q', 'loss_p', 'mean_q', 'eta',
+            'loss_q', 'loss_p', 'mean_q', 'mean_td_target', 'eta',
             'kl_mu', 'kl_sigma', 'alpha_mu', 'alpha_sigma',
             'utd_ratio', 'SPS', 'average_reward_per_second', 'reward',
-        ]
+            'critic_grad_norm', 'actor_grad_norm', 'actor_entropy',
+        ] + [f'mean_q_{i}' for i in range(self.args.ensemble)]
+
         self.info_log_buffer = []
         self.agent_vars_buffer = []
 
@@ -323,10 +325,12 @@ class MPO:
         data = self.rb.sample_nstep(self.batch_size, self.trajectory_length)
 
         # t0 = time.time()
-        loss_q, mean_q = self._update_critic(data)
+        loss_q, mean_q, critic_grad_norm, per_critic_means, mean_td_target = self._update_critic(data)
+
         # t_critic = time.time() - t0
 
-        loss_p = kl_mu = kl_sigma = 0.0
+        loss_p = kl_mu = kl_sigma = actor_entropy = actor_grad_norm = 0.0
+
         eta = self.log_eta.exp().detach()
         # t_estep = t_mstep = 0.0
 
@@ -337,7 +341,8 @@ class MPO:
 
         if not self.args.decouple_q_learning:
             # t0 = time.time()
-            loss_p, kl_mu, kl_sigma = self._m_step(data.observations, action_samples, weights, b_mu, b_sigma)
+            loss_p, kl_mu, kl_sigma, actor_entropy, actor_grad_norm = self._m_step(data.observations, action_samples, weights, b_mu, b_sigma)
+
             # t_mstep = time.time() - t0
 
         self._update_targets()
@@ -346,11 +351,17 @@ class MPO:
             'loss_q': loss_q,
             'loss_p': loss_p,
             'mean_q': mean_q,
+            'mean_td_target': mean_td_target,
             'eta': eta.item(),
             'kl_mu': kl_mu,
             'kl_sigma': kl_sigma,
             'alpha_mu': self.alpha_mu,
             'alpha_sigma': self.alpha_sigma,
+            'critic_grad_norm': critic_grad_norm,
+            'actor_entropy': actor_entropy,
+            'actor_grad_norm': actor_grad_norm,
+            # one scalar per ensemble critic — expanded into mean_q_0, mean_q_1, ... at top level
+            **{f'mean_q_{i}': v for i, v in enumerate(per_critic_means)},
             # 't_critic': t_critic,
             # 't_estep': t_estep,
             # 't_mstep': t_mstep,
@@ -429,6 +440,14 @@ class MPO:
         for opt in self.critic_optimizers:
             opt.zero_grad()
         joint_loss.backward()
+
+        critic_grad_norm = sum(
+            p.grad.norm().item() ** 2
+            for c in self.critics
+            for p in c.parameters()
+            if p.grad is not None
+        ) ** 0.5
+        
         for i, (critic, opt) in enumerate(zip(self.critics, self.critic_optimizers)):
             if self.args.max_grad_norm > 0:
                 nn.utils.clip_grad_norm_(critic.parameters(), self.args.max_grad_norm)
@@ -437,8 +456,12 @@ class MPO:
 
         with torch.no_grad():
             mean_q = q_preds.detach().mean().item()
+            per_critic_means = q_preds.detach().mean(dim=(1, 2)).tolist()
+            mean_td_target = y.detach().mean().item()
 
-        return float(np.mean(losses)), mean_q
+        return float(np.mean(losses)), mean_q, critic_grad_norm, per_critic_means, mean_td_target
+
+
 
     def aggregation_operator(self, state, action, critics, mode='mean', beta=1.0, subset_size=2, subset_idx=None):
         q_values = torch.stack([c(state, action) for c in critics], dim=0)
@@ -525,6 +548,13 @@ class MPO:
 
             self.actor_optimizer.zero_grad()
             loss.backward()
+
+            actor_grad_norm = sum(
+                p.grad.norm().item() ** 2
+                for p in self.actor.parameters()
+                if p.grad is not None
+            ) ** 0.5
+
             if self.args.max_grad_norm > 0:
                 nn.utils.clip_grad_norm_(self.actor.parameters(), self.args.max_grad_norm)
             self.actor_optimizer.step()
@@ -532,6 +562,9 @@ class MPO:
             loss_p_val = nll.item()
             kl_mu_val = kl_mu.item()
             kl_sigma_val = kl_sigma.item()
+
+            actor_entropy_val = (0.5 * (1.0 + math.log(2 * math.pi)) + curr_d.base_dist.scale.log()).sum(-1).mean().item()
+
 
         # Dual-ascent update once per _learn() call, not per inner gradient step.
         # With mstep_iteration_num=5 and utd_ratio=3, updating inside the loop
@@ -541,8 +574,8 @@ class MPO:
         self.alpha_sigma += self.args.alpha_var_scale * (kl_sigma_val - self.args.kl_var_constraint)
         self.alpha_sigma = float(np.clip(self.alpha_sigma, 0.0, self.args.alpha_var_max))
 
-        return loss_p_val, kl_mu_val, kl_sigma_val
-
+        return loss_p_val, kl_mu_val, kl_sigma_val, actor_entropy_val, actor_grad_norm
+    
     def _update_targets(self):
         if not self.args.decouple_q_learning:
             for p, p_tgt in zip(self.actor.parameters(), self.actor_target.parameters()):
@@ -589,11 +622,12 @@ class MPO:
         self.info_log_buffer.append(row)
 
         if metrics is not None:
-            self.agent_vars_buffer.append({
+            row = {
                 "step": global_step,
                 "loss_q": metrics.get('loss_q'),
                 "loss_p": metrics.get('loss_p'),
                 "mean_q": metrics.get('mean_q'),
+                "mean_td_target": metrics.get('mean_td_target'),
                 "eta": metrics.get('eta'),
                 "kl_mu": metrics.get('kl_mu'),
                 "kl_sigma": metrics.get('kl_sigma'),
@@ -603,7 +637,14 @@ class MPO:
                 "SPS": int(global_step / (time.time() - self.start_time)) if self.start_time else 0,
                 "average_reward_per_second": self.reward_tracker.average_reward_per_second,
                 "reward": rewards[0] if hasattr(rewards, '__len__') else float(rewards),
-            })
+                "critic_grad_norm": metrics.get('critic_grad_norm'),
+                "actor_grad_norm": metrics.get('actor_grad_norm'),
+                "actor_entropy": metrics.get('actor_entropy'),
+            }
+            # per-critic mean Q columns (mean_q_0, mean_q_1, ...)
+            for i in range(self.args.ensemble):
+                row[f'mean_q_{i}'] = metrics.get(f'mean_q_{i}')
+            self.agent_vars_buffer.append(row)
 
         if global_step % self.args.save_every_n_steps == 0:
             for row in self.info_log_buffer:
