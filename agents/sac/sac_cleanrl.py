@@ -287,6 +287,8 @@ class SAC:
         qf2_loss = None
         alpha_loss = None
         actor_loss = None
+        qf1_values_mean = None
+        qf2_values_mean = None
 
         # Learning.
         if self.global_step > self.learning_starts:
@@ -304,6 +306,8 @@ class SAC:
             qf1_loss = F.mse_loss(qf1_a_values, next_q_value)
             qf2_loss = F.mse_loss(qf2_a_values, next_q_value)
             qf_loss = qf1_loss + qf2_loss
+            qf1_values_mean = qf1_a_values.mean().item()
+            qf2_values_mean = qf2_a_values.mean().item()
 
             # Optimize the Action-Value networks.
             self.q_optimizer.zero_grad()
@@ -350,6 +354,8 @@ class SAC:
                 'global_step': self.global_step,
                 'qf1_loss': qf1_loss.item() if qf1_loss is not None else qf1_loss,
                 'qf2_loss': qf2_loss.item() if qf2_loss is not None else qf2_loss,
+                'qf1_values_mean': qf1_values_mean if qf1_values_mean is not None else qf1_values_mean,
+                'qf2_values_mean': qf2_values_mean if qf2_values_mean is not None else qf2_values_mean,
                 'actor_loss': actor_loss.item() if actor_loss is not None else actor_loss,
                 'alpha': self.alpha,
                 'alpha_loss': alpha_loss.item() if alpha_loss is not None else alpha_loss,
