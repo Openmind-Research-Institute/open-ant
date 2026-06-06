@@ -287,6 +287,8 @@ class SAC:
         qf2_loss = None
         alpha_loss = None
         actor_loss = None
+        qf1_values_mean = None
+        qf2_values_mean = None
 
         # Learning.
         if self.global_step > self.learning_starts:
@@ -304,6 +306,8 @@ class SAC:
             qf1_loss = F.mse_loss(qf1_a_values, next_q_value)
             qf2_loss = F.mse_loss(qf2_a_values, next_q_value)
             qf_loss = qf1_loss + qf2_loss
+            qf1_values_mean = qf1_a_values.mean().item()
+            qf2_values_mean = qf2_a_values.mean().item()
 
             # Optimize the Action-Value networks.
             self.q_optimizer.zero_grad()
@@ -350,6 +354,8 @@ class SAC:
                 'global_step': self.global_step,
                 'qf1_loss': qf1_loss.item() if qf1_loss is not None else qf1_loss,
                 'qf2_loss': qf2_loss.item() if qf2_loss is not None else qf2_loss,
+                'qf1_values_mean': qf1_values_mean if qf1_values_mean is not None else qf1_values_mean,
+                'qf2_values_mean': qf2_values_mean if qf2_values_mean is not None else qf2_values_mean,
                 'actor_loss': actor_loss.item() if actor_loss is not None else actor_loss,
                 'alpha': self.alpha,
                 'alpha_loss': alpha_loss.item() if alpha_loss is not None else alpha_loss,
@@ -428,8 +434,9 @@ def parse_args():
                         help="the directory to save the runs in")
     parser.add_argument("--seed", type=int, default=1,
                         help="seed of the experiment")
-    parser.add_argument("--torch_deterministic", type=bool, default=True,
-                        help="if toggled, torch.backends.cudnn.deterministic=False")
+    parser.add_argument("--no-torch_deterministic", action="store_false",
+                        dest="torch_deterministic",
+                        help="disable torch deterministic mode")
     parser.add_argument("--cuda", action="store_true", default=False,
                         help="if toggled, cuda will be enabled by default")
     parser.add_argument("--capture_video", action="store_true",
@@ -466,12 +473,14 @@ def parse_args():
                         help="target network update frequency")
     parser.add_argument("--alpha", type=float, default=0.2,
                         help="entropy regularization coefficient")
-    parser.add_argument("--autotune", type=bool, default=True,
-                        help="automatic entropy tuning")
+    parser.add_argument("--no-autotune", action="store_false",
+                        dest="autotune",
+                        help="disable automatic entropy tuning")
     parser.add_argument("--gamma", type=float, default=0.92,
                         help="discount factor")
-    parser.add_argument("--use_layer_norm", type=bool, default=True,
-                        help="use layer normalization in networks")
+    parser.add_argument("--no-use_layer_norm", action="store_false",
+                        dest="use_layer_norm",
+                        help="disable layer normalization in networks")
 
     # Environment.
     parser.add_argument("--dt", type=float, default=0.12,
@@ -480,8 +489,9 @@ def parse_args():
                         help="hardware config file")
     parser.add_argument("--render_mode", type=str, default="rgb_array",
                         help="render mode")
-    parser.add_argument("--terminate_on_upside_down", type=bool, default=True,
-                        help="terminate episode if upside down")
+    parser.add_argument("--no-terminate_on_upside_down", action="store_false",
+                        dest="terminate_on_upside_down",
+                        help="do not terminate episode when upside down")
     parser.add_argument("--weights_path", type=str, default=None,
                         help="load previous weights")
     parser.add_argument("--task_type", type=str, default="back_and_forth",
@@ -495,6 +505,13 @@ def parse_args():
                         help="reward scale factor")
     parser.add_argument("--model_path", type=str, default="../../sim/assets/ant_with_camera_after_sys_id.xml",
                         help="XML file to use for the environment")
+
+    parser.set_defaults(
+        torch_deterministic=True,
+        autotune=True,
+        use_layer_norm=True,
+        terminate_on_upside_down=True,
+    )
 
     args = parser.parse_args()
     return args
