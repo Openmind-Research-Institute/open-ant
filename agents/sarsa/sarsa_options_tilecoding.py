@@ -6,6 +6,7 @@ import pickle
 import argparse
 import datetime
 import numpy as np
+import pandas as pd
 from tqdm import tqdm
 import gymnasium as gym
 
@@ -13,7 +14,7 @@ import gymnasium as gym
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../sim')))
 from ant_mujoco import AntEnv
 sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), '..')))
-from tilecoding import IHT, tiles
+from tilecoding import IHT, tiles, load_iht_state, save_iht_state
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../embodied_ant_env')))
 from embodied_ant_env import make_ant_env, ForwardTask, BackAndForthTask
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
@@ -364,17 +365,31 @@ IHT_SIZE = 2**args.iht_size_power
 # Environment.
 options_env = OptionEnv(env, options, discount=args.discount)
 
-# Limits from observation space.
-# Check if the state limits exist, if yes, load them, if no, put default.
-if os.path.exists(os.path.join(args.runs_directory, "observation_ranges.npy")):
-    state_limits = np.load(os.path.join(args.runs_directory, "observation_ranges.npy"))
-    print('Loading State Limits from ', os.path.join(args.runs_directory, "observation_ranges.npy"))
-    print('State Limits: ', state_limits)
-else:
-    state_limits = np.array([env.observation_space.low, env.observation_space.high]).T  # [state_dim, 2]
-    print('No State Limits found, using default: ', state_limits)
-
 num_options = len(options)
+
+def default_state_limits():
+    return np.array([env.observation_space.low, env.observation_space.high]).T  # [state_dim, 2]
+
+def resolve_state_limits():
+    # When resuming, tile coordinates must use the same limits as when weights were learned.
+    if args.load_weights_from_dir is not None:
+        saved_limits_path = os.path.join(args.load_weights_from_dir, "weights_iht/state_limits.npy")
+        if os.path.exists(saved_limits_path):
+            limits = np.load(saved_limits_path)
+            print('Loading state limits from checkpoint:', saved_limits_path)
+            return limits
+
+    obs_ranges_path = os.path.join(args.runs_directory, "observation_ranges.npy")
+    if os.path.exists(obs_ranges_path):
+        limits = np.load(obs_ranges_path)
+        print('Loading state limits from', obs_ranges_path)
+        return limits
+
+    limits = default_state_limits()
+    print('No state limits found, using observation-space defaults:', limits)
+    return limits
+
+state_limits = resolve_state_limits()
 
 # Load previous weights.
 if args.load_weights_from_dir is None:
@@ -384,9 +399,29 @@ if args.load_weights_from_dir is None:
     # Keys are (option, tile_index) tuples, values are eligibility trace values.
     eligibility_traces = {}
 else:
-    w = np.load(os.path.join(args.load_weights_from_dir, 'weights_iht/weights.npy'))
-    with open(os.path.join(args.load_weights_from_dir, "weights_iht/iht.pkl"), "rb") as f:
-        iht = pickle.load(f)
+    weights_path = os.path.join(args.load_weights_from_dir, 'weights_iht/weights.npy')
+    iht_path = os.path.join(args.load_weights_from_dir, "weights_iht/iht.pkl")
+    w = np.load(weights_path)
+    iht = load_iht_state(iht_path)
+
+    if w.shape[0] != num_options:
+        raise ValueError(
+            f"Loaded weights have {w.shape[0]} options but this run defines {num_options}."
+        )
+    if w.shape[1] != iht.size:
+        raise ValueError(
+            f"weights.npy width {w.shape[1]} does not match IHT size {iht.size}."
+        )
+    if IHT_SIZE != iht.size:
+        raise ValueError(
+            f"Current iht_size_power gives IHT size {IHT_SIZE}, "
+            f"but checkpoint IHT size is {iht.size}."
+        )
+    print(
+        f'Loaded weights: {int(np.sum(w != 0.0))} nonzero out of {w.size}, '
+        f'IHT dictionary has {len(iht.dictionary)} tile coordinates'
+    )
+
     # Load eligibility traces if available.
     elig_path = os.path.join(args.load_weights_from_dir, "weights_iht/eligibility_traces.pkl")
     if os.path.exists(elig_path):
@@ -540,10 +575,12 @@ while idx_timelimit_episode < args.num_timelimit_episodes:
             csv_file_info.flush()
             info_log_buffer = []
 
-        # Save weights and eligibility traces.
-        np.save(os.path.join(WEIGHTS_IHT_DIR, f"weights.npy"), w)
-        pickle.dump(iht, open(os.path.join(WEIGHTS_IHT_DIR, f"iht.pkl"), "wb"))
-        pickle.dump(eligibility_traces, open(os.path.join(WEIGHTS_IHT_DIR, f"eligibility_traces.pkl"), "wb"))
+        np.save(os.path.join(WEIGHTS_IHT_DIR, "weights.npy"), w)
+        save_iht_state(iht, os.path.join(WEIGHTS_IHT_DIR, "iht.pkl"))
+        np.save(os.path.join(WEIGHTS_IHT_DIR, "state_limits.npy"), state_limits)
+        with open(os.path.join(WEIGHTS_IHT_DIR, "eligibility_traces.pkl"), "wb") as f:
+            pickle.dump(eligibility_traces, f)
+        print('Done saving weights and eligibility traces.')
 
         idx_timelimit_episode += 1
         idx_options = 0
