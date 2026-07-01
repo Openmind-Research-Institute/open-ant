@@ -18,7 +18,7 @@ class RewardTracker:
             os.makedirs(log_folder)
 
         self.step = 0.0
-        self._average_reward_per_second = 0.0
+        self._average_reward_per_second = None
 
         self.csv_path = os.path.join(self.log_folder, f"{self.env_id}_average_rewards.csv")
         print(f"CSV path: {self.csv_path}")
@@ -33,9 +33,9 @@ class RewardTracker:
         self._queue_sum += reward_per_second
 
         self.step += 1
-        self._average_reward_per_second = self._queue_sum / len(self.queue)
-
-        self.buffer.append([self.step, self._average_reward_per_second])
+        if len(self.queue) == self.window_size:
+            self._average_reward_per_second = self._queue_sum / self.window_size
+            self.buffer.append([self.step, self._average_reward_per_second])
 
     @property
     def average_reward_per_second(self):
