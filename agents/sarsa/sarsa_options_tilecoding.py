@@ -51,23 +51,23 @@ parser.add_argument('--back_and_forth_origin', type=float, nargs=2, default=[0.0
 
 # Algorithm specific.
 parser.add_argument('--learn', type=bool, default=True)
-parser.add_argument('--reward_scaling', type=float, default=3.0)
+parser.add_argument('--reward_scaling', type=float, default=10.0)
 parser.add_argument('--load_weights_from_dir', type=str, default=None)
-parser.add_argument('--lambda_eligibility', type=float, default=0.98,
+parser.add_argument('--lambda_eligibility', type=float, default=0.88,
                     help='Eligibility trace decay parameter (lambda)')
 parser.add_argument('--duration_option', type=float, default=0.5,
                     help='Duration of each option in seconds')
-parser.add_argument('--epsilon', type=float, default=0.02,
+parser.add_argument('--epsilon', type=float, default=0.1,
                     help='Epsilon for epsilon-greedy policy')
-parser.add_argument('--discount', type=float, default=0.94,
+parser.add_argument('--discount', type=float, default=0.98,
                     help='Discount factor')
 parser.add_argument('--dim_tiling', type=int, default=5,
                     help='Number of tiles per dimension')
-parser.add_argument('--tilings_multiplier', type=int, default=7,
+parser.add_argument('--tilings_multiplier', type=int, default=8,
                     help='Multiplier for number of tilings (tilings = multiplier * obs_dim)')
-parser.add_argument('--step_size_base', type=float, default=0.014,
+parser.add_argument('--step_size_base', type=float, default=0.21,
                     help='Base step size (step_size = base / tilings)')
-parser.add_argument('--iht_size_power', type=int, default=22,
+parser.add_argument('--iht_size_power', type=int, default=20,
                     help='Power of 2 for IHT size (iht_size = 2^power)')
 parser.add_argument('--num_timelimit_episodes', type=int, default=1000,
                     help='Number of timelimit episodes')
