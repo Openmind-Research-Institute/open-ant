@@ -51,9 +51,9 @@ parser.add_argument('--back_and_forth_origin', type=float, nargs=2, default=[0.0
 
 # Algorithm specific.
 parser.add_argument('--learn', type=bool, default=True)
-parser.add_argument('--reward_scaling', type=float, default=2.94)
+parser.add_argument('--reward_scaling', type=float, default=3.0)
 parser.add_argument('--load_weights_from_dir', type=str, default=None)
-parser.add_argument('--lambda_eligibility', type=float, default=0.81,
+parser.add_argument('--lambda_eligibility', type=float, default=0.98,
                     help='Eligibility trace decay parameter (lambda)')
 parser.add_argument('--duration_option', type=float, default=0.5,
                     help='Duration of each option in seconds')
