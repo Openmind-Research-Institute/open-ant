@@ -67,7 +67,7 @@ parser.add_argument('--tilings_multiplier', type=int, default=8,
                     help='Multiplier for number of tilings (tilings = multiplier * obs_dim)')
 parser.add_argument('--step_size_base', type=float, default=0.21,
                     help='Base step size (step_size = base / tilings)')
-parser.add_argument('--iht_size_power', type=int, default=20,
+parser.add_argument('--iht_size_power', type=int, default=25,
                     help='Power of 2 for IHT size (iht_size = 2^power)')
 parser.add_argument('--num_timelimit_episodes', type=int, default=1000,
                     help='Number of timelimit episodes')
@@ -455,6 +455,8 @@ idx_timelimit_episode = 0
 real_time_seconds = 0.0
 global_substep = 0  # Global counter for logging that never resets
 
+return_logging_df = pd.DataFrame(columns=['step', 'return'])
+
 if args.test_options:
     N = 100
     idx = 0
@@ -568,6 +570,11 @@ while idx_timelimit_episode < args.num_timelimit_episodes:
     if idx_options >= MAX_OPTIONS_PER_TIMELIMIT_EPISODE:
         print(f"Ep. {idx_timelimit_episode} | Return: {return_per_timelimit:.4f} | Time in sec: {(real_time_seconds):.4f} | Time in hours: {(real_time_seconds) / 3600:.4f}")
 
+        return_logging_df = pd.concat(
+            [return_logging_df, pd.DataFrame([{'step': global_substep, 'return': return_per_timelimit}])],
+            ignore_index=True,
+        )
+        return_logging_df.to_csv(os.path.join(args.runs_directory, "return_logging.csv"), index=False)
         # Write buffered info logs to CSV.
         if writer_info is not None and info_log_buffer:
             for row in info_log_buffer:
