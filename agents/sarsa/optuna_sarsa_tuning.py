@@ -1,6 +1,6 @@
 """
 Optuna hyperparameter optimization for SARSA(λ) with Tile Coding.
-Searches for the best hyperparameters to maximize cumulative reward.
+Searches for hyperparameters that maximize per-episode return.
 """
 
 import os
@@ -24,10 +24,10 @@ np.set_printoptions(precision=4, suppress=True, linewidth=120, threshold=1000)
 # Configuration
 # ============================================================================
 SEED = 0
-N_SEEDS = 5  # Number of seeds to average over
+N_SEEDS = 10  # Number of seeds to average over
 DT = 0.05
 RENDER_MODE = "rgb_array"
-N_TIMELIMIT_EPISODES_PER_TRIAL = 200  # Number of timelimit episodes per trial
+N_TIMELIMIT_EPISODES_PER_TRIAL = 800  # Number of timelimit episodes per trial
 N_OPTUNA_TRIALS = 100  # Total number of Optuna trials
 MAX_OPTIONS_PER_TIMELIMIT_EPISODE = 30  # Fixed, not tuned
 STUDY_NAME = "sarsa_optuna_study"
@@ -296,7 +296,7 @@ def run_single_seed(seed: int, epsilon: float, discount: float,
                     reward_scaling: float, state_limits: np.ndarray) -> float:
     """
     Run training for a single seed.
-    Returns average scaled return per second (matching sarsa_options_tilecoding.py).
+    Returns mean return per timelimit episode (same metric as return_logging.csv).
     """
     np.random.seed(seed)
 
@@ -325,7 +325,6 @@ def run_single_seed(seed: int, epsilon: float, discount: float,
     idx_options = 0
     return_per_timelimit = 0.0
     idx_timelimit_episode = 0
-    real_time_seconds = 0.0
 
     S, _ = options_env.reset(seed=seed)
     O = select_option_epsilon_greedy(S, epsilon, w, T, num_options)
@@ -362,7 +361,6 @@ def run_single_seed(seed: int, epsilon: float, discount: float,
         O = O_prime
 
         return_per_timelimit += R
-        real_time_seconds += options_env.duration_steps(O) * DT
         idx_options += 1
 
         if terminated or truncated:
@@ -377,18 +375,19 @@ def run_single_seed(seed: int, epsilon: float, discount: float,
 
     env.close()
 
-    if real_time_seconds > 0:
-        return float(np.sum(timelimit_returns) / real_time_seconds)
     if timelimit_returns:
-        return float(np.mean(timelimit_returns))
-    return 0.0
+        mean_return = float(np.mean(timelimit_returns))
+    else:
+        mean_return = 0.0
+
+    return mean_return
 
 
 def objective(trial: optuna.Trial) -> float:
     """
     Optuna objective function.
     Trains SARSA(λ) agent using continuous while True loop (like original code).
-    Runs across multiple seeds and returns average scaled return per second.
+    Runs across multiple seeds and returns mean per-episode return.
     """
     # Sample hyperparameters
     epsilon = trial.suggest_float("epsilon", 0.01, 0.3, log=True)
@@ -396,10 +395,10 @@ def objective(trial: optuna.Trial) -> float:
     lambda_eligibility = trial.suggest_float("lambda_eligibility", 0.0, 0.99)
     dim_tiling = trial.suggest_int("dim_tiling", 4, 16)
     tilings_multiplier = trial.suggest_int("tilings_multiplier", 2, 8)
-    step_size_base = trial.suggest_float("step_size_base", 0.01, 0.5, log=True)
+    step_size_base = trial.suggest_float("step_size_base", 0.001, 0.5, log=True)
     # duration_option = trial.suggest_float("duration_option", 0.5, 1.0)
     duration_option = 0.5
-    iht_size_power = trial.suggest_int("iht_size_power", 16, 22)
+    iht_size_power = 25
     reward_scaling = trial.suggest_float("reward_scaling", 1.0, 10.0, log=True)
     
     # Create environment to get observation space (needed for state_limits)
@@ -417,11 +416,12 @@ def objective(trial: optuna.Trial) -> float:
     print("state_limits.shape (should be [obs_dim, 2]):", state_limits.shape)
     
     # Run training across multiple seeds
-    seed_rewards = []
+    seed_returns = []
     seeds = [SEED + i for i in range(N_SEEDS)]
+    print(f"Running {N_SEEDS} seeds with seeds: {seeds}")
     
     for seed_idx, seed in enumerate(seeds):
-        avg_reward = run_single_seed(
+        mean_return = run_single_seed(
             seed=seed,
             epsilon=epsilon,
             discount=discount,
@@ -434,18 +434,21 @@ def objective(trial: optuna.Trial) -> float:
             reward_scaling=reward_scaling,
             state_limits=state_limits
         )
-        seed_rewards.append(avg_reward)
+        seed_returns.append(mean_return)
         
-        # Report intermediate results for pruning (using average so far)
-        current_avg = np.mean(seed_rewards)
-        trial.report(current_avg, seed_idx)
+        # Report intermediate score for pruning
+        current_return = np.mean(seed_returns)
+        trial.report(current_return, seed_idx)
         
         # Pruning: stop if trial is not promising
         if trial.should_prune():
             raise optuna.TrialPruned()
     
-    # Return average reward across all seeds (this is what Optuna optimizes)
-    return np.mean(seed_rewards)
+    mean_return = float(np.mean(seed_returns))
+
+    trial.set_user_attr("mean_return", mean_return)
+
+    return mean_return
 
 
 def main():
@@ -460,7 +463,7 @@ def main():
     
     study = optuna.create_study(
         study_name=STUDY_NAME,
-        direction="maximize",  # Maximize average scaled return per second
+        direction="maximize",
         sampler=TPESampler(seed=SEED),
         pruner=optuna.pruners.MedianPruner(
             n_startup_trials=5,
@@ -487,7 +490,7 @@ def main():
     print("OPTIMIZATION COMPLETE")
     print("="*60)
     
-    print(f"\nBest trial value (avg return/sec): {study.best_trial.value:.4f}")
+    print(f"\nBest trial mean return: {study.best_trial.value:.4f}")
     print(f"\nBest hyperparameters:")
     for key, value in study.best_params.items():
         print(f"  {key}: {value}")
@@ -497,6 +500,7 @@ def main():
     with open(best_params_path, "w") as f:
         json.dump({
             "best_value": study.best_trial.value,
+            "best_mean_return": study.best_trial.user_attrs.get("mean_return"),
             "best_params": study.best_params,
             "n_trials": len(study.trials),
             "timestamp": timestamp
