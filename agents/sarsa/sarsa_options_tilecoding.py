@@ -51,22 +51,22 @@ parser.add_argument('--back_and_forth_origin', type=float, nargs=2, default=[0.0
 
 # Algorithm specific.
 parser.add_argument('--learn', type=bool, default=True)
-parser.add_argument('--reward_scaling', type=float, default=10.0)
+parser.add_argument('--reward_scaling', type=float, default=5.0) # Values found with Optuna.
 parser.add_argument('--load_weights_from_dir', type=str, default=None)
-parser.add_argument('--lambda_eligibility', type=float, default=0.88,
-                    help='Eligibility trace decay parameter (lambda)')
+parser.add_argument('--lambda_eligibility', type=float, default=0.964,
+                    help='Eligibility trace decay parameter (lambda)') # Values found with Optuna.
 parser.add_argument('--duration_option', type=float, default=0.5,
                     help='Duration of each option in seconds')
-parser.add_argument('--epsilon', type=float, default=0.1,
-                    help='Epsilon for epsilon-greedy policy')
-parser.add_argument('--discount', type=float, default=0.98,
-                    help='Discount factor')
-parser.add_argument('--dim_tiling', type=int, default=5,
-                    help='Number of tiles per dimension')
+parser.add_argument('--epsilon', type=float, default=0.255,
+                    help='Epsilon for epsilon-greedy policy') # Values found with Optuna.
+parser.add_argument('--discount', type=float, default=0.998,
+                    help='Discount factor') # Values found with Optuna.
+parser.add_argument('--dim_tiling', type=int, default=4,
+                    help='Number of tiles per dimension') # Values found with Optuna.
 parser.add_argument('--tilings_multiplier', type=int, default=8,
-                    help='Multiplier for number of tilings (tilings = multiplier * obs_dim)')
-parser.add_argument('--step_size_base', type=float, default=0.21,
-                    help='Base step size (step_size = base / tilings)')
+                    help='Multiplier for number of tilings (tilings = multiplier * obs_dim)')  # Values found with Optuna.
+parser.add_argument('--step_size_base', type=float, default=0.008,
+                    help='Base step size (step_size = base / tilings)')  # Values found with Optuna.
 parser.add_argument('--iht_size_power', type=int, default=25,
                     help='Power of 2 for IHT size (iht_size = 2^power)')
 parser.add_argument('--num_timelimit_episodes', type=int, default=1000,
