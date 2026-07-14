@@ -234,11 +234,13 @@ if __name__ == "__main__":
                             tag_sizes={'origin': 0.1, 'body': 0.045},
                             tag_ids={'origin': 0, 'body': 12})
 
-    origin_point_O = np.array([0.87, 0.43])
-    radius = 0.65
+    origin = np.array([0.75, -0.3, 0.0])
+    radius = 0.3
     plt.figure(dpi=150)
     while True:
         bodies, frame, vis_frame = tracker.track()
+        # Draw the origin circle.
+        tracker.draw_circle(vis_frame, origin, radius)
         show_image(vis_frame)
         # for tag_id, detection in bodies.items():
             # print(detection)
@@ -248,18 +250,13 @@ if __name__ == "__main__":
         if 'body' in bodies:
             plt.plot(bodies['body']['position'][0], bodies['body']['position'][1], 'o', color='blue')
 
-        # Plot a circle with the radius of the task
-        radius = 0.61
-        origin = np.array([-1.05668516,  0.00237455])
         plt.plot(origin[0], origin[1], 'o', color='red')
         plt.plot(origin[0] + radius*np.cos(np.linspace(0, 2*np.pi, 100)), origin[1] + radius*np.sin(np.linspace(0, 2*np.pi, 100)), color='red')
         plt.plot(0, 0, 'o', color='black')
         plt.pause(0.01)
-        # equal aspect ratio
         plt.gca().set_aspect('equal', adjustable='box')
         plt.show(block=False)
         plt.grid(True)
-        # plt.clf()
 
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break

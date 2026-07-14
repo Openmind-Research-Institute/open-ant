@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import pickle
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
@@ -89,6 +90,27 @@ class IHT:
 				else:
 						d[obj] = count
 						return count
+
+def load_iht_state(path):
+		"""Load IHT collision table state saved by save_iht_state."""
+		with open(path, "rb") as f:
+				state = pickle.load(f)
+		if isinstance(state, IHT):
+				return state
+		iht = IHT(state["size"])
+		iht.overfullCount = state["overfullCount"]
+		iht.dictionary = state["dictionary"]
+		return iht
+
+def save_iht_state(iht, path):
+		"""Save IHT mapping explicitly; weight indices are meaningless without this."""
+		state = {
+				"size": iht.size,
+				"overfullCount": iht.overfullCount,
+				"dictionary": iht.dictionary,
+		}
+		with open(path, "wb") as f:
+				pickle.dump(state, f)
 
 def hashcoords(coordinates, m, readonly=False):
 		if type(m)==IHT: return m.getindex(tuple(coordinates), readonly)
