@@ -1,14 +1,15 @@
-import time
 import threading
-import numpy as np
-import gymnasium as gym
-from gymnasium import spaces
-from gymnasium.spaces import Box
+import time
 from collections import defaultdict
 
+import gymnasium as gym
+import numpy as np
+from apriltag_tracking import VisionTracker, show_image
+from gymnasium import spaces
+from gymnasium.spaces import Box
 from imu_msp import IMU_MSP
 from motor_controller import MotorController
-from apriltag_tracking import VisionTracker, show_image
+from step_stats import StepStatsLogger
 
 
 class ForwardTask:
@@ -17,7 +18,9 @@ class ForwardTask:
         self.last_pos = None
         self.last_action = np.zeros(8)
         self.reward_direction_I = np.array([1, 0])
-        self.observation_space = spaces.Box(low=-1.5, high=1.5, shape=(24,), dtype=np.float32)
+        self.observation_space = spaces.Box(
+            low=-1.5, high=1.5, shape=(24,), dtype=np.float32
+        )
         self.previous_pos_timestamp = None
 
     def reset(self, info, action=np.zeros(8)):
@@ -26,8 +29,8 @@ class ForwardTask:
         return self(info, action)
 
     def __call__(self, info, action):
-        pos = np.array([info['current_x_position'], info['current_y_position']])
-        pos_timestamp = info['position_timestamp']
+        pos = np.array([info["current_x_position"], info["current_y_position"]])
+        pos_timestamp = info["position_timestamp"]
         if self.last_pos is None:
             self.last_pos = pos
             progress = 0.0
@@ -38,9 +41,11 @@ class ForwardTask:
             self.previous_pos_timestamp = pos_timestamp
 
         if pos_timestamp == self.previous_pos_timestamp:
-            print('Warning!! The frames did not update!')
+            print("Warning!! The frames did not update!")
 
-        cost_action = np.sum(np.square(self.last_action - action)) * self.action_cost_weight
+        cost_action = (
+            np.sum(np.square(self.last_action - action)) * self.action_cost_weight
+        )
         self.last_pos = pos
         self.previous_pos_timestamp = pos_timestamp
         self.last_action = action.copy()
@@ -48,20 +53,23 @@ class ForwardTask:
         truncated = False
 
         reward = progress - cost_action
-        info['reward_direction_I'] = self.reward_direction_I
-        info['original_reward'] = reward
-        info['actions'] = action
-        observation = np.concatenate([
-            info['joint_positions'],
-            info['joint_velocities'],
-            info['heading_vector'],
-            info['ax'],
-            info['ay'],
-            info['az'],
-            info['wx'],
-            info['wy'],
-            info['wz'],
-        ], axis=None)
+        info["reward_direction_I"] = self.reward_direction_I
+        info["original_reward"] = reward
+        info["actions"] = action
+        observation = np.concatenate(
+            [
+                info["joint_positions"],
+                info["joint_velocities"],
+                info["heading_vector"],
+                info["ax"],
+                info["ay"],
+                info["az"],
+                info["wx"],
+                info["wy"],
+                info["wz"],
+            ],
+            axis=None,
+        )
         return observation, reward, terminated, truncated
 
 
@@ -72,7 +80,9 @@ class BackAndForthTask:
         self.reward_direction_I = np.array([1, 0])
         self.last_action = np.zeros(8)
         self.previous_pos_timestamp = None
-        self.observation_space = spaces.Box(low=-1.5, high=1.5, shape=(24,), dtype=np.float32)
+        self.observation_space = spaces.Box(
+            low=-1.5, high=1.5, shape=(24,), dtype=np.float32
+        )
         self.radius = radius
         self.origin = origin
 
@@ -84,10 +94,13 @@ class BackAndForthTask:
         return self(info, action)
 
     def __call__(self, info, action):
-        pos = np.array([info['current_x_position'], info['current_y_position']])
-        pos_timestamp = info['position_timestamp']
+        pos = np.array([info["current_x_position"], info["current_y_position"]])
+        pos_timestamp = info["position_timestamp"]
         # Bounce back on the circle edge.
-        if np.dot(pos - self.origin, self.reward_direction_I) > 0 and np.linalg.norm(pos - self.origin) > self.radius:
+        if (
+            np.dot(pos - self.origin, self.reward_direction_I) > 0
+            and np.linalg.norm(pos - self.origin) > self.radius
+        ):
             self.reward_direction_I = self.origin - pos
             self.reward_direction_I /= np.linalg.norm(self.reward_direction_I)
 
@@ -102,9 +115,11 @@ class BackAndForthTask:
 
         if pos_timestamp == self.previous_pos_timestamp:
             print("Reward", progress)
-            print('Warning!! The frames did not update!')
+            print("Warning!! The frames did not update!")
 
-        cost_action = np.sum(np.square(self.last_action - action)) * self.action_cost_weight
+        cost_action = (
+            np.sum(np.square(self.last_action - action)) * self.action_cost_weight
+        )
         self.last_pos = pos
         self.previous_pos_timestamp = pos_timestamp
         self.last_action = action.copy()
@@ -112,36 +127,51 @@ class BackAndForthTask:
         truncated = False
 
         reward = progress - cost_action
-        info['reward_direction_I'] = self.reward_direction_I
-        info['reward_direction_I_x'] = self.reward_direction_I[0]
-        info['reward_direction_I_y'] = self.reward_direction_I[1]
+        info["reward_direction_I"] = self.reward_direction_I
+        info["reward_direction_I_x"] = self.reward_direction_I[0]
+        info["reward_direction_I_y"] = self.reward_direction_I[1]
 
-        heading_perp = np.array([-info['heading_vector'][1], info['heading_vector'][0]])
-        reward_direction_B = np.array([np.dot(info['reward_direction_I'], info['heading_vector']),
-                             np.dot(info['reward_direction_I'], heading_perp)])
+        heading_perp = np.array([-info["heading_vector"][1], info["heading_vector"][0]])
+        reward_direction_B = np.array(
+            [
+                np.dot(info["reward_direction_I"], info["heading_vector"]),
+                np.dot(info["reward_direction_I"], heading_perp),
+            ]
+        )
 
-        info['reward_direction_B_x'] = reward_direction_B[0]
-        info['reward_direction_B_y'] = reward_direction_B[1]
-        info['original_reward'] = reward
-        info['actions'] = action
-        observation = np.concatenate([
-            info['joint_positions'],
-            info['joint_velocities'],
-            reward_direction_B,
-            info['ax'],
-            info['ay'],
-            info['az'],
-            info['wx'],
-            info['wy'],
-            info['wz'],
-        ], axis=None)
+        info["reward_direction_B_x"] = reward_direction_B[0]
+        info["reward_direction_B_y"] = reward_direction_B[1]
+        info["original_reward"] = reward
+        info["actions"] = action
+        observation = np.concatenate(
+            [
+                info["joint_positions"],
+                info["joint_velocities"],
+                reward_direction_B,
+                info["ax"],
+                info["ay"],
+                info["az"],
+                info["wx"],
+                info["wy"],
+                info["wz"],
+            ],
+            axis=None,
+        )
 
         return observation, reward, terminated, truncated
 
 
 class EmbodiedAnt(gym.Env):
-
-    def __init__(self, motor_controller, imu, tracker, dt=0.02, render_mode=None, joint_config=None, task=ForwardTask()):
+    def __init__(
+        self,
+        motor_controller,
+        imu,
+        tracker,
+        dt=0.02,
+        render_mode=None,
+        joint_config=None,
+        task=ForwardTask(),
+    ):
         super().__init__()
         self.task = task
         self.motor_controller = motor_controller
@@ -149,15 +179,15 @@ class EmbodiedAnt(gym.Env):
         self.dt = dt
         self.last_step_time = None
         self.render_mode = render_mode
-        if self.render_mode == 'human':
+        if self.render_mode == "human":
             self.vis_frame = None
         self.i = 0
         if joint_config is None:
             joint_config = {
-                'hip_zero': 0,
-                'knee_zero': -np.radians(50),
-                'hip_range': np.radians(45),
-                'knee_range': np.radians(20),
+                "hip_zero": 0,
+                "knee_zero": -np.radians(50),
+                "hip_range": np.radians(45),
+                "knee_range": np.radians(20),
             }
         self.joint_config = joint_config
 
@@ -165,9 +195,7 @@ class EmbodiedAnt(gym.Env):
 
         self.observation_space = task.observation_space
 
-        self.action_space = Box(
-            low=-1, high=1, shape=(8,), dtype=np.float64
-        )
+        self.action_space = Box(low=-1, high=1, shape=(8,), dtype=np.float64)
 
         self.imu = imu
         self._imu_data = None
@@ -186,17 +214,18 @@ class EmbodiedAnt(gym.Env):
         self.last_seen = 0
         self.last_position_timestamp = None
 
-        self.temperature_log = open('temperature_log.csv', 'a')
+        self.temperature_log = open("temperature_log.csv", "a")
         # self.temperature_log = open('temperature_log.csv', 'w')
-        self.error_log = open('error_log.csv', 'w')
+        self.error_log = open("error_log.csv", "w")
+        self.stats = StepStatsLogger()
 
     def __del__(self):
         self.close()
 
     def reset(self, seed=None, options=None):
         self.step(np.zeros(self.action_space.shape[0]))
-        print('reset(): please move the ant back to the origin.')
-        user_input = input('press enter when ready')
+        print("reset(): please move the ant back to the origin.")
+        user_input = input("press enter when ready")
         self.last_step_time = time.time()
         info = self.get_observation()
         observation, reward, terminated, truncated = self.task.reset(info)
@@ -206,12 +235,25 @@ class EmbodiedAnt(gym.Env):
         if self._threads_should_exit:
             raise RuntimeError("EmbodiedAnt.step() called after close()")
 
+        step_start = time.time()
+        time_between_steps = (
+            step_start - self.last_step_time if self.last_step_time is not None else 0.0
+        )
+
         # Apply action.
         action = action.copy()
         for i in range(4):
-            action[2*i] = np.clip(action[2*i], -1, 1) * self.joint_config['hip_range'] + self.joint_config['hip_zero']
-            action[2*i + 1] = np.clip(action[2*i + 1], -1, 1) * self.joint_config['knee_range'] + self.joint_config['knee_zero']
+            action[2 * i] = (
+                np.clip(action[2 * i], -1, 1) * self.joint_config["hip_range"]
+                + self.joint_config["hip_zero"]
+            )
+            action[2 * i + 1] = (
+                np.clip(action[2 * i + 1], -1, 1) * self.joint_config["knee_range"]
+                + self.joint_config["knee_zero"]
+            )
+        t0 = time.time()
         self.motor_controller.set_positions(action)
+        set_positions_duration = time.time() - t0
 
         # Sleep.
         sleep_duration = self.dt
@@ -221,7 +263,9 @@ class EmbodiedAnt(gym.Env):
             sleep_duration = self.dt - time_since_last_step
             if sleep_duration < 0:
                 # print what starts with env_time_
-                print(f"Warning: calls to step() exceeded step size (time since last step: {time_since_last_step:.3f}s).")
+                print(
+                    f"Warning: calls to step() exceeded step size (time since last step: {time_since_last_step:.3f}s)."
+                )
                 sleep_duration = 0
         if sleep_until_next_step:
             time.sleep(sleep_duration)
@@ -230,67 +274,89 @@ class EmbodiedAnt(gym.Env):
         # Get observation.
         time_start = time.time()
         info = self.get_observation()
-        info['env_time_to_get_obs'] = time.time() - time_start
+        get_observation_duration = time.time() - time_start
+        info["env_time_to_get_obs"] = get_observation_duration
+
+        now = time.time()
+        obs_age_image = now - info["position_timestamp"]
+        obs_age_imu = now - info.get("timestamp", 0.0)
 
         # Get reward and task termination.
         observation, reward, terminated, truncated = self.task(info, action)
-        info['env_sleep_duration'] = sleep_duration + time_since_last_step
+        info["env_sleep_duration"] = sleep_duration + time_since_last_step
 
         # self.temperature_log.write(f"{time.time()}, " + ", ".join(map(str, info['temperatures'])) + "\n")
         # self.temperature_log.flush()
 
         time_start = time.time()
         errors = self.motor_controller.check_errors()
-        if len(errors) > 0: # only log errors if there are any
-            self.error_log.write(f"{time.time()}, " + ", ".join(map(str, errors)) + "\n")
+        if len(errors) > 0:  # only log errors if there are any
+            self.error_log.write(
+                f"{time.time()}, " + ", ".join(map(str, errors)) + "\n"
+            )
             self.error_log.flush()
-        info['env_time_to_check_errors'] = time.time() - time_start
+        check_errors_duration = time.time() - time_start
+        info["env_time_to_check_errors"] = check_errors_duration
 
         time_start = time.time()
         if len(errors) > 0:
-            print('motor controller errors:')
+            print("motor controller errors:")
             for error in errors:
                 print(error[2])
             truncated = True
             self.motor_controller.recover_from_error()
-        info['env_time_to_recover_motor_errors'] = time.time() - time_start
+        info["env_time_to_recover_motor_errors"] = time.time() - time_start
 
         if self.tracker_lost(info):
             truncated = True
 
-        if self.render_mode == 'human' or self.render_mode == 'rgb_array':
+        render_duration = 0.0
+        if self.render_mode == "human" or self.render_mode == "rgb_array":
+            time_start = time.time()
             self.i += 1
 
             if isinstance(self.task, BackAndForthTask):
                 # Draw the origin circle.
                 origin_3D_O = np.array([self.task.origin[0], self.task.origin[1], 0.0])
-                self.tracker.draw_circle(self.vis_frame,
-                                            origin_3D_O,
-                                            self.task.radius)
-                reward_direction_I = np.array([self.task.reward_direction_I[0],
-                                                self.task.reward_direction_I[1],
-                                                0.0])
-                self.tracker.draw_arrow(self.vis_frame,
-                                            origin_3D_O,
-                                            reward_direction_I)
-                r_B = np.array([info['reward_direction_B_x'],
-                                info['reward_direction_B_y'],
-                                0.0])
-                if 'body' in info['bodies']:
-                    R_B_I = info['bodies']['body']['orientation']
+                self.tracker.draw_circle(self.vis_frame, origin_3D_O, self.task.radius)
+                reward_direction_I = np.array(
+                    [
+                        self.task.reward_direction_I[0],
+                        self.task.reward_direction_I[1],
+                        0.0,
+                    ]
+                )
+                self.tracker.draw_arrow(self.vis_frame, origin_3D_O, reward_direction_I)
+                r_B = np.array(
+                    [info["reward_direction_B_x"], info["reward_direction_B_y"], 0.0]
+                )
+                if "body" in info["bodies"]:
+                    R_B_I = info["bodies"]["body"]["orientation"]
                     r_I = R_B_I @ r_B
-                    self.tracker.draw_arrow(self.vis_frame,
-                                            self.last_pos,
-                                            r_I)
-            info['vis_frame'] = self.vis_frame
-            if self.render_mode == 'human':
+                    self.tracker.draw_arrow(self.vis_frame, self.last_pos, r_I)
+            info["vis_frame"] = self.vis_frame
+            if self.render_mode == "human":
                 if self.i % 10 == 0:
                     show_image(self.vis_frame)
+            render_duration = time.time() - time_start
+
+        self.stats.record(
+            step_start_time=step_start,
+            time_between_steps=time_between_steps,
+            step_duration=time.time() - step_start,
+            sleep_duration=sleep_duration,
+            set_positions_duration=set_positions_duration,
+            get_observation_duration=get_observation_duration,
+            check_errors_duration=check_errors_duration,
+            render_duration=render_duration,
+            obs_age_image=obs_age_image,
+            obs_age_imu=obs_age_imu,
+        )
 
         return observation, reward, terminated, truncated, info
 
     def render(self):
-        if self.render_mode == 'human' or self.render_mode == 'rgb_array':
+        if self.render_mode == "human" or self.render_mode == "rgb_array":
             return self.vis_frame
         return None
 
@@ -303,7 +369,7 @@ class EmbodiedAnt(gym.Env):
             else:
                 imu_data = defaultdict(lambda: 0)
         info = imu_data
-        info['env_time_imu_thread'] = time.time() - time_start
+        info["env_time_imu_thread"] = time.time() - time_start
 
         # Tracker.
         time_start = time.time()
@@ -311,56 +377,76 @@ class EmbodiedAnt(gym.Env):
             if self._tracker_data is not None:
                 bodies, frame, vis_frame = self._tracker_data
             else:
-                bodies, frame, vis_frame = {}, np.zeros((640, 480, 3)), np.zeros((640, 480, 3))
-        info['bodies'] = bodies
-        if 'body' in bodies:
-            info['current_x_position'] = bodies['body']['position'][0]
-            info['current_y_position'] = bodies['body']['position'][1]
-            self.last_pos = bodies['body']['position']
+                bodies, frame, vis_frame = (
+                    {},
+                    np.zeros((640, 480, 3)),
+                    np.zeros((640, 480, 3)),
+                )
+        info["bodies"] = bodies
+        if "body" in bodies:
+            info["current_x_position"] = bodies["body"]["position"][0]
+            info["current_y_position"] = bodies["body"]["position"][1]
+            self.last_pos = bodies["body"]["position"]
             self.last_seen = time.time()
-            heading_vector = (bodies['body']['orientation'] @ np.array([1, 0, 0]))[:2]
+            heading_vector = (bodies["body"]["orientation"] @ np.array([1, 0, 0]))[:2]
             heading_vector /= np.linalg.norm(heading_vector)
             self.last_heading_vector = heading_vector
-            info['position_timestamp'] = bodies['body']['timestamp']
-            self.last_position_timestamp = info['position_timestamp']
-            info['detection_time'] = bodies['body']['detection_time']
+            info["position_timestamp"] = bodies["body"]["timestamp"]
+            self.last_position_timestamp = info["position_timestamp"]
+            info["detection_time"] = bodies["body"]["detection_time"]
         else:
-            info['current_x_position'] = self.last_pos[0] if self.last_pos is not None else 0.0
-            info['current_y_position'] = self.last_pos[1] if self.last_pos is not None else 0.0
+            info["current_x_position"] = (
+                self.last_pos[0] if self.last_pos is not None else 0.0
+            )
+            info["current_y_position"] = (
+                self.last_pos[1] if self.last_pos is not None else 0.0
+            )
             heading_vector = self.last_heading_vector
-            info['position_timestamp'] = self.last_position_timestamp if self.last_position_timestamp is not None else 0.0
-            info['detection_time'] = 0.0
-        info['heading_vector'] = heading_vector
+            info["position_timestamp"] = (
+                self.last_position_timestamp
+                if self.last_position_timestamp is not None
+                else 0.0
+            )
+            info["detection_time"] = 0.0
+        info["heading_vector"] = heading_vector
 
         self.vis_frame = vis_frame
-        info['env_time_tracker_thread'] = time.time() - time_start
+        info["env_time_tracker_thread"] = time.time() - time_start
 
         # Motor outputs.
-        joint_positions, joint_velocities, joint_loads = self.motor_controller.get_feedback()
+        joint_positions, joint_velocities, joint_loads = (
+            self.motor_controller.get_feedback()
+        )
         # temperatures = self.motor_controller.get_temperature()
-        info['joint_positions'] = joint_positions
-        info['joint_velocities'] = joint_velocities
-        info['joint_loads'] = joint_loads
+        info["joint_positions"] = joint_positions
+        info["joint_velocities"] = joint_velocities
+        info["joint_loads"] = joint_loads
         # info['temperatures'] = temperatures
-        info['env_time_get_motor_feedback'] = time.time() - time_start
+        info["env_time_get_motor_feedback"] = time.time() - time_start
 
         return info
 
     def tracker_lost(self, info):
         if time.time() - self.last_seen > 2:
-            print('body tracker not seen for 2 seconds')
+            print("body tracker not seen for 2 seconds")
             return True
-        if 'body' in info['bodies']:
-            img_pos = info['bodies']['body']['image_pos']
-            if img_pos[0] < 0.1 or img_pos[0] > 0.9 or img_pos[1] < 0.1 or img_pos[1] > 0.9:
-                print('body is out of camera frame')
-                return True # body is out of frame
+        if "body" in info["bodies"]:
+            img_pos = info["bodies"]["body"]["image_pos"]
+            if (
+                img_pos[0] < 0.1
+                or img_pos[0] > 0.9
+                or img_pos[1] < 0.1
+                or img_pos[1] > 0.9
+            ):
+                print("body is out of camera frame")
+                return True  # body is out of frame
         return False
 
     def close(self):
         self._threads_should_exit = True
         self._imu_thread.join()
         self.motor_controller.disable()
+        self.stats.close()
 
     def _poll_imu(self):
         while not self._threads_should_exit:
@@ -382,64 +468,104 @@ class EmbodiedAnt(gym.Env):
                 print(f"Error in _poll_tracker: {e}")
                 self._threads_should_exit = True
 
+
 def make_ant_env(cfg, **kwargs):
-    motor_controller = MotorController(port=cfg['motor_port'], motor_list=cfg['motor_list'])
-    imu = IMU_MSP(port=cfg['imu_port'])
-    tracker = VisionTracker(camera_id=cfg['camera_id'],
-                            fov_diagonal_deg=cfg['camera_fov_diagonal_deg'],
-                            tag_sizes=cfg['camera_tag_sizes'],
-                            tag_ids=cfg['camera_tag_ids'])
-    return EmbodiedAnt(motor_controller=motor_controller, imu=imu, tracker=tracker, **kwargs)
+    motor_controller = MotorController(
+        port=cfg["motor_port"], motor_list=cfg["motor_list"]
+    )
+    imu = IMU_MSP(port=cfg["imu_port"])
+    tracker = VisionTracker(
+        camera_id=cfg["camera_id"],
+        fov_diagonal_deg=cfg["camera_fov_diagonal_deg"],
+        tag_sizes=cfg["camera_tag_sizes"],
+        tag_ids=cfg["camera_tag_ids"],
+    )
+    return EmbodiedAnt(
+        motor_controller=motor_controller, imu=imu, tracker=tracker, **kwargs
+    )
+
 
 class DummyMotorController:
-    def __init__(self, port=None, motor_list=[0]*8):
+    def __init__(self, port=None, motor_list=[0] * 8):
         self.nb_motors = len(motor_list)
+
     def set_positions(self, positions):
         pass
+
     def get_feedback(self):
-        return np.zeros(self.nb_motors), np.zeros(self.nb_motors), np.zeros(self.nb_motors)
+        return (
+            np.zeros(self.nb_motors),
+            np.zeros(self.nb_motors),
+            np.zeros(self.nb_motors),
+        )
+
     def disable(self):
         pass
+
     def enable(self):
         pass
+
     def get_temperature(self):
         return np.zeros(self.nb_motors)
+
     def check_errors(self):
         return []
+
     def recover_from_error(self):
         pass
+
 
 class DummyIMU:
     def __init__(self, port=None):
         pass
+
     def get_data(self):
-        return {'ax': 0, 'ay': 0, 'az': 9.81,
-                'wx': 0, 'wy': 0, 'wz': 0,
-                'mx': 0, 'my': 0, 'mz': 0,
-                'roll_deg': 0, 'pitch_deg': 0, 'yaw_deg': 0,
-                'timestamp': time.time()}
+        return {
+            "ax": 0,
+            "ay": 0,
+            "az": 9.81,
+            "wx": 0,
+            "wy": 0,
+            "wz": 0,
+            "mx": 0,
+            "my": 0,
+            "mz": 0,
+            "roll_deg": 0,
+            "pitch_deg": 0,
+            "yaw_deg": 0,
+            "timestamp": time.time(),
+        }
+
 
 class DummyTracker:
     def __init__(self, detector=None, inertial_tag_id=None):
         pass
+
     def track(self):
         return {}, np.zeros((640, 480, 3)), np.zeros((640, 480, 3))
 
 
 if __name__ == "__main__":
-    import sys
     import json
+    import sys
+
     cfg = json.load(open(sys.argv[1]))
-    motor_controller = MotorController(port=cfg['motor_port'], motor_list=cfg['motor_list'])
+    motor_controller = MotorController(
+        port=cfg["motor_port"], motor_list=cfg["motor_list"]
+    )
     # motor_controller = DummyMotorController()
-    imu = IMU_MSP(port=cfg['imu_port'])
+    imu = IMU_MSP(port=cfg["imu_port"])
     # imu = DummyIMU()
     print(cfg)
-    tracker = VisionTracker(camera_id=cfg['camera_id'],
-                            fov_diagonal_deg=cfg['camera_fov_diagonal_deg'],
-                            tag_sizes=cfg['camera_tag_sizes'],
-                            tag_ids=cfg['camera_tag_ids'])
-    env = EmbodiedAnt(motor_controller=motor_controller, imu=imu, tracker=tracker, dt=0.05)
+    tracker = VisionTracker(
+        camera_id=cfg["camera_id"],
+        fov_diagonal_deg=cfg["camera_fov_diagonal_deg"],
+        tag_sizes=cfg["camera_tag_sizes"],
+        tag_ids=cfg["camera_tag_ids"],
+    )
+    env = EmbodiedAnt(
+        motor_controller=motor_controller, imu=imu, tracker=tracker, dt=0.05
+    )
     i = 0
 
     while True:
