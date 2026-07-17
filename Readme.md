@@ -19,7 +19,7 @@ The hardware is designed to be easy to build and use:
 
 ## Assembly video
 
-[Watch the assembly video](https://youtu.be/siWUn2i8hFY?si=Tb2L7xUlnYaNfrpW)
+[Watch the assembly video](https://www.youtube.com/watch?v=9aowd2JxAnE)
 
 ### Specs.
 
