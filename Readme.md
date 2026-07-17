@@ -30,7 +30,7 @@ The hardware is designed to be easy to build and use:
 ### Physical Ant platform, learning arena, and system overview.
 
 <p align="center">
-  <img src="./imgs/robots.png" alt="Robots" width="600"/>
+  <img src="./imgs/robots.png" alt="Robot setup" width="600"/>
 </p>
 <p align="center">
   <b>Physical Ant platform, learning arena, and system overview.</b> (a) An overhead webcam tracks the fiducial markers to compute reward signals for locomotion tasks as well as the heading vector of the ant. The robot is connected by cables to AC power and to an external computer where the agent is running. (b) The main components of the Physical Ant. (c) The Gymnasium Ant, which was the inspiration for the Physical Ant.
