@@ -2,7 +2,7 @@ import dynamixel_sdk
 import numpy as np
 import time
 import logging
-
+import serial
 
 class MotorController:
     ADDR_TORQUE_ENABLE = 64
