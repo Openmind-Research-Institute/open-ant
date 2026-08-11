@@ -20,21 +20,23 @@ class VisionTracker:
             [0, 0, 1]], dtype=np.float32)
 
     def __init__(self, camera_id=0, fov_diagonal_deg=60, K=None, tag_sizes={}, tag_ids={}, flip_z_up=True):
+        self.camera_id = camera_id
+
         if sys.platform.startswith("linux"):
             self.cap = cv2.VideoCapture(camera_id, cv2.CAP_V4L2)
         else:  # macOS
             self.cap = cv2.VideoCapture(camera_id)
-        width, height =  1920, 1080
+        self.width, self.height =  1920, 1080
         self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
         self.detector = Detector(families='tagCircle21h7', nthreads=1, quad_decimate=2)
         if K is None:
             # Fall back to what camera supports if unable to set the best
-            if width == 0 or height == 0:
-                width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            self.K = self.camera_matrix_from_fov((width, height), np.deg2rad(fov_diagonal_deg))
+            if self.width == 0 or self.height == 0:
+                self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            self.K = self.camera_matrix_from_fov((self.width, self.height), np.deg2rad(fov_diagonal_deg))
         else:
             self.K = K
         fx, fy, cx, cy = self.K[0,0], self.K[1,1], self.K[0,2], self.K[1,2]
@@ -44,6 +46,17 @@ class VisionTracker:
         self.origin_tag_id = tag_ids['origin']
         self.last_origin_detection = None
         self.flip_z_up = flip_z_up
+
+    def reopen(self):
+        """Release and re-open the capture device to recover from a failure
+        (e.g. an unplugged USB camera). Tolerant of the device being absent."""
+        try:
+            self.cap.release()
+        except Exception:
+            pass
+        self.cap = cv2.VideoCapture(self.camera_id)
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
 
     def detect(self):
         ret, frame = self.cap.read()
