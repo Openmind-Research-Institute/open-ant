@@ -33,10 +33,10 @@ class VisionTracker:
         self.detector = Detector(families='tagCircle21h7', nthreads=1, quad_decimate=2)
         if K is None:
             # Fall back to what camera supports if unable to set the best
-            if width == 0 or height == 0:
-                width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            self.K = self.camera_matrix_from_fov((width, height), np.deg2rad(fov_diagonal_deg))
+            if self.width == 0 or self.height == 0:
+                self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            self.K = self.camera_matrix_from_fov((self.width, self.height), np.deg2rad(fov_diagonal_deg))
         else:
             self.K = K
         fx, fy, cx, cy = self.K[0,0], self.K[1,1], self.K[0,2], self.K[1,2]
