@@ -30,8 +30,19 @@ class IMU_MSP:
 
 
     def __init__(self, port: str, baudrate: int = 115200):
+        self.port = port
+        self.baudrate = baudrate
         self.device = serial.Serial(port, baudrate)
         self.board_info = None
+
+    def reopen(self):
+        """Close and re-open the serial port to recover from a comms failure
+        (e.g. an unplugged USB cable). Tolerant of the device being absent."""
+        try:
+            self.device.close()
+        except Exception:
+            pass
+        self.device = serial.Serial(self.port, self.baudrate)
 
     @staticmethod
     def checksum(data):
