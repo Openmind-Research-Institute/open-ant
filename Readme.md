@@ -184,8 +184,11 @@ We recommend 3D printing socks out of TPU.
 ### Q: There might be intermittent communication dropout. How is this addressed?
 
 During long duration run-time learning experiments, we observed intermittent, very short communication dropouts. 
-The power connection was modified to connect directly to the screw terminals on the control board rather than using the barrel connector. This eliminated the voltage drops caused by vibration-induced intermittent contact during learning experiments.
+The power connection was modified to connect directly to the screw terminals on the control board rather than using the barrel connector. This eliminated the voltage drops caused by vibration-induced intermittent contact during learning experiments (see paper for more details).
 
+### Are there other failures that a user should be aware of?
+
+We noticed that the short USB cable connected to the Cable Matters Ultra Mini USB Hub may become damaged over time. If the cable is damaged, it can cause intermittent communication (comm) dropouts. We recommend replacing the USB cable if you observe this issue.
 
 ## Misc
 
