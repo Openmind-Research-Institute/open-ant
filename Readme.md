@@ -188,7 +188,7 @@ The power connection was modified to connect directly to the screw terminals on 
 
 ### Are there other failures that a user should be aware of?
 
-We noticed that the short USB cable connected to the Cable Matters Ultra Mini USB Hub may become damaged over time. If the cable is damaged, it can cause intermittent communication (comm) dropouts. We recommend replacing the USB cable if you observe this issue.
+We noticed that the short USB cable connected to the Cable Matters Ultra Mini USB Hub may become damaged over time, especially if the user is not using a ziptie for strain relief. If the cable is damaged, it can cause intermittent communication (comm) dropouts. We recommend replacing the USB cable if you observe this issue. We also recommend to ensure that the components don't move freely inside the ant. Using glue gun/tape is recommended.
 
 ## Misc
 
