@@ -15,7 +15,7 @@ The hardware is designed to be easy to build and use:
 - no battery: continuous operation with wall adapter
 - all COTS parts + 3D printed parts
 - no soldering required
-- no special tools required (only the standard hex drivers for M2, M2.5, and M3 screws which are 1.5mm, 2.0mm, and 2.5mm, respectively)
+- no special tools required (only the standard hex drivers for M2, M2.5, and M3 screws which are 1.5mm, 2.0mm, and 2.5mm, respectively, and a Phillips head screwdriver for the plastic screws)
 
 ## Assembly video
 
@@ -56,7 +56,7 @@ The hardware is designed to be easy to build and use:
 | M2 washer            | 64       | Output shaft                                                                | [McMaster](https://www.mcmaster.com/93475A195/)  | $1.78 (pack of 100) |
 | Screw M2.5x16mm with socket head          | 32       | motor mount, 4 per motor                                                                                    | [McMaster](https://www.mcmaster.com/91290a106/)                                                    | $12.81 (pack of 50)  |
 | Screw M3x8mm with socket head             | 2        | U2D2 power board mount                                                                                | [McMaster](https://www.mcmaster.com/91290A113/)                                                    | $12.82 (pack of 100) |
-| Screw M3x8mm for plastic             | 4        | IMU                                                                                | [McMaster](https://www.mcmaster.com/99461A941/)                                                    | $7.42 (pack of 50) |
+| Phillips Rounded Head Screw M3x8mm for plastic             | 4        | IMU mount                                                                                | [McMaster](https://www.mcmaster.com/99461A941/)                                                    | $7.42 (pack of 50) |
 | Nut M2                                    | 16       | 3D print assembly 4 per leg                                                                                 | [McMaster](https://www.mcmaster.com/91828A111/)                                                    | $6.75 (pack of 100)  |
 | Nut M3                                    | 2        | U2D2 power board mount                                                                                      | [McMaster](https://www.mcmaster.com/91828A211/)                                                    | $5.2 (pack of 100)  |
 | On-board camera and top-down camera for tracking         | 2        | Logitech Brio 101                                                                                           | [Logitech](https://www.logitech.com/en-us/shop/p/brio-100-webcam)                                                       | $79.98 (39.99 each)               |
