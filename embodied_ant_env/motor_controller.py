@@ -15,6 +15,21 @@ if not logger.handlers:
     logger.addHandler(logging.StreamHandler())
 
 
+class _TimestampedPortHandler(dynamixel_sdk.PortHandler):
+    # Records when we last transmitted. Every packet the SDK sends goes through
+    # writePort(), so hooking it here keeps the timestamp correct for all paths
+    # (sync write, sync read, single-servo writes, reboot) instead of relying on
+    # bookkeeping scattered across the driver.
+    def __init__(self, port_name):
+        super().__init__(port_name)
+        self.last_tx_time = None
+
+    def writePort(self, packet):
+        written = super().writePort(packet)
+        self.last_tx_time = time.time()
+        return written
+
+
 class MotorController:
     ADDR_TORQUE_ENABLE = 64
     ADDR_GOAL_POSITION = 116
@@ -27,10 +42,21 @@ class MotorController:
     ADDR_PWM_LIMIT = 36
     ADDR_SHUTDOWN = 63
 
-    def __init__(self, port, motor_list, baudrate=1000000):
-        self.port = dynamixel_sdk.PortHandler(port)
+    def __init__(self, port, motor_list, baudrate=1000000, min_write_read_gap=0.001):
+        self.port = _TimestampedPortHandler(port)
         self.packet = dynamixel_sdk.PacketHandler(2.0)
         self.logger = logger
+        # A sync read issued immediately after a sync write gets no reply at all from
+        # any servo (COMM_RX_TIMEOUT, 0/8 motors parsed), while the identical read a
+        # moment later always succeeds. Measured failure rate vs. the gap between the
+        # two packets: 0.0ms -> 37-40/40 failures, 0.1ms -> 31-33/40, 0.2ms and above
+        # -> 0/40. Likely cause: PacketHandler.txPacket() flushes the input buffer
+        # before every transmission, and doing that while the previous write is still
+        # pending in the kernel tty queue drops the new instruction.
+        # 1ms gives ~5x margin over the 0.2ms threshold and costs 2% of a 50ms dt.
+        # Enforced here rather than by callers because step() zeroes its own sleep
+        # when it runs late, which is what made this fault latch permanently.
+        self.min_write_read_gap = min_write_read_gap
 
         if not self.port.openPort():
             self.logger.error("Failed to open port %s", port)
@@ -61,14 +87,34 @@ class MotorController:
         except (OSError, serial.SerialException) as e:
             raise MotorControllerError(f"Failed to re-open port: {e}")
 
+    def _wait_before_read(self):
+        # A read must not start too soon after a transmission, or no servo replies at
+        # all. See the note in __init__. Only reads need this: a sync write is never
+        # dropped, even with no gap at all (measured: 240/240 landed across gaps from
+        # 0ms to 2ms, single-attempt readbacks, nothing discarded).
+        #
+        # WARNING: this gap is only validated for ONE write per read, which is what
+        # EmbodiedAnt.step() does. Two writes queued back-to-back before a read give a
+        # bizarre failure BAND -- reads fail 40/40 at 0.5-2.0ms of separation, yet
+        # pass at 0.2ms and at 5ms. The mechanism is unknown, and 1ms happens to sit
+        # in the middle of that band. If a second write is ever queued before a read,
+        # re-measure; do not assume a larger gap is safer.
+        last_tx = self.port.last_tx_time
+        if last_tx is None:
+            return
+        remaining = self.min_write_read_gap - (time.time() - last_tx)
+        if remaining > 0:
+            time.sleep(remaining)
+
     def sync_read_rxtx_retry(self, sync_read_obj, num_retries=3):
         try:
             for attempt in range(num_retries):
+                self._wait_before_read()
                 dxl_comm_result = sync_read_obj.txRxPacket()
                 if dxl_comm_result == dynamixel_sdk.COMM_SUCCESS:
                     return dxl_comm_result
                 self.logger.warning("sync_read attempt %d/%d failed: %s; retrying...",
-                            attempt, num_retries, dxl_comm_result)
+                            attempt + 1, num_retries, dxl_comm_result)
                 self._reopen_port()
             self.logger.error("sync_read failed after %d attempts: %s",
                         num_retries, dxl_comm_result)
