@@ -33,19 +33,19 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../'
 from reward import RewardTracker
 
 class SoftQNetwork(nn.Module):
-    def __init__(self, env, use_layer_norm=False):
+    def __init__(self, env, hidden_size=256, use_layer_norm=False):
         super().__init__()
         self.use_layer_norm = use_layer_norm
         self.fc1 = nn.Linear(
             np.array(env.single_observation_space.shape).prod() + np.prod(env.single_action_space.shape),
-            256,
+            hidden_size,
         )
-        self.fc2 = nn.Linear(256, 256)
-        self.fc3 = nn.Linear(256, 1)
+        self.fc2 = nn.Linear(hidden_size, hidden_size)
+        self.fc3 = nn.Linear(hidden_size, 1)
 
         if use_layer_norm:
-            self.ln1 = nn.LayerNorm(256)
-            self.ln2 = nn.LayerNorm(256)
+            self.ln1 = nn.LayerNorm(hidden_size)
+            self.ln2 = nn.LayerNorm(hidden_size)
 
     def forward(self, x, a):
         x = torch.cat([x, a], 1)
@@ -64,17 +64,17 @@ LOG_STD_MAX = 2
 LOG_STD_MIN = -5
 
 class Actor(nn.Module):
-    def __init__(self, env, use_layer_norm=False):
+    def __init__(self, env, hidden_size=256, use_layer_norm=False):
         super().__init__()
         self.use_layer_norm = use_layer_norm
-        self.fc1 = nn.Linear(np.array(env.single_observation_space.shape).prod(), 256)
-        self.fc2 = nn.Linear(256, 256)
-        self.fc_mean = nn.Linear(256, np.prod(env.single_action_space.shape))
-        self.fc_logstd = nn.Linear(256, np.prod(env.single_action_space.shape))
+        self.fc1 = nn.Linear(np.array(env.single_observation_space.shape).prod(), hidden_size)
+        self.fc2 = nn.Linear(hidden_size, hidden_size)
+        self.fc_mean = nn.Linear(hidden_size, np.prod(env.single_action_space.shape))
+        self.fc_logstd = nn.Linear(hidden_size, np.prod(env.single_action_space.shape))
 
         if use_layer_norm:
-            self.ln1 = nn.LayerNorm(256)
-            self.ln2 = nn.LayerNorm(256)
+            self.ln1 = nn.LayerNorm(hidden_size)
+            self.ln2 = nn.LayerNorm(hidden_size)
 
         # Action rescaling.
         self.register_buffer(
@@ -187,6 +187,7 @@ class SAC:
                  tau: float,
                  gamma: float,
                  use_layer_norm: bool,
+                 hidden_size: int,
                  dt: float,
                  torch_deterministic: bool = True,
                  record_infos_sac = True
@@ -207,11 +208,11 @@ class SAC:
         torch.backends.cudnn.benchmark = not torch_deterministic
 
         # Networks.
-        self.actor = Actor(self.envs, use_layer_norm=use_layer_norm).to(self.device)
-        self.qf1 = SoftQNetwork(self.envs, use_layer_norm=use_layer_norm).to(self.device)
-        self.qf2 = SoftQNetwork(self.envs, use_layer_norm=use_layer_norm).to(self.device)
-        self.qf1_target = SoftQNetwork(self.envs, use_layer_norm=use_layer_norm).to(self.device)
-        self.qf2_target = SoftQNetwork(self.envs, use_layer_norm=use_layer_norm).to(self.device)
+        self.actor = Actor(self.envs, hidden_size=hidden_size, use_layer_norm=use_layer_norm).to(self.device)
+        self.qf1 = SoftQNetwork(self.envs, hidden_size=hidden_size, use_layer_norm=use_layer_norm).to(self.device)
+        self.qf2 = SoftQNetwork(self.envs, hidden_size=hidden_size, use_layer_norm=use_layer_norm).to(self.device)
+        self.qf1_target = SoftQNetwork(self.envs, hidden_size=hidden_size, use_layer_norm=use_layer_norm).to(self.device)
+        self.qf2_target = SoftQNetwork(self.envs, hidden_size=hidden_size, use_layer_norm=use_layer_norm).to(self.device)
         self.qf1_target.load_state_dict(self.qf1.state_dict())
         self.qf2_target.load_state_dict(self.qf2.state_dict())
         self.q_optimizer = optim.Adam(list(self.qf1.parameters()) + list(self.qf2.parameters()), lr=q_lr)
@@ -481,6 +482,8 @@ def parse_args():
     parser.add_argument("--no-use_layer_norm", action="store_false",
                         dest="use_layer_norm",
                         help="disable layer normalization in networks")
+    parser.add_argument("--hidden_size", type=int, default=256,
+                        help="hidden layer size for actor and critic")
 
     # Environment.
     parser.add_argument("--dt", type=float, default=0.12,
@@ -569,6 +572,7 @@ if __name__ == "__main__":
                 tau=args.tau,
                 gamma=args.gamma,
                 use_layer_norm=args.use_layer_norm,
+                hidden_size=args.hidden_size,
                 seed=args.seed,
                 dt=args.dt)
 
