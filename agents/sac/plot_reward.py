@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+
+# python3 plot_reward.py runs_sim_test runs_sim_simba_test --output average_reward_sim_vs_simba.png
 """Plot average reward for one or more SAC run directories."""
 
 import argparse
