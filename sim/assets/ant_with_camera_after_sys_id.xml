@@ -1,10 +1,12 @@
 <mujoco model="ant">
-  <compiler angle="radian" coordinate="local" inertiafromgeom="true"/>
+  <compiler angle="radian" inertiafromgeom="true" autolimits="true"/>
   <option timestep="0.001" integrator="implicitfast">
   </option>
   <default>
-    <joint limited="true"/>
-    <geom friction="0.6 0.001 0.001" rgba="0.4 0.33 0.26 1.0"/>
+    <joint limited="true" frictionloss="0.05"/>
+    <geom friction="0.6 0.03 0.05" rgba="0.4 0.33 0.26 1.0" solref="0.02 1.5" solimp="0.7 0.9 0.02"/>
+    <!-- <geom friction="0.6 0.03 0.05" rgba="0.4 0.33 0.26 1.0"/> -->
+
   </default>
   <asset>
     <texture builtin="gradient" height="100" rgb1="1 1 1" rgb2="0 0 0" type="skybox" width="100"/>
@@ -37,7 +39,7 @@
     <geom name="boundary" type="cylinder" pos="0 0 0.01" size="1 0.01" rgba="0 0 1 0.5" contype="0" conaffinity="0"/>
 
     <body name="torso" pos="0 0 0.4">
-      <camera name="track" mode="trackcom" pos="0 -4.0 0.6" xyaxes="1 0 0 0 0 1"/>
+      <camera name="track" mode="trackcom" pos="0 -3.0 0.4" xyaxes="1 0 0 0 0 1"/>
       <geom name="torso_geom" pos="0 0 0" size="0.075" type="sphere" mass="0.324"/>
       <joint armature="0" damping="0" limited="false" margin="0.01" name="root" pos="0 0 0" type="free"/>
       <site name="imu_location" pos="0 0 0" euler="0 0 0" size="0.01" type="sphere" rgba="1 0 0 1"/>
@@ -101,38 +103,16 @@
     </body>
   </worldbody>
 
-  <!-- <actuator>
-    <position joint="hip_rr" kp="3.2" kv="0.235" timeconst="0.12" />
-    <position joint="knee_rr" kp="10.0" kv="0.852" />
-    <position joint="hip_fr" kp="3.2" kv="0.235" timeconst="0.12" />
-    <position joint="knee_fr" kp="10.0" kv="0.852" />
-    <position joint="hip_fl" kp="3.2" kv="0.235" timeconst="0.12" />
-    <position joint="knee_fl" kp="10.0" kv="0.852" />
-    <position joint="hip_rl" kp="3.2" kv="0.235" timeconst="0.12" />
-    <position joint="knee_rl" kp="10.0" kv="0.852" />
-  </actuator> -->
-
   <!-- From measurement: -->
     <actuator>
-    <position joint="hip_rr" kp="19.455" kv="2.5" forcelimited="true" forcerange="-1.4 1.4"/>
-    <position joint="knee_rr" kp="18.638" kv="1.5" forcelimited="true" forcerange="-4.1 4.1"/>
-    <position joint="hip_fr" kp="19.455" kv="2.5" forcelimited="true" forcerange="-1.4 1.4"/>
-    <position joint="knee_fr" kp="18.638" kv="1.5" forcelimited="true" forcerange="-4.1 4.1"/>
-    <position joint="hip_fl" kp="19.455" kv="2.5" forcelimited="true" forcerange="-1.4 1.4"/>
-    <position joint="knee_fl" kp="18.638" kv="1.5" forcelimited="true" forcerange="-4.1 4.1"/>
-    <position joint="hip_rl" kp="19.455" kv="2.5" forcelimited="true" forcerange="-1.4 1.4"/>
-    <position joint="knee_rl" kp="18.638" kv="1.5" forcelimited="true" forcerange="-4.1 4.1"/>
+    <position joint="hip_rr" kp="19.455" kv="2.5" timeconst="0.12" forcelimited="true" forcerange="-1.4 1.4"/>
+    <position joint="knee_rr" kp="18.638" kv="1.5" timeconst="0.12" forcelimited="true" forcerange="-4.1 4.1"/>
+    <position joint="hip_fr" kp="19.455" kv="2.5" timeconst="0.12" forcelimited="true" forcerange="-1.4 1.4"/>
+    <position joint="knee_fr" kp="18.638" kv="1.5" timeconst="0.12" forcelimited="true" forcerange="-4.1 4.1"/>
+    <position joint="hip_fl" kp="19.455" kv="2.5" timeconst="0.12" forcelimited="true" forcerange="-1.4 1.4"/>
+    <position joint="knee_fl" kp="18.638" kv="1.5" timeconst="0.12" forcelimited="true" forcerange="-4.1 4.1"/>
+    <position joint="hip_rl" kp="19.455" kv="2.5" timeconst="0.12" forcelimited="true" forcerange="-1.4 1.4"/>
+    <position joint="knee_rl" kp="18.638" kv="1.5" timeconst="0.12" forcelimited="true" forcerange="-4.1 4.1"/>
   </actuator>
-
-  <!-- <actuator>
-    <motor ctrllimited="true" ctrlrange="-1.0 1.0" joint="hip_4" gear="150" name="hip_4"/>
-    <motor ctrllimited="true" ctrlrange="-1.0 1.0" joint="ankle_4" gear="150" name="ankle_4"/>
-    <motor ctrllimited="true" ctrlrange="-1.0 1.0" joint="hip_1" gear="150" name="hip_1"/>
-    <motor ctrllimited="true" ctrlrange="-1.0 1.0" joint="ankle_1" gear="150" name="ankle_1"/>
-    <motor ctrllimited="true" ctrlrange="-1.0 1.0" joint="hip_2" gear="150" name="hip_2"/>
-    <motor ctrllimited="true" ctrlrange="-1.0 1.0" joint="ankle_2" gear="150" name="ankle_2"/>
-    <motor ctrllimited="true" ctrlrange="-1.0 1.0" joint="hip_3" gear="150" name="hip_3"/>
-    <motor ctrllimited="true" ctrlrange="-1.0 1.0" joint="ankle_3" gear="150" name="ankle_3"/>
-  </actuator> -->
 
 </mujoco>

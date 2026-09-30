@@ -14,3 +14,5 @@ To scale the tags for printing use the script in this directory:
 ```bash
 ./scale_for_print.sh tag*.png
 ```
+
+Source: https://github.com/AprilRobotics/apriltag-imgs

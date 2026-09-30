@@ -23,7 +23,7 @@ def main():
         env = make_ant_env(cfg, render_mode='human', dt=0.05)
     else:
         env = AntEnv(render_mode="human",
-                     dt=0.05)
+                     control_dt=0.05)
     env.reset()
 
     try:

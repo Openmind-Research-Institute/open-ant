@@ -1,7 +1,6 @@
 # This file is adapted from CleanRL (https://github.com/vwxyzjn/cleanrl)
 # Copyright (c) 2019 CleanRL developers
 # Licensed under the MIT License (see LICENSE file)
-# Modified by Sorina Lupu, Openmind Research Institute, 2025
 
 import os
 
@@ -11,14 +10,11 @@ import json
 import time
 import random
 import argparse
-import itertools
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
 import gymnasium as gym
 from datetime import datetime
-import matplotlib.pyplot as plt
-from matplotlib.backends.backend_pdf import PdfPages
 
 import torch
 import torch.nn as nn
@@ -26,7 +22,9 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 # Import custom modules.
-from buffers import ReplayBuffer
+from torchrl.data import ReplayBuffer, LazyTensorStorage, RandomSampler
+from tensordict import TensorDict
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../sim')))
 from ant_mujoco import AntEnv
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../embodied_ant_env')))
@@ -34,84 +32,10 @@ from embodied_ant_env import make_ant_env, ForwardTask, BackAndForthTask
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from reward import RewardTracker
 
-# For logging.
-def arr_to_str(x):
-    if isinstance(x, np.ndarray):
-        return "[" + " ".join(map(str, x.tolist())) + "]"
-    return x
-
-def parse_args():
-    parser = argparse.ArgumentParser()
-
-    # General.
-    parser.add_argument("--exp_name", type=str, default=os.path.basename(__file__)[:-3],
-                        help="the name of this experiment")
-    parser.add_argument("--seed", type=int, default=1,
-                        help="seed of the experiment")
-    parser.add_argument("--torch_deterministic", type=bool, default=True,
-                        help="if toggled, torch.backends.cudnn.deterministic=False")
-    parser.add_argument("--cuda", type=bool, default=True,
-                        help="if toggled, cuda will be enabled by default")
-    parser.add_argument("--capture_video", action="store_true",
-                        help="capture video of agent performances")
-
-    # Algorithm.
-    parser.add_argument("--env_id", type=str, default="EAnt",
-                        help="environment ID")
-    parser.add_argument("--total_timesteps", type=int, default=1_000_000,
-                        help="total training timesteps")
-    parser.add_argument("--num_envs", type=int, default=1,
-                        help="number of parallel envs")
-    parser.add_argument("--buffer_size", type=int, default=int(1e6),
-                        help="replay buffer size")
-    parser.add_argument("--tau", type=float, default=0.005,
-                        help="target smoothing coefficient")
-    parser.add_argument("--batch_size", type=int, default=256,
-                        help="batch size")
-    parser.add_argument("--learning_starts", type=int, default=5000,
-                        help="timestep to start learning")
-    parser.add_argument("--policy_lr", type=float, default=3e-4,
-                        help="policy learning rate")
-    parser.add_argument("--q_lr", type=float, default=1e-3,
-                        help="Q-network learning rate")
-    parser.add_argument("--policy_frequency", type=int, default=2,
-                        help="policy update frequency")
-    parser.add_argument("--target_network_frequency", type=int, default=1,
-                        help="target network update frequency")
-    parser.add_argument("--alpha", type=float, default=0.2,
-                        help="entropy regularization coefficient")
-    parser.add_argument("--autotune", type=bool, default=True,
-                        help="automatic entropy tuning")
-    parser.add_argument("--gamma_discrete", type=float, default=0.99,
-                        help="discount factor")
-
-    # Environment.
-    parser.add_argument("--dt", type=float, default=0.05,
-                        help="environment timestep")
-    parser.add_argument("--hw_config", type=str, default=None,
-                        help="hardware config file")
-    parser.add_argument("--render_mode", type=str, default="rgb_array",
-                        help="render mode")
-    parser.add_argument("--terminate_on_upside_down", type=bool, default=True,
-                        help="terminate episode if upside down")
-    parser.add_argument("--weights_path", type=str, default=None,
-                        help="load previous weights")
-    parser.add_argument("--task_type", type=str, default="forward",
-                        choices=["forward", "back_and_forth"],
-                        help="type of task")
-    parser.add_argument("--reward_scale", type=float, default=10.0,
-                        help="reward scale factor")
-    parser.add_argument("--xml_file", type=str, default='None',
-                        help="XML file to use for the environment")
-    parser.add_argument("--eval", type=bool, default=False,
-                        help="evaluate the agent")
-
-    args = parser.parse_args()
-    return args
-
 class SoftQNetwork(nn.Module):
-    def __init__(self, env):
+    def __init__(self, env, use_layer_norm=False):
         super().__init__()
+        self.use_layer_norm = use_layer_norm
         self.fc1 = nn.Linear(
             np.array(env.single_observation_space.shape).prod() + np.prod(env.single_action_space.shape),
             256,
@@ -119,10 +43,20 @@ class SoftQNetwork(nn.Module):
         self.fc2 = nn.Linear(256, 256)
         self.fc3 = nn.Linear(256, 1)
 
+        if use_layer_norm:
+            self.ln1 = nn.LayerNorm(256)
+            self.ln2 = nn.LayerNorm(256)
+
     def forward(self, x, a):
         x = torch.cat([x, a], 1)
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
+        x = self.fc1(x)
+        if self.use_layer_norm:
+            x = self.ln1(x)
+        x = F.relu(x)
+        x = self.fc2(x)
+        if self.use_layer_norm:
+            x = self.ln2(x)
+        x = F.relu(x)
         x = self.fc3(x)
         return x
 
@@ -130,12 +64,18 @@ LOG_STD_MAX = 2
 LOG_STD_MIN = -5
 
 class Actor(nn.Module):
-    def __init__(self, env):
+    def __init__(self, env, use_layer_norm=False):
         super().__init__()
+        self.use_layer_norm = use_layer_norm
         self.fc1 = nn.Linear(np.array(env.single_observation_space.shape).prod(), 256)
         self.fc2 = nn.Linear(256, 256)
         self.fc_mean = nn.Linear(256, np.prod(env.single_action_space.shape))
         self.fc_logstd = nn.Linear(256, np.prod(env.single_action_space.shape))
+
+        if use_layer_norm:
+            self.ln1 = nn.LayerNorm(256)
+            self.ln2 = nn.LayerNorm(256)
+
         # Action rescaling.
         self.register_buffer(
             "action_scale",
@@ -153,8 +93,14 @@ class Actor(nn.Module):
         )
 
     def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
+        x = self.fc1(x)
+        if self.use_layer_norm:
+            x = self.ln1(x)
+        x = F.relu(x)
+        x = self.fc2(x)
+        if self.use_layer_norm:
+            x = self.ln2(x)
+        x = F.relu(x)
         mean = self.fc_mean(x)
         log_std = self.fc_logstd(x)
         log_std = torch.tanh(log_std)
@@ -176,9 +122,9 @@ class Actor(nn.Module):
         return action, log_prob, mean
 
 
-def make_ant_envs(args, task, disk_folder, run_name):
+def make_ant_envs(args, task, disk_folder, run_name, runs_directory='runs'):
     """Create the vectorized environment outside the SAC class."""
-    def make_env(env_id, seed, idx, capture_video, run_name):
+    def make_env(seed, idx, capture_video, run_name):
         def _init():
             joint_config = {
                 'hip_zero': 0,
@@ -188,12 +134,12 @@ def make_ant_envs(args, task, disk_folder, run_name):
             }
             if args.hw_config is None:
                 env = AntEnv(
-                    dt=args.dt,
+                    control_dt=args.dt,
                     render_mode=args.render_mode,
                     terminate_on_upside_down=args.terminate_on_upside_down,
                     task=task,
                     joint_config=joint_config,
-                    xml_file=os.path.join(os.path.dirname(__file__), args.xml_file),
+                    model_path=os.path.join(os.path.dirname(__file__), args.model_path),
                 )
             else:
                 with open(args.hw_config, 'r') as f:
@@ -203,19 +149,20 @@ def make_ant_envs(args, task, disk_folder, run_name):
                                    joint_config=joint_config,
                                    task=task,
                                    )
+                # env.metadata['render_fps'] = 1/args.dt
 
             if capture_video and idx == 0:
                 print('RecordVideo')
-                env = gym.wrappers.RecordVideo(env, os.path.join(disk_folder, "runs", run_name, "videos", run_name),
-                                               step_trigger=lambda x: x % 10000 == 0)
-            env = gym.wrappers.RecordEpisodeStatistics(env)
-            env = gym.wrappers.TransformReward(env, lambda r: r * args.reward_scale)
+                env = gym.wrappers.RecordVideo(env, os.path.join(disk_folder, runs_directory, run_name, "videos", run_name),
+                                               step_trigger=lambda x: x % args.save_every_n_steps == 0, video_length=args.save_every_n_steps)
             env.action_space.seed(seed)
+            # Reward scaling.
+            env = gym.wrappers.TransformReward(env, lambda reward: reward * args.reward_scale)
             return env
         return _init
 
     envs = gym.vector.SyncVectorEnv(
-        [make_env(args.env_id, args.seed + i, i, args.capture_video, run_name) for i in range(args.num_envs)],
+        [make_env(args.seed + i, i, args.capture_video, run_name) for i in range(args.num_envs)],
     )
     assert isinstance(envs.single_action_space, gym.spaces.Box), "[!] Only continuous action space is supported."
     print(f"[√] Created environment with {envs.num_envs} environments.")
@@ -223,83 +170,72 @@ def make_ant_envs(args, task, disk_folder, run_name):
 
 
 class SAC:
-    def __init__(self, args, envs, disk_folder='', run_name=None):
-        self.args = args
-        self.envs = envs
-        self.device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
+    def __init__(self,
+                 envs: gym.vector.SyncVectorEnv,
+                 device: torch.device,
+                 seed: int,
+                 q_lr: float,
+                 alpha_lr: float,
+                 policy_lr: float,
+                 autotune: bool,
+                 alpha: float,
+                 buffer_size: int,
+                 batch_size: int,
+                 learning_starts: int,
+                 policy_frequency: int,
+                 target_network_frequency: int,
+                 tau: float,
+                 gamma: float,
+                 use_layer_norm: bool,
+                 dt: float,
+                 torch_deterministic: bool = True,
+                 record_infos_sac = True
+                 ):
 
-        # Set up folders.
-        self.disk_folder = disk_folder
-        self.run_name = run_name
-        self.weights_folder = os.path.join(self.disk_folder, "runs", self.run_name, "weights_and_args")
-        os.makedirs(self.weights_folder, exist_ok=True)
-        with open(os.path.join(self.weights_folder, "args.json"), 'w') as f:
-            json.dump(args.__dict__, f)
+        # Environment.
+        self.envs = envs
+
+        self.device = device
+        print(f"[√] Using device: {self.device}")
 
         # Set seeds for reproducibility.
-        random.seed(args.seed)
-        np.random.seed(args.seed)
-        torch.manual_seed(args.seed)
-        torch.cuda.manual_seed_all(args.seed)
-        torch.backends.cudnn.deterministic = args.torch_deterministic
-        torch.backends.cudnn.benchmark = not args.torch_deterministic
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+        torch.backends.cudnn.deterministic = torch_deterministic
+        torch.backends.cudnn.benchmark = not torch_deterministic
 
         # Networks.
-        self.actor = Actor(self.envs).to(self.device)
-        self.qf1 = SoftQNetwork(self.envs).to(self.device)
-        self.qf2 = SoftQNetwork(self.envs).to(self.device)
-        self.qf1_target = SoftQNetwork(self.envs).to(self.device)
-        self.qf2_target = SoftQNetwork(self.envs).to(self.device)
+        self.actor = Actor(self.envs, use_layer_norm=use_layer_norm).to(self.device)
+        self.qf1 = SoftQNetwork(self.envs, use_layer_norm=use_layer_norm).to(self.device)
+        self.qf2 = SoftQNetwork(self.envs, use_layer_norm=use_layer_norm).to(self.device)
+        self.qf1_target = SoftQNetwork(self.envs, use_layer_norm=use_layer_norm).to(self.device)
+        self.qf2_target = SoftQNetwork(self.envs, use_layer_norm=use_layer_norm).to(self.device)
         self.qf1_target.load_state_dict(self.qf1.state_dict())
         self.qf2_target.load_state_dict(self.qf2.state_dict())
-        self.q_optimizer = optim.Adam(list(self.qf1.parameters()) + list(self.qf2.parameters()), lr=args.q_lr)
-        self.actor_optimizer = optim.Adam(list(self.actor.parameters()), lr=args.policy_lr)
+        self.q_optimizer = optim.Adam(list(self.qf1.parameters()) + list(self.qf2.parameters()), lr=q_lr)
+        self.actor_optimizer = optim.Adam(list(self.actor.parameters()), lr=policy_lr)
 
-        self.learning_starts = args.learning_starts
+        self.learning_starts = learning_starts
+        self.autotune = autotune
+        self.batch_size = batch_size
+        self.gamma = gamma
+        self.policy_frequency = policy_frequency
+        self.target_network_frequency = target_network_frequency
+        self.tau = tau
+        self.dt = dt
 
-        # Gamma (discount factor) by problem definition, not a hyperparameter.
-        # After 13 seconds, future rewards contribute less than 1/e (timeconstant) of their original weight.
-        H_seconds = 13
-        gamma_continous = np.log(1/(1/np.e)) / H_seconds
-        print(f"Gamma continuous: {gamma_continous} for a DT of {args.dt}")
-        self.gamma_discrete = np.exp(-gamma_continous * args.dt)
-        print(f"Gamma discrete: {self.gamma_discrete} for a DT of {args.dt}")
-        self.gamma_discrete = args.gamma_discrete
-
-        # Load checkpoint if provided.
-        checkpoint = None
-        self.weights_path = args.weights_path
-        if self.weights_path is not None:
-            checkpoint = torch.load(os.path.join(self.weights_path, "checkpoint.pth"), map_location=self.device)
-            self.actor.load_state_dict(checkpoint["actor"])
-            self.qf1.load_state_dict(checkpoint["qf1"])
-            self.qf2.load_state_dict(checkpoint["qf2"])
-            self.qf1_target.load_state_dict(checkpoint["qf1_target"])
-            self.qf2_target.load_state_dict(checkpoint["qf2_target"])
-            self.actor_optimizer.load_state_dict(checkpoint["actor_optimizer"])
-            self.q_optimizer.load_state_dict(checkpoint["q_optimizer"])
-            self.learning_starts = 0.0
-            print(f"[√] Loaded checkpoint! Learning starts set to 0.")
-
-        self.eval = args.eval
-        if self.eval == True and self.weights_path is None:
-            raise ValueError("[!] Cannot evaluate without weights path")
-        if self.eval:
-            self.learning_starts = args.total_timesteps
+        self.record_infos_sac = record_infos_sac
 
         # Alpha (entropy coefficient).
-        if args.autotune:
-            target_entropy = -torch.prod(torch.Tensor(self.envs.single_action_space.shape).to(self.device)).item()
+        if self.autotune:
+            self.target_entropy = -torch.prod(torch.Tensor(self.envs.single_action_space.shape).to(self.device)).item()
             self.log_alpha = torch.zeros(1, requires_grad=True, device=self.device)
-            self.a_optimizer = optim.Adam([self.log_alpha], lr=args.q_lr)
-
-            if checkpoint is not None:
-                self.a_optimizer.load_state_dict(checkpoint["a_optimizer"])
-                self.log_alpha = checkpoint["log_alpha"].to(self.device).requires_grad_()
-                print(f"[√] Loaded checkpoint! Alpha loaded.")
+            self.a_optimizer = optim.Adam([self.log_alpha], lr=alpha_lr)
             self.alpha = self.log_alpha.exp().item()
         else:
-            self.alpha = args.alpha
+            self.alpha = alpha
             self.log_alpha = None
             self.a_optimizer = None
 
@@ -307,337 +243,395 @@ class SAC:
 
         # Replay buffer.
         self.rb = ReplayBuffer(
-            args.buffer_size,
-            self.envs.single_observation_space,
-            self.envs.single_action_space,
-            self.device,
-            n_envs=args.num_envs,
-            handle_timeout_termination=False,
-        )
-        if self.weights_path is not None:
-            buffer_path = os.path.join(self.weights_path, "replay_buffer.npz")
-            if os.path.exists(buffer_path):
-                self.rb.load(buffer_path, self.device)
-                print(f"[√] Loaded replay buffer with {self.rb.size} transitions")
-            else:
-                print("[!] No replay buffer found, starting empty.")
+                storage=LazyTensorStorage(buffer_size, device=device),
+                sampler=RandomSampler(),
+                batch_size=batch_size,
+            )
 
-        # Initialize tracking variables for external control.
         self.global_step = 0
-        self.start_time = None
-        self.reward_tracker = None
-        self.csv_file_info = None
-        self.csv_file_agent_vars= None
-        self.writer_info = None
-        self.writer_agent_vars = None
-        self.keys_info = None
-        self.keys_agent_vars = [
-                                'qf1_values',
-                                'qf2_values',
-                                'qf1_losses',
-                                'qf2_losses',
-                                'qf_losses',
-                                'actor_losses',
-                                'alphas',
-                                'alpha_losses',
-                                'SPS',
-                                'average_reward_per_second']
-        # Buffers for CSV data
-        self.info_log_buffer = []
-        self.agent_vars_buffer = []
+        self.obs = None
+        
+    def get_action(self, obs, evaluate=False):
+        if self.obs is None:
+            self.obs = obs
+            return np.array([self.envs.single_action_space.sample() for _ in range(self.envs.num_envs)])
 
-        # For Optuna: allow hyperparameter updates.
-        # self._update_hyperparams(args)
-
-    def _update_hyperparams(self, args):
-        """Update hyperparameters (useful for Optuna)."""
-        # Update learning rates if changed
-        for param_group in self.q_optimizer.param_groups:
-            param_group['lr'] = args.q_lr
-        for param_group in self.actor_optimizer.param_groups:
-            param_group['lr'] = args.policy_lr
-        if self.a_optimizer is not None:
-            for param_group in self.a_optimizer.param_groups:
-                param_group['lr'] = args.q_lr
-
-    def get_action(self, obs, global_step=None):
-        """Get action from observation."""
-        if global_step is None:
-            global_step = self.global_step
-
-        if global_step < self.learning_starts and self.weights_path is None: # if no weights path, start from random actions
-            actions = np.array([self.envs.single_action_space.sample() for _ in range(self.envs.num_envs)])
-        else:
-            actions, _, _ = self.actor.get_action(torch.Tensor(obs).to(self.device))
+        # If we are in evaluation mode or we have reached the learning starts, get the action from the actor.
+        if evaluate == True or self.global_step > self.learning_starts:
+            actions, _, _ = self.actor.get_action(torch.Tensor(self.obs).to(self.device))
             actions = actions.detach().cpu().numpy()
+            return actions
+
+        # Otherwise, pick a random action.
+        actions = np.array([self.envs.single_action_space.sample() for _ in range(self.envs.num_envs)])
 
         return actions
+ 
+    def agent_step(self, next_obs, actions, rewards, terminations, truncations, infos):
 
-    def add_transition(self, obs, next_obs, actions, rewards, terminations, infos):
-        """Add transition to replay buffer."""
-        self.rb.add(obs, next_obs, actions, rewards, terminations, infos)
+        tensor_dict = TensorDict({
+            "observations": torch.as_tensor(self.obs, dtype=torch.float32, device=self.device),
+            "next_observations": torch.as_tensor(next_obs, dtype=torch.float32, device=self.device),
+            "actions": torch.as_tensor(actions, dtype=torch.float32, device=self.device),
+            "rewards": torch.as_tensor(rewards, dtype=torch.float32, device=self.device).unsqueeze(-1),
+            "terminations": torch.as_tensor(terminations, dtype=torch.float32, device=self.device).unsqueeze(-1),                     # or use "terminated" + "truncated" separately if you prefer
+        }, batch_size=[self.envs.num_envs])
 
-    def learn(self, global_step=None):
-        """Perform one learning step."""
-        if global_step is None:
-            global_step = self.global_step
+        # Use .extend() instead of .add() when adding a batch of transitions.
+        self.rb.extend(tensor_dict)
+ 
+        self.global_step += 1
+        self.obs = next_obs
 
-        if global_step < self.learning_starts:
-            return None, None, None, None, None, None, None
-
-        # Initialize variables for logging.
-        actor_loss = None
+        qf1_loss = None
+        qf2_loss = None
         alpha_loss = None
+        actor_loss = None
+        qf1_values_mean = None
+        qf2_values_mean = None
 
-        # Sample from the replay buffer.
-        data = self.rb.sample(self.args.batch_size)
-        with torch.no_grad():
-            next_state_actions, next_state_log_pi, _ = self.actor.get_action(data.next_observations)
-            qf1_next_target = self.qf1_target(data.next_observations, next_state_actions)
-            qf2_next_target = self.qf2_target(data.next_observations, next_state_actions)
-            min_qf_next_target = torch.min(qf1_next_target, qf2_next_target) - self.alpha * next_state_log_pi
-            # next_q_value = data.rewards.flatten() * self.args.dt + (1 - data.dones.flatten()) * self.gamma_discrete * (min_qf_next_target).view(-1)
-            next_q_value = data.rewards.flatten() + (1 - data.dones.flatten()) * self.gamma_discrete * (min_qf_next_target).view(-1)
-        qf1_a_values = self.qf1(data.observations, data.actions).view(-1)
-        qf2_a_values = self.qf2(data.observations, data.actions).view(-1)
-        qf1_loss = F.mse_loss(qf1_a_values, next_q_value)
-        qf2_loss = F.mse_loss(qf2_a_values, next_q_value)
-        qf_loss = qf1_loss + qf2_loss
+        # Learning.
+        if self.global_step > self.learning_starts:
+            data, info_buffer = self.rb.sample(self.batch_size, return_info=True)
+            with torch.no_grad():
+                next_state_actions, next_state_log_pi, _ = self.actor.get_action(data["next_observations"])
+                qf1_next_target = self.qf1_target(data["next_observations"], next_state_actions)
+                qf2_next_target = self.qf2_target(data["next_observations"], next_state_actions)
+                min_qf_next_target = torch.min(qf1_next_target, qf2_next_target) - self.alpha * next_state_log_pi
+                next_q_value = data["rewards"].flatten() * self.dt + \
+                                (1 - data["terminations"].flatten()) * (self.gamma ** self.dt) * (min_qf_next_target).view(-1)
+                                # See K. De Asis, R. Sutton, "An Idiosyncrasy of Time-discretization in Reinforcement Learning"
+            qf1_a_values = self.qf1(data["observations"], data["actions"]).view(-1)
+            qf2_a_values = self.qf2(data["observations"], data["actions"]).view(-1)
+            qf1_loss = F.mse_loss(qf1_a_values, next_q_value)
+            qf2_loss = F.mse_loss(qf2_a_values, next_q_value)
+            qf_loss = qf1_loss + qf2_loss
+            qf1_values_mean = qf1_a_values.mean().item()
+            qf2_values_mean = qf2_a_values.mean().item()
 
-        # Optimize the Action-Value networks.
-        self.q_optimizer.zero_grad()
-        qf_loss.backward()
-        self.q_optimizer.step()
+            # Optimize the Action-Value networks.
+            self.q_optimizer.zero_grad()
+            qf_loss.backward()
+            self.q_optimizer.step()
 
-        if global_step % self.args.policy_frequency == 0:
-            for _ in range(self.args.policy_frequency):
-                pi, log_pi, _ = self.actor.get_action(data.observations)
-                qf1_pi = self.qf1(data.observations, pi)
-                qf2_pi = self.qf2(data.observations, pi)
-                min_qf_pi = torch.min(qf1_pi, qf2_pi)
-                actor_loss = ((self.alpha * log_pi) - min_qf_pi).mean()
+            if self.global_step % self.policy_frequency == 0:
+                for _ in range(
+                        self.policy_frequency
+                ):  # Compensate for the delay by doing 'actor_update_interval' instead of 1.
+                    pi, log_pi, _ = self.actor.get_action(data["observations"])
+                    qf1_pi = self.qf1(data["observations"], pi)
+                    qf2_pi = self.qf2(data["observations"], pi)
+                    min_qf_pi = torch.min(qf1_pi, qf2_pi)
+                    actor_loss = ((self.alpha * log_pi) - min_qf_pi).mean()
 
-                # Optimize the Actor network.
-                self.actor_optimizer.zero_grad()
-                actor_loss.backward()
-                self.actor_optimizer.step()
+                    # Optimize the Actor network.
+                    self.actor_optimizer.zero_grad()
+                    actor_loss.backward()
+                    self.actor_optimizer.step()
 
-                if self.args.autotune:
-                    with torch.no_grad():
-                        _, log_pi, _ = self.actor.get_action(data.observations)
-                    target_entropy = -torch.prod(torch.Tensor(self.envs.single_action_space.shape).to(self.device)).item()
-                    alpha_loss = (-self.log_alpha.exp() * (log_pi + target_entropy)).mean()
+                    if self.autotune:
+                        with torch.no_grad():
+                            _, log_pi, _ = self.actor.get_action(data["observations"])
+                        alpha_loss = (-self.log_alpha.exp() * (log_pi + self.target_entropy)).mean()
 
-                    self.a_optimizer.zero_grad()
-                    alpha_loss.backward()
-                    self.a_optimizer.step()
-                    self.alpha = self.log_alpha.exp().item()
+                        self.a_optimizer.zero_grad()
+                        alpha_loss.backward()
+                        self.a_optimizer.step()
+                        self.alpha = self.log_alpha.exp().item()
 
-        # Update the target networks.
-        if global_step % self.args.target_network_frequency == 0:
-            for param, target_param in zip(self.qf1.parameters(), self.qf1_target.parameters()):
-                target_param.data.copy_(self.args.tau * param.data + (1 - self.args.tau) * target_param.data)
-            for param, target_param in zip(self.qf2.parameters(), self.qf2_target.parameters()):
-                target_param.data.copy_(self.args.tau * param.data + (1 - self.args.tau) * target_param.data)
+            # Update the target networks.
+            if self.global_step % self.target_network_frequency == 0:
+                for param, target_param in zip(self.qf1.parameters(), self.qf1_target.parameters()):
+                    target_param.data.copy_(
+                        self.tau * param.data + (1 - self.tau) * target_param.data)
+                for param, target_param in zip(self.qf2.parameters(), self.qf2_target.parameters()):
+                    target_param.data.copy_(
+                        self.tau * param.data + (1 - self.tau) * target_param.data)
 
-        return qf1_a_values, qf2_a_values, qf1_loss, qf2_loss, qf_loss, actor_loss, alpha_loss
+        info_sac = None
+        if self.record_infos_sac == True:
+            info_sac = {
+                'global_step': self.global_step,
+                'qf1_loss': qf1_loss.item() if qf1_loss is not None else qf1_loss,
+                'qf2_loss': qf2_loss.item() if qf2_loss is not None else qf2_loss,
+                'qf1_values_mean': qf1_values_mean if qf1_values_mean is not None else qf1_values_mean,
+                'qf2_values_mean': qf2_values_mean if qf2_values_mean is not None else qf2_values_mean,
+                'actor_loss': actor_loss.item() if actor_loss is not None else actor_loss,
+                'alpha': self.alpha,
+                'alpha_loss': alpha_loss.item() if alpha_loss is not None else alpha_loss,
+                'rewards': rewards.flatten().tolist(),
+                'original_rewards': infos['original_reward'].flatten().tolist(),
+            }
+        return info_sac
 
-    def initialize_logging(self, info):
-        """Initialize logging files and trackers."""
-        self.start_time = time.time()
+    def agent_step_eval(self, next_obs):
+        self.global_step += 1
+        self.obs = next_obs
 
-        # Log the information of choice.
-        self.csv_file_info = open(os.path.join(self.disk_folder, "runs", self.run_name, "info_logs.csv"), "w", newline="")
-        self.keys_info = list(info.keys())
-        self.keys_info = [k for k in self.keys_info if not (k.startswith("bodies") or k.startswith("_"))]
-        self.writer_info = csv.DictWriter(self.csv_file_info, fieldnames=["step"] + self.keys_info)
-        self.writer_info.writeheader()
+    def set_global_step(self, global_step: int):
+        self.global_step = global_step
 
-        # Reward tracker.
-        self.reward_tracker = RewardTracker(env_dt=self.args.dt, env_id=self.args.env_id,
-                                    log_folder=os.path.join(self.disk_folder, "runs", self.run_name),
-                                    time_window=120.0)
+    def get_replay_buffer(self):
+        return self.rb
 
-        # Performance variables.
-        self.csv_file_agent_vars = open(os.path.join(self.disk_folder, "runs", self.run_name, "performance_variables.csv"), "w", newline="")
-        self.writer_agent_vars = csv.DictWriter(self.csv_file_agent_vars, fieldnames=["step"] + self.keys_agent_vars)
-        self.writer_agent_vars.writeheader()
+    def load_replay_buffer(self, replay_buffer_path):
+        self.rb.loads(replay_buffer_path)
 
-        # Initialize buffers
-        self.info_log_buffer = []
-        self.agent_vars_buffer = []
-
-    def log_step(self, global_step, infos, rewards, qf1_a_values=None, qf2_a_values=None,
-                 qf1_loss=None, qf2_loss=None, qf_loss=None, actor_loss=None, alpha_loss=None):
-        """Log step information."""
-        if self.writer_info is None or self.writer_agent_vars is None:
-            return
-
-        # Update the reward tracker.
-        if self.args.num_envs == 1:
-            self.reward_tracker.update(rewards.item())
-            self.reward_tracker.log()
-            if global_step % 1000 == 0:
-                self.reward_tracker.plot()
-        else:
-            raise ValueError("reward_tracker is only supported for single environment")
-
-        # Log the infos - add to buffer instead of writing directly.
-        infos_to_log = {}
-        for k, v in infos.items():
-            if k in self.keys_info:
-               infos_to_log[k] = arr_to_str(v[0])
-        row = {"step": global_step, **infos_to_log}
-        self.info_log_buffer.append(row)
-
-        # Log performance metrics - add to buffer.
-        if qf1_a_values is not None:
-            self.agent_vars_buffer.append({"step": global_step,
-                                     "qf1_values": qf1_a_values.mean().item() if qf1_a_values is not None else None,
-                                     "qf2_values": qf2_a_values.mean().item() if qf2_a_values is not None else None,
-                                     "qf1_losses": qf1_loss.item() if qf1_loss is not None else None,
-                                     "qf2_losses": qf2_loss.item() if qf2_loss is not None else None,
-                                     "qf_losses": qf_loss.item() / 2.0 if qf_loss is not None else None,
-                                     "actor_losses": actor_loss.item() if actor_loss is not None else None,
-                                     "alphas": self.alpha,
-                                     "alpha_losses": alpha_loss.item() if alpha_loss is not None else None,
-                                     "SPS": int(global_step / (time.time() - self.start_time)) if self.start_time else 0,
-                                     "average_reward_per_second": self.reward_tracker.average_reward_per_second})
-
-        # Write to CSV every 1000 steps.
-        if global_step % 500 == 0:
-            # Write all buffered info logs.
-            for row in self.info_log_buffer:
-                self.writer_info.writerow(row)
-            self.csv_file_info.flush()
-            self.info_log_buffer = []
-
-            # Write all buffered agent vars.
-            for row in self.agent_vars_buffer:
-                self.writer_agent_vars.writerow(row)
-            self.csv_file_agent_vars.flush()
-            self.agent_vars_buffer = []
-
-    def get_metrics(self):
-        if self.reward_tracker is None:
-            return None
-        return {
-            "average_reward_per_second": self.reward_tracker.average_reward_per_second,
-            "global_step": self.global_step,
-        }
-
-    def save_checkpoint(self, global_step):
-        if global_step % 1000 != 0:
-            return
-
-        # Save all the networks.
-        checkpoint = {
+    def get_state(self):
+        """Returns the full state of the agent including all network weights and optimizers."""
+        state = {
             "actor": self.actor.state_dict(),
             "qf1": self.qf1.state_dict(),
             "qf2": self.qf2.state_dict(),
             "qf1_target": self.qf1_target.state_dict(),
             "qf2_target": self.qf2_target.state_dict(),
-            "actor_optimizer": self.actor_optimizer.state_dict(),
             "q_optimizer": self.q_optimizer.state_dict(),
-            "a_optimizer": self.a_optimizer.state_dict() if self.args.autotune else None,
-            "log_alpha": self.log_alpha.detach().cpu() if self.args.autotune else None,
-            "global_step": global_step,
+            "actor_optimizer": self.actor_optimizer.state_dict(),
+            "global_step": self.global_step
         }
-        torch.save(checkpoint, os.path.join(self.weights_folder, "checkpoint.pth"))
+        if self.autotune:
+            state["log_alpha"] = self.log_alpha.cpu().detach()
+            state["alpha"] = self.alpha
+            state["a_optimizer"] = self.a_optimizer.state_dict()
+        return state
 
-        # Save the replay buffer.
-        self.rb.save(os.path.join(self.weights_folder, "replay_buffer.npz"))
+    def load_state(self, state_dict):
+        """Loads the full state of the agent from a state dictionary."""
+        self.actor.load_state_dict(state_dict["actor"])
+        self.qf1.load_state_dict(state_dict["qf1"])
+        self.qf2.load_state_dict(state_dict["qf2"])
+        self.qf1_target.load_state_dict(state_dict["qf1_target"])
+        self.qf2_target.load_state_dict(state_dict["qf2_target"])
+        self.q_optimizer.load_state_dict(state_dict["q_optimizer"])
+        self.actor_optimizer.load_state_dict(state_dict["actor_optimizer"])
+        self.global_step = state_dict.get("global_step", 0)
+        if self.autotune and "log_alpha" in state_dict:
+            log_alpha_tensor = state_dict["log_alpha"].to(self.device)
+            if not log_alpha_tensor.requires_grad:
+                log_alpha_tensor.requires_grad_(True)
+            self.log_alpha.data = log_alpha_tensor
+            if "alpha" in state_dict:
+                self.alpha = state_dict["alpha"]
+            else:
+                self.alpha = self.log_alpha.exp().item()
+            if "a_optimizer" in state_dict and self.a_optimizer is not None:
+                self.a_optimizer.load_state_dict(state_dict["a_optimizer"])
 
-    def cleanup(self):
-        """Clean up resources."""
-        # Write any remaining buffered data before closing.
-        if self.writer_info is not None and self.info_log_buffer:
-            for row in self.info_log_buffer:
-                self.writer_info.writerow(row)
-            self.csv_file_info.flush()
-            self.info_log_buffer = []
 
-        if self.writer_agent_vars is not None and self.agent_vars_buffer:
-            for row in self.agent_vars_buffer:
-                self.writer_agent_vars.writerow(row)
-            self.csv_file_agent_vars.flush()
-            self.agent_vars_buffer = []
+# For logging.
+def arr_to_str(x):
+    if isinstance(x, np.ndarray):
+        return "[" + " ".join(map(str, x.tolist())) + "]"
+    return x
 
-        if self.csv_file_info:
-            self.csv_file_info.close()
-        if self.csv_file_agent_vars:
-            self.csv_file_agent_vars.close()
-        if self.envs:
-            self.envs.close()
+def parse_args():
+    parser = argparse.ArgumentParser()
 
-    def run_policy(self):
-        """Main training loop - runs the SAC policy."""
-        # Reset the environment.
-        obs, info = self.envs.reset(seed=self.args.seed)
+    # General.
+    parser.add_argument("--exp_name", type=str, default="sac_ant",
+                        help="the name of this experiment")
+    parser.add_argument("--runs_directory", type=str, default="runs",
+                        help="the directory to save the runs in")
+    parser.add_argument("--seed", type=int, default=1,
+                        help="seed of the experiment")
+    parser.add_argument("--no-torch_deterministic", action="store_false",
+                        dest="torch_deterministic",
+                        help="disable torch deterministic mode")
+    parser.add_argument("--cuda", action="store_true", default=False,
+                        help="if toggled, cuda will be enabled by default")
+    parser.add_argument("--capture_video", action="store_true",
+                        help="capture video of agent performances")
+    parser.add_argument("--eval", action="store_true", default=False,
+                        help="evaluate the agent")
+    parser.add_argument("--save_every_n_steps", type=int, default=4000,
+                        help="save every n steps")
 
-        # Initialize logging.
-        self.initialize_logging(info)
+    # Algorithm.
+    parser.add_argument("--env_id", type=str, default="EAnt",
+                        help="environment ID")
+    parser.add_argument("--total_timesteps", type=int, default=60_000,
+                        help="total training timesteps")
+    parser.add_argument("--num_envs", type=int, default=1,
+                        help="number of parallel envs")
+    parser.add_argument("--buffer_size", type=int, default=int(1e6),
+                        help="replay buffer size")
+    parser.add_argument("--tau", type=float, default=0.005,
+                        help="target smoothing coefficient")
+    parser.add_argument("--batch_size", type=int, default=256,
+                        help="batch size")
+    parser.add_argument("--learning_starts", type=int, default=2000,
+                        help="timestep to start learning")
+    parser.add_argument("--policy_lr", type=float, default=3e-4,
+                        help="policy learning rate")
+    parser.add_argument("--q_lr", type=float, default=1e-3,
+                        help="Q-network learning rate")
+    parser.add_argument("--alpha_lr", type=float, default=1e-3,
+                        help="alpha learning rate")
+    parser.add_argument("--policy_frequency", type=int, default=2,
+                        help="policy update frequency")
+    parser.add_argument("--target_network_frequency", type=int, default=1,
+                        help="target network update frequency")
+    parser.add_argument("--alpha", type=float, default=0.2,
+                        help="entropy regularization coefficient")
+    parser.add_argument("--no-autotune", action="store_false",
+                        dest="autotune",
+                        help="disable automatic entropy tuning")
+    parser.add_argument("--gamma", type=float, default=0.92,
+                        help="discount factor")
+    parser.add_argument("--no-use_layer_norm", action="store_false",
+                        dest="use_layer_norm",
+                        help="disable layer normalization in networks")
 
-        # Start learning.
-        for global_step in tqdm(range(self.args.total_timesteps)):
-            self.global_step = global_step
+    # Environment.
+    parser.add_argument("--dt", type=float, default=0.12,
+                        help="environment timestep")
+    parser.add_argument("--hw_config", type=str, default=None,
+                        help="hardware config file")
+    parser.add_argument("--render_mode", type=str, default="rgb_array",
+                        help="render mode")
+    parser.add_argument("--no-terminate_on_upside_down", action="store_false",
+                        dest="terminate_on_upside_down",
+                        help="do not terminate episode when upside down")
+    parser.add_argument("--weights_path", type=str, default=None,
+                        help="load previous weights")
+    parser.add_argument("--task_type", type=str, default="back_and_forth",
+                        choices=["forward", "back_and_forth"],
+                        help="type of task")
+    parser.add_argument("--radius_back_and_forth", type=float, default=0.3,
+                        help="radius of the back and forth task")
+    parser.add_argument("--origin_back_and_forth", type=float, nargs=2, default=[0.75, -0.3],
+                        help="origin of the back and forth task")
+    parser.add_argument("--reward_scale", type=float, default=100.0,
+                        help="reward scale factor")
+    parser.add_argument("--model_path", type=str, default="../../sim/assets/ant_with_camera_after_sys_id.xml",
+                        help="XML file to use for the environment")
 
-            # Get the action.
-            actions = self.get_action(obs, global_step)
+    parser.set_defaults(
+        torch_deterministic=True,
+        autotune=True,
+        use_layer_norm=True,
+        terminate_on_upside_down=True,
+    )
 
-            # Step the environment.
-            next_obs, rewards, terminations, truncations, infos = self.envs.step(actions)
+    args = parser.parse_args()
+    return args
 
-            # Add transition to buffer.
-            self.add_transition(obs, next_obs, actions, rewards, terminations, infos)
-
-            # Update the observation.
-            obs = next_obs
-
-            # Learn.
-            qf1_a_values, qf2_a_values, qf1_loss, qf2_loss, qf_loss, actor_loss, alpha_loss = self.learn(global_step)
-
-            # Log step.
-            self.log_step(global_step, infos, rewards, qf1_a_values, qf2_a_values,
-                         qf1_loss, qf2_loss, qf_loss, actor_loss, alpha_loss)
-
-            # Save checkpoint.
-            self.save_checkpoint(global_step)
-
-        # Cleanup.
-        self.cleanup()
-
-def main():
+if __name__ == "__main__":
     args = parse_args()
 
     # Set up folders for environment creation.
     date = datetime.now().strftime("%Y%m%d-%H%M%S")
     disk_folder = ''
-    run_name = f"{args.env_id}__{args.exp_name}_{date}"
+    os.makedirs(args.runs_directory, exist_ok=True)
+    run_name = f"{args.exp_name}_{date}_seed_{args.seed}"
+    os.makedirs(os.path.join(args.runs_directory, run_name), exist_ok=True)
+
+    # Save the args.
+    with open(os.path.join(args.runs_directory, run_name, "args.json"), "w") as f:
+        json.dump(args.__dict__, f)
 
     # Create task.
     if args.task_type == "forward":
         task = ForwardTask()
     elif args.task_type == "back_and_forth":
-        # RADIUS = 0.55
-        RADIUS = 1.0
-        # ORIGIN = np.array([-1.05668516,  0.00237455]) # Measured in the environment.
-        ORIGIN = np.array([0, 0])
+        RADIUS = args.radius_back_and_forth
+        ORIGIN = np.array(args.origin_back_and_forth) # Measured in the environment.
         task = BackAndForthTask(
             radius=RADIUS,
             origin=ORIGIN,
         )
+        print(f"BackAndForthTask initialized for radius: {RADIUS}, origin: {ORIGIN}")
     else:
         raise ValueError(f"Invalid task type: {args.task_type}")
 
     # Create environment.
-    envs = make_ant_envs(args, task, disk_folder, run_name)
+    envs = make_ant_envs(args=args,
+                         task=task,
+                         disk_folder=disk_folder,
+                         run_name=run_name,
+                         runs_directory=args.runs_directory)
+    # Setup device.
+    device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
 
     # Create SAC agent.
-    agent = SAC(args, envs, disk_folder=disk_folder, run_name=run_name)
+    agent = SAC(envs=envs,
+                device=device,
+                q_lr=args.q_lr,
+                alpha_lr=args.alpha_lr,
+                policy_lr=args.policy_lr,
+                autotune=args.autotune,
+                alpha=args.alpha,
+                buffer_size=args.buffer_size,
+                batch_size=args.batch_size,
+                learning_starts=args.learning_starts,
+                policy_frequency=args.policy_frequency,
+                target_network_frequency=args.target_network_frequency,
+                tau=args.tau,
+                gamma=args.gamma,
+                use_layer_norm=args.use_layer_norm,
+                seed=args.seed,
+                dt=args.dt)
 
-    # Run the policy.
-    agent.run_policy()
+    step = 0
+    # Load the model.
+    if args.weights_path is not None:
+        state = torch.load(os.path.join(args.weights_path, f"weights.pth"))
+        agent.load_state(state)
+        step = state["global_step"]
+        agent.load_replay_buffer(os.path.join(args.weights_path, f"replay_buffer"))
 
-if __name__ == "__main__":
-    main()
+    if args.eval:
+        step = 0 # Reset the step to 0 when eval.
+
+    agent.set_global_step(step)
+    print(f"Step: {step}")
+
+    # Reward tracker.
+    env_dt = args.dt
+    env_id = args.env_id
+    reward_tracker = RewardTracker(env_dt=env_dt,
+                                   env_id=env_id,
+                                   time_window=120.0,
+                                   log_folder=os.path.join(args.runs_directory, run_name),
+                                   )
+
+    info_sac_logs = []
+    info_sac = None
+
+    obs, info = envs.reset(seed=args.seed)
+
+    for step in tqdm(range(step, args.total_timesteps), initial=step):
+
+        # Get action.
+        selected_actions = agent.get_action(obs, args.eval)
+
+        # Step env.
+        next_obs, rewards, terminations, truncations, infos = envs.step(selected_actions)
+        if args.eval == True:
+            agent.agent_step_eval(next_obs)
+        else:
+            # Learn.
+            info_sac = agent.agent_step(next_obs, selected_actions, rewards, terminations, truncations, infos)
+
+        reward_tracker.update(infos['original_reward'][0])
+
+        if info_sac is not None:
+            info_sac_logs.append(info_sac)
+
+        if any(truncations) or any(terminations):
+            envs.reset()
+
+        # Save the model.
+        if step % args.save_every_n_steps == 0:
+            state = agent.get_state()
+            torch.save(state, os.path.join(args.runs_directory, run_name, f"weights.pth"))
+
+            replay_buffer = agent.get_replay_buffer()
+            replay_buffer.dumps(os.path.join(args.runs_directory, run_name, f"replay_buffer"))
+            # Reward tracker.
+            reward_tracker.log()
+
+            # Save to csv.
+            df_info_sac_logs = pd.DataFrame(info_sac_logs)
+            df_info_sac_logs.to_csv(os.path.join(args.runs_directory, run_name, "info_sac_logs.csv"), index=False)
+
