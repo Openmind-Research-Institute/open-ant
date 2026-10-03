@@ -1,5 +1,6 @@
 # for the hardware env
-dynamixel-sdk
+#dynamixel-sdk
+python-st3215
 pyserial # for the imu
 numpy
 opencv-python
