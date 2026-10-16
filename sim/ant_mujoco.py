@@ -84,19 +84,35 @@ class AntEnv(gym.Env):
 
         self.last_step_time = None
 
-
-    def step(self, action: np.ndarray):
-        # Clip and apply action.
+    def _map_action(self, action: np.ndarray) -> np.ndarray:
         action = action.copy()
         for i in range(4):
-            action[2*i] = np.clip(action[2*i], -1, 1) * self.joint_config['hip_range'] + self.joint_config['hip_zero']
-            action[2*i + 1] = np.clip(action[2*i + 1], -1, 1) * self.joint_config['knee_range'] + self.joint_config['knee_zero']
-        self.data.ctrl[:] = action
+            action[2 * i] = np.clip(action[2 * i], -1, 1) * self.joint_config['hip_range'] + self.joint_config['hip_zero']
+            action[2 * i + 1] = np.clip(action[2 * i + 1], -1, 1) * self.joint_config['knee_range'] + self.joint_config['knee_zero']
+        return action
 
+    def send_action(self, action: np.ndarray):
+        action_copy = self._map_action(action)
+        self.data.ctrl[:] = action_copy
         mujoco.mj_step(self.model, self.data, nstep=self.nb_sim_per_step)
-        mujoco.mj_rnePostConstraint(self.model, self.data) # See https://github.com/openai/gym/issues/1541
+        mujoco.mj_rnePostConstraint(self.model, self.data)  # See https://github.com/openai/gym/issues/1541
+        return action_copy
 
-        # Get observation and reward from task.
+    def wait(self, sleep_until_next_step=False):
+        sleep_duration = self.dt
+        if self.last_step_time is not None:
+            time_since_last_step = time.time() - self.last_step_time
+            sleep_duration = self.dt - time_since_last_step
+            if sleep_duration < 0:
+                print(f"Warning: calls to step() exceeded step size (time since last step: {time_since_last_step:.3f}s).")
+                sleep_duration = 0
+        if sleep_until_next_step:
+            time.sleep(sleep_duration)
+        self.last_step_time = time.time()
+
+    def sense(self, action: np.ndarray):
+        action = self._map_action(action)
+
         info = self.get_observation()
         observation, reward, terminated, truncated = self.task(info, action)
 
@@ -108,19 +124,26 @@ class AntEnv(gym.Env):
         up_vector_ant_in_world = transform.Rotation.from_quat(quaternion_wxyz, scalar_first=True).as_matrix()[:, 2]
         z_world = np.array([0, 0, 1])
         upside_down = np.dot(up_vector_ant_in_world, z_world)
-        if self._terminate_on_upside_down == True:
+        if self._terminate_on_upside_down:
             terminated = upside_down < 0
         else:
             terminated = False
 
-        # Render.
-        if self.render_mode == "human":
-            # Add an arrow to the scene
-            self.render_with_arrow(info)
-
         return observation, reward, terminated, truncated, info
 
-    def set_state(self, qpos, qvel):
+    def render_frame(self, info: dict):
+        if self.render_mode == 'human' or self.render_mode == 'rgb_array':
+            self.render_with_arrow(info)
+
+    def step(self, action: np.ndarray, sleep_until_next_step: bool = True):
+        """For Gymnasium compatibility."""
+        self.send_action(action)
+        self.wait(sleep_until_next_step)
+        observation, reward, terminated, truncated, info = self.sense(action)
+        self.render_frame(info)
+        return observation, reward, terminated, truncated, info
+
+    def set_state(self, qpos: np.ndarray, qvel: np.ndarray):
         assert qpos.shape == (self.model.nq,) and qvel.shape == (self.model.nv,)
         self.data.qpos[:] = np.copy(qpos)
         self.data.qvel[:] = np.copy(qvel)
@@ -133,7 +156,7 @@ class AntEnv(gym.Env):
     def render(self):
         return self.mujoco_renderer.render(self.render_mode)
 
-    def render_with_arrow(self, info):
+    def render_with_arrow(self, info: dict):
         # Direction of the arrow is the reward_direction
         self.render()
         if info and 'reward_direction_I' in info:

@@ -28,7 +28,7 @@ from tensordict import TensorDict
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../sim')))
 from ant_mujoco import AntEnv
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../embodied_ant_env')))
-from embodied_ant_env import make_ant_env, ForwardTask, BackAndForthTask
+from embodied_ant_env import make_ant_env as make_hw_ant_env, ForwardTask, BackAndForthTask
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from reward import RewardTracker
 
@@ -37,7 +37,7 @@ class SoftQNetwork(nn.Module):
         super().__init__()
         self.use_layer_norm = use_layer_norm
         self.fc1 = nn.Linear(
-            np.array(env.single_observation_space.shape).prod() + np.prod(env.single_action_space.shape),
+            np.array(env.observation_space.shape).prod() + np.prod(env.action_space.shape),
             256,
         )
         self.fc2 = nn.Linear(256, 256)
@@ -67,10 +67,10 @@ class Actor(nn.Module):
     def __init__(self, env, use_layer_norm=False):
         super().__init__()
         self.use_layer_norm = use_layer_norm
-        self.fc1 = nn.Linear(np.array(env.single_observation_space.shape).prod(), 256)
+        self.fc1 = nn.Linear(np.array(env.observation_space.shape).prod(), 256)
         self.fc2 = nn.Linear(256, 256)
-        self.fc_mean = nn.Linear(256, np.prod(env.single_action_space.shape))
-        self.fc_logstd = nn.Linear(256, np.prod(env.single_action_space.shape))
+        self.fc_mean = nn.Linear(256, np.prod(env.action_space.shape))
+        self.fc_logstd = nn.Linear(256, np.prod(env.action_space.shape))
 
         if use_layer_norm:
             self.ln1 = nn.LayerNorm(256)
@@ -80,14 +80,14 @@ class Actor(nn.Module):
         self.register_buffer(
             "action_scale",
             torch.tensor(
-                (env.single_action_space.high - env.single_action_space.low) / 2.0,
+                (env.action_space.high - env.action_space.low) / 2.0,
                 dtype=torch.float32,
             ),
         )
         self.register_buffer(
             "action_bias",
             torch.tensor(
-                (env.single_action_space.high + env.single_action_space.low) / 2.0,
+                (env.action_space.high + env.action_space.low) / 2.0,
                 dtype=torch.float32,
             ),
         )
@@ -122,7 +122,7 @@ class Actor(nn.Module):
         return action, log_prob, mean
 
 
-def make_ant_envs(args, task, disk_folder, run_name, runs_directory='runs'):
+def make_ant_env(args, task, disk_folder, run_name, runs_directory='runs'):
     """Create the vectorized environment outside the SAC class."""
     def make_env(seed, idx, capture_video, run_name):
         def _init():
@@ -144,7 +144,7 @@ def make_ant_envs(args, task, disk_folder, run_name, runs_directory='runs'):
             else:
                 with open(args.hw_config, 'r') as f:
                     cfg = json.load(f)
-                env = make_ant_env(cfg, render_mode=args.render_mode,
+                env = make_hw_ant_env(cfg, render_mode=args.render_mode,
                                    dt=args.dt,
                                    joint_config=joint_config,
                                    task=task,
@@ -156,22 +156,20 @@ def make_ant_envs(args, task, disk_folder, run_name, runs_directory='runs'):
                 env = gym.wrappers.RecordVideo(env, os.path.join(disk_folder, runs_directory, run_name, "videos", run_name),
                                                step_trigger=lambda x: x % args.save_every_n_steps == 0, video_length=args.save_every_n_steps)
             env.action_space.seed(seed)
-            # Reward scaling.
-            env = gym.wrappers.TransformReward(env, lambda reward: reward * args.reward_scale)
+            # Do not wrap with TransformReward: gym wrappers hide send_action/sense/wait/render_frame.
+            # Scale rewards in the training loop instead.
             return env
         return _init
 
-    envs = gym.vector.SyncVectorEnv(
-        [make_env(args.seed + i, i, args.capture_video, run_name) for i in range(args.num_envs)],
-    )
-    assert isinstance(envs.single_action_space, gym.spaces.Box), "[!] Only continuous action space is supported."
-    print(f"[√] Created environment with {envs.num_envs} environments.")
-    return envs
+    # make_env returns a thunk (for SyncVectorEnv); call it to get the env.
+    env = make_env(args.seed, 0, args.capture_video, run_name)()
+    assert isinstance(env.action_space, gym.spaces.Box), "[!] Only continuous action space is supported."
+    return env
 
 
 class SAC:
     def __init__(self,
-                 envs: gym.vector.SyncVectorEnv,
+                 env: AntEnv,
                  device: torch.device,
                  seed: int,
                  q_lr: float,
@@ -193,7 +191,7 @@ class SAC:
                  ):
 
         # Environment.
-        self.envs = envs
+        self.env = env
 
         self.device = device
         print(f"[√] Using device: {self.device}")
@@ -207,11 +205,11 @@ class SAC:
         torch.backends.cudnn.benchmark = not torch_deterministic
 
         # Networks.
-        self.actor = Actor(self.envs, use_layer_norm=use_layer_norm).to(self.device)
-        self.qf1 = SoftQNetwork(self.envs, use_layer_norm=use_layer_norm).to(self.device)
-        self.qf2 = SoftQNetwork(self.envs, use_layer_norm=use_layer_norm).to(self.device)
-        self.qf1_target = SoftQNetwork(self.envs, use_layer_norm=use_layer_norm).to(self.device)
-        self.qf2_target = SoftQNetwork(self.envs, use_layer_norm=use_layer_norm).to(self.device)
+        self.actor = Actor(self.env, use_layer_norm=use_layer_norm).to(self.device)
+        self.qf1 = SoftQNetwork(self.env, use_layer_norm=use_layer_norm).to(self.device)
+        self.qf2 = SoftQNetwork(self.env, use_layer_norm=use_layer_norm).to(self.device)
+        self.qf1_target = SoftQNetwork(self.env, use_layer_norm=use_layer_norm).to(self.device)
+        self.qf2_target = SoftQNetwork(self.env, use_layer_norm=use_layer_norm).to(self.device)
         self.qf1_target.load_state_dict(self.qf1.state_dict())
         self.qf2_target.load_state_dict(self.qf2.state_dict())
         self.q_optimizer = optim.Adam(list(self.qf1.parameters()) + list(self.qf2.parameters()), lr=q_lr)
@@ -230,7 +228,7 @@ class SAC:
 
         # Alpha (entropy coefficient).
         if self.autotune:
-            self.target_entropy = -torch.prod(torch.Tensor(self.envs.single_action_space.shape).to(self.device)).item()
+            self.target_entropy = -torch.prod(torch.Tensor(self.env.action_space.shape).to(self.device)).item()
             self.log_alpha = torch.zeros(1, requires_grad=True, device=self.device)
             self.a_optimizer = optim.Adam([self.log_alpha], lr=alpha_lr)
             self.alpha = self.log_alpha.exp().item()
@@ -239,7 +237,7 @@ class SAC:
             self.log_alpha = None
             self.a_optimizer = None
 
-        self.envs.single_observation_space.dtype = np.float32
+        self.env.observation_space.dtype = np.float32
 
         # Replay buffer.
         self.rb = ReplayBuffer(
@@ -252,30 +250,29 @@ class SAC:
         self.obs = None
         
     def get_action(self, obs, evaluate=False):
+        """sample_action: act from the latest observation; self.obs anchors the pending transition."""
         if self.obs is None:
             self.obs = obs
-            return np.array([self.envs.single_action_space.sample() for _ in range(self.envs.num_envs)])
+            return self.env.action_space.sample()
 
-        # If we are in evaluation mode or we have reached the learning starts, get the action from the actor.
-        if evaluate == True or self.global_step > self.learning_starts:
-            actions, _, _ = self.actor.get_action(torch.Tensor(self.obs).to(self.device))
-            actions = actions.detach().cpu().numpy()
-            return actions
+        # Act from the passed observation (latest sense), not self.obs (transition start).
+        if evaluate or self.global_step > self.learning_starts:
+            obs_t = torch.as_tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0)
+            actions, _, _ = self.actor.get_action(obs_t)
+            return actions.detach().cpu().numpy()[0]
 
-        # Otherwise, pick a random action.
-        actions = np.array([self.envs.single_action_space.sample() for _ in range(self.envs.num_envs)])
+        return self.env.action_space.sample()
 
-        return actions
- 
-    def agent_step(self, next_obs, actions, rewards, terminations, truncations, infos):
+    def agent_step(self, next_obs, action, reward, termination, truncation, info):
 
+        # Single-env transitions are unbatched; add a leading batch dim for TensorDict.
         tensor_dict = TensorDict({
-            "observations": torch.as_tensor(self.obs, dtype=torch.float32, device=self.device),
-            "next_observations": torch.as_tensor(next_obs, dtype=torch.float32, device=self.device),
-            "actions": torch.as_tensor(actions, dtype=torch.float32, device=self.device),
-            "rewards": torch.as_tensor(rewards, dtype=torch.float32, device=self.device).unsqueeze(-1),
-            "terminations": torch.as_tensor(terminations, dtype=torch.float32, device=self.device).unsqueeze(-1),                     # or use "terminated" + "truncated" separately if you prefer
-        }, batch_size=[self.envs.num_envs])
+            "observations": torch.as_tensor(self.obs, dtype=torch.float32, device=self.device).unsqueeze(0),
+            "next_observations": torch.as_tensor(next_obs, dtype=torch.float32, device=self.device).unsqueeze(0),
+            "actions": torch.as_tensor(action, dtype=torch.float32, device=self.device).unsqueeze(0),
+            "rewards": torch.as_tensor([reward], dtype=torch.float32, device=self.device).unsqueeze(-1),
+            "terminations": torch.as_tensor([termination], dtype=torch.float32, device=self.device).unsqueeze(-1),
+        }, batch_size=[1])
 
         # Use .extend() instead of .add() when adding a batch of transitions.
         self.rb.extend(tensor_dict)
@@ -298,8 +295,9 @@ class SAC:
                 qf1_next_target = self.qf1_target(data["next_observations"], next_state_actions)
                 qf2_next_target = self.qf2_target(data["next_observations"], next_state_actions)
                 min_qf_next_target = torch.min(qf1_next_target, qf2_next_target) - self.alpha * next_state_log_pi
-                next_q_value = data["rewards"].flatten() * self.dt + \
-                                (1 - data["terminations"].flatten()) * (self.gamma ** self.dt) * (min_qf_next_target).view(-1)
+                # Flatten so rewards/terminations [B, 1] don't broadcast against [B] into [B, B].
+                next_q_value = data["rewards"].view(-1) * self.dt + \
+                                (1 - data["terminations"].view(-1)) * (self.gamma ** self.dt) * (min_qf_next_target).view(-1)
                                 # See K. De Asis, R. Sutton, "An Idiosyncrasy of Time-discretization in Reinforcement Learning"
             qf1_a_values = self.qf1(data["observations"], data["actions"]).view(-1)
             qf2_a_values = self.qf2(data["observations"], data["actions"]).view(-1)
@@ -359,8 +357,7 @@ class SAC:
                 'actor_loss': actor_loss.item() if actor_loss is not None else actor_loss,
                 'alpha': self.alpha,
                 'alpha_loss': alpha_loss.item() if alpha_loss is not None else alpha_loss,
-                'rewards': rewards.flatten().tolist(),
-                'original_rewards': infos['original_reward'].flatten().tolist(),
+                'original_rewards': info['original_reward'].tolist(),
             }
         return info_sac
 
@@ -443,7 +440,7 @@ def parse_args():
                         help="capture video of agent performances")
     parser.add_argument("--eval", action="store_true", default=False,
                         help="evaluate the agent")
-    parser.add_argument("--save_every_n_steps", type=int, default=4000,
+    parser.add_argument("--save_every_n_steps", type=int, default=1000,
                         help="save every n steps")
 
     # Algorithm.
@@ -451,8 +448,6 @@ def parse_args():
                         help="environment ID")
     parser.add_argument("--total_timesteps", type=int, default=60_000,
                         help="total training timesteps")
-    parser.add_argument("--num_envs", type=int, default=1,
-                        help="number of parallel envs")
     parser.add_argument("--buffer_size", type=int, default=int(1e6),
                         help="replay buffer size")
     parser.add_argument("--tau", type=float, default=0.005,
@@ -497,9 +492,9 @@ def parse_args():
     parser.add_argument("--task_type", type=str, default="back_and_forth",
                         choices=["forward", "back_and_forth"],
                         help="type of task")
-    parser.add_argument("--radius_back_and_forth", type=float, default=0.3,
+    parser.add_argument("--radius_back_and_forth", type=float, default=0.25,
                         help="radius of the back and forth task")
-    parser.add_argument("--origin_back_and_forth", type=float, nargs=2, default=[0.75, -0.3],
+    parser.add_argument("--origin_back_and_forth", type=float, nargs=2, default=[0.7, -0.3],
                         help="origin of the back and forth task")
     parser.add_argument("--reward_scale", type=float, default=100.0,
                         help="reward scale factor")
@@ -545,7 +540,7 @@ if __name__ == "__main__":
         raise ValueError(f"Invalid task type: {args.task_type}")
 
     # Create environment.
-    envs = make_ant_envs(args=args,
+    env = make_ant_env(args=args,
                          task=task,
                          disk_folder=disk_folder,
                          run_name=run_name,
@@ -554,7 +549,7 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
 
     # Create SAC agent.
-    agent = SAC(envs=envs,
+    agent = SAC(env=env,
                 device=device,
                 q_lr=args.q_lr,
                 alpha_lr=args.alpha_lr,
@@ -598,36 +593,75 @@ if __name__ == "__main__":
     info_sac_logs = []
     info_sac = None
 
-    obs, info = envs.reset(seed=args.seed)
+    # RTRL loop: sample_action → send_action → update → wait → observe.
+    # update uses the previous action's transition; compute overlaps with execution.
+    obs, info = env.reset(seed=args.seed)
+    prev_action = None
+    pending_reward = 0.0
+    pending_terminated = False
+    pending_truncated = False
+    pending_info = info
+    pending_next_obs = None
 
     for step in tqdm(range(step, args.total_timesteps), initial=step):
+        info_sac = None
 
-        # Get action.
-        selected_actions = agent.get_action(obs, args.eval)
+        # 1. sample_action
+        selected_action = agent.get_action(obs, args.eval)
 
-        # Step env.
-        next_obs, rewards, terminations, truncations, infos = envs.step(selected_actions)
-        if args.eval == True:
-            agent.agent_step_eval(next_obs)
-        else:
-            # Learn.
-            info_sac = agent.agent_step(next_obs, selected_actions, rewards, terminations, truncations, infos)
+        # 2. send_action
+        env.send_action(selected_action)
 
-        reward_tracker.update(infos['original_reward'][0])
+        # 3. update (previous transition: self.obs, prev_action, pending_*, pending_next_obs)
+        if prev_action is not None:
+            if args.eval:
+                agent.agent_step_eval(pending_next_obs)
+            else:
+                info_sac = agent.agent_step(
+                    pending_next_obs,
+                    prev_action,
+                    pending_reward,
+                    pending_terminated,
+                    pending_truncated,
+                    pending_info,
+                )
+            if pending_terminated or pending_truncated:
+                agent.obs = obs
+
+        # 4. wait
+        env.wait()
+
+        # 5. observe
+        next_obs, reward, terminated, truncated, info = env.sense(selected_action)
+        reward = reward * args.reward_scale
+        reward_tracker.update(info['original_reward'])
+        env.render_frame(info)
+
+        prev_action = selected_action
+        pending_reward = reward
+        pending_terminated = terminated
+        pending_truncated = truncated
+        pending_info = info
+        pending_next_obs = next_obs
 
         if info_sac is not None:
             info_sac_logs.append(info_sac)
 
-        if any(truncations) or any(terminations):
-            envs.reset()
+        if terminated or truncated:
+            obs, info = env.reset()
+        else:
+            obs = next_obs
 
         # Save the model.
         if step % args.save_every_n_steps == 0:
             state = agent.get_state()
             torch.save(state, os.path.join(args.runs_directory, run_name, f"weights.pth"))
 
+            # LazyTensorStorage is uninitialized until the first transition is added
+            # (first update is delayed by one step in the RTRL loop).
             replay_buffer = agent.get_replay_buffer()
-            replay_buffer.dumps(os.path.join(args.runs_directory, run_name, f"replay_buffer"))
+            if len(replay_buffer) > 0:
+                replay_buffer.dumps(os.path.join(args.runs_directory, run_name, f"replay_buffer"))
             # Reward tracker.
             reward_tracker.log()
 

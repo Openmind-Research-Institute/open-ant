@@ -230,7 +230,8 @@ class EmbodiedAnt(gym.Env):
         observation, reward, terminated, truncated = self.task.reset(info)
         return observation, info
 
-    def step(self, action, sleep_until_next_step=True):
+    def send_action(self, action):
+        self.hardware_error = False
         if self._threads_should_exit:
             raise RuntimeError("EmbodiedAnt.step() called after close()")
 
@@ -240,57 +241,59 @@ class EmbodiedAnt(gym.Env):
             action[2*i] = np.clip(action[2*i], -1, 1) * self.joint_config['hip_range'] + self.joint_config['hip_zero']
             action[2*i + 1] = np.clip(action[2*i + 1], -1, 1) * self.joint_config['knee_range'] + self.joint_config['knee_zero']
 
-        time_since_last_step = 0.0
-        hardware_error = False
         try:
             self.motor_controller.set_positions(action)
+        except MotorControllerError as e:
+            self.hardware_error = True
 
-            # Sleep.
-            sleep_duration = self.dt
-            if self.last_step_time is not None:
-                time_since_last_step = time.time() - self.last_step_time
-                sleep_duration = self.dt - time_since_last_step
-                if sleep_duration < 0:
-                    print(f"Warning: calls to step() exceeded step size (time since last step: {time_since_last_step:.3f}s).")
-                    sleep_duration = 0
-            if sleep_until_next_step:
-                time.sleep(sleep_duration)
-            self.last_step_time = time.time()
+        return action
 
+    def wait(self, sleep_until_next_step=True):
+        # Sleep.
+        time_since_last_step = 0.0
+        sleep_duration = self.dt
+        if self.last_step_time is not None:
+            time_since_last_step = time.time() - self.last_step_time
+            sleep_duration = self.dt - time_since_last_step
+            if sleep_duration < 0:
+                print(f"Warning: calls to step() exceeded step size (time since last step: {time_since_last_step:.3f}s).")
+                sleep_duration = 0
+        if sleep_until_next_step:
+            time.sleep(sleep_duration)
+
+        self.last_step_time = time.time()
+
+    def sense(self, action):
+
+        action = action.copy()
+        for i in range(4):
+            action[2*i] = np.clip(action[2*i], -1, 1) * self.joint_config['hip_range'] + self.joint_config['hip_zero']
+            action[2*i + 1] = np.clip(action[2*i + 1], -1, 1) * self.joint_config['knee_range'] + self.joint_config['knee_zero']
+
+        try:
             # Get observation.
             time_start = time.time()
             info = self.get_observation()
-            info['env_time_to_get_obs'] = time.time() - time_start
-            info['env_sleep_duration'] = sleep_duration
-
-            # Check for motor controller errors.
-            time_start = time.time()
-            errors = self.motor_controller.check_errors()
-            if len(errors) > 0:
-                self.error_log.write(f"{time.time()}, " + ", ".join(map(str, errors)) + "\n")
-                self.error_log.flush()
-                print('motor controller errors:')
-                for error in errors:
-                    print(error[2])
-                raise MotorControllerError(f"Latched hardware errors: {errors}")
-            info['env_time_to_check_errors'] = time.time() - time_start
-        except (MotorControllerError, IMUError, CameraError) as e:
-            hardware_error = True
+        except (IMUError, CameraError) as e:
+            self.hardware_error = True
             info = self._get_observation_with_recovery(e)
 
         # Get reward and task termination.
         observation, reward, terminated, truncated = self.task(info, action)
 
-        # self.temperature_log.write(f"{time.time()}, " + ", ".join(map(str, info['temperatures'])) + "\n")
-        # self.temperature_log.flush()
-
-        if hardware_error:
+        # Check for hardware errors.
+        if self.hardware_error:
             self.last_step_time = time.time()
             truncated = True
 
+        # Check for tracker lost.
         if self.tracker_lost(info):
             truncated = True
 
+        return observation, reward, terminated, truncated, info
+
+    def render_frame(self, info):
+        """ Render the current frame. """
         if self.render_mode == 'human' or self.render_mode == 'rgb_array':
             self.i += 1
 
@@ -318,6 +321,21 @@ class EmbodiedAnt(gym.Env):
             if self.render_mode == 'human':
                 if self.i % 10 == 0:
                     show_image(self.vis_frame)
+
+    def step(self, action, sleep_until_next_step=True):
+        """ For Gymnasium compatibility. """
+
+        # Send action.
+        self.send_action(action)
+
+        # Wait.
+        self.wait(sleep_until_next_step)
+
+        # Sense.
+        observation, reward, terminated, truncated, info = self.sense(action)
+
+        # Render.
+        self.render_frame(info)
 
         return observation, reward, terminated, truncated, info
 
