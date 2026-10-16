@@ -19,8 +19,9 @@ if [ "$1" == "hw" ]; then
         --hw_config ../../embodied_ant_env/ant12.json \
         --learning_starts 2000 \
         --task_type back_and_forth \
-        --runs_directory runs_hw_new_refactored_code \
+        --runs_directory runs_sense_act \
         --exp_name trial_1 \
         --seed 1 \
+        --cuda
         # --eval True
 fi
