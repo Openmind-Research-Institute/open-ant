@@ -12,7 +12,8 @@ if [ "$1" == "sim" ]; then
             --num_envs 1 \
             --seed "$seed" \
             --gamma "$gamma" \
-            --total_timesteps 100_000 &
+            --cuda \
+            --total_timesteps 100_001 &
         done
     done
     wait
@@ -36,7 +37,8 @@ if [ "$1" == "sim_continual" ]; then
                 --num_envs 1 \
                 --seed "$seed" \
                 --gamma "$gamma" \
-                --total_timesteps 300_000 \
+                --cuda \
+                --total_timesteps 200_001 \
                 --model_path ../../sim/assets/ant_sim_2.xml \
                 --weights_path "$WEIGHTS_PATH" &
         done
