@@ -60,3 +60,23 @@ if [ "$1" == "hw" ]; then
         --seed 1 \
         # --eval True
 fi
+
+
+# Learn in simulation.
+if [ "$1" == "sim" ]; then
+    for gamma in $(seq 0.2 0.1 0.9); do
+        for seed in $(seq 0 4); do
+        python3 sac_cleanrl.py \
+            --render_mode rgb_array \
+            --env_id SimEmbodiedAnt \
+            --runs_directory runs_analysis_gamma_multiple_seeds \
+            --exp_name "gamma_${gamma}_seed_${seed}" \
+            --num_envs 1 \
+            --seed "$seed" \
+            --gamma "$gamma" \
+            --cuda \
+            --total_timesteps 100_001 &
+        done
+    done
+    wait
+fi
