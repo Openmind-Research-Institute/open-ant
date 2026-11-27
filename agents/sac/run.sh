@@ -10,6 +10,22 @@ if [ "$1" == "sim" ]; then
         --num_envs 1
 fi
 
+if [ "$1" == "sim_meta_gradient" ]; then
+    python3 sac_cleanrl.py \
+        --render_mode rgb_array \
+        --env_id SimEmbodiedAnt \
+        --runs_directory runs_sim_test \
+        --exp_name trial_1_meta_gamma \
+        --num_envs 1 \
+        --meta_gamma \
+        --gamma 0.92 \
+        --gamma_ref 0.92 \
+        --gamma_min 0.5 \
+        --gamma_max 0.99 \
+        --meta_lr 1e-3 \
+        --meta_frequency 1
+fi
+
 # Learn on hardware.
 if [ "$1" == "hw" ]; then
     python3 sac_cleanrl.py \
